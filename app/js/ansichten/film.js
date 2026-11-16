@@ -1,6 +1,6 @@
 // Filmseite: Titelbild, Abspielen/Weiterschauen, Fassungen, Technik, Besetzung, Reihe, Universen
 'use strict';
-import { el, icon, kachel, zeile, dauer, zeit, bytes, initialen, bild, meldung, dialog, feld, auswahl } from '../ui.js';
+import { el, icon, kachel, zeile, dauer, zeit, bytes, initialen, meldung, dialog, auswahl } from '../ui.js';
 import { api } from '../api.js';
 
 let letzterTitel = 'Film';
@@ -17,7 +17,14 @@ export function hero(d, knoepfe, extra = []) {
 export function besetzung(liste) {
     if (!liste?.length) return null;
     return el('section.abschnitt', el('h2', 'Besetzung'),
-        el('div.besetzung', liste.map((p) => el('div.person', el('div.foto', bild(p.bild_url, p.name) || initialen(p.name)), el('b', p.name), el('div.rolle', p.rolle)))));
+        el('div.besetzung', liste.map((p) => {
+            const foto = el('div.foto', initialen(p.name));
+            if (p.bild_url) {
+                const i = el('img', { src: p.bild_url, alt: p.name, loading: 'lazy' });
+                i.addEventListener('load', () => foto.replaceChildren(i), { once: true });
+            }
+            return el('div.person', foto, el('b', p.name), el('div.rolle', p.rolle));
+        })));
 }
 
 export async function tmdbZuordnen(art, id, vorschlag, jahr) {

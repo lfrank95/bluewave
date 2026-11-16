@@ -61,7 +61,7 @@ RUN { \
 
 RUN printf '<Directory /var/www/html>\n    AllowOverride All\n</Directory>\n' > /etc/apache2/conf-available/allow-override.conf \
     && a2enconf allow-override \
-    && printf 'ServerTokens Prod\nServerSignature Off\nTraceEnable Off\n' > /etc/apache2/conf-available/haertung.conf \
+    && printf 'ServerTokens Prod\nServerSignature Off\nTraceEnable Off\nServerName bluewave\n' > /etc/apache2/conf-available/haertung.conf \
     && a2enconf haertung
 
 COPY app /var/www/html

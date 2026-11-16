@@ -451,7 +451,10 @@ function hls_teil(string $id, ?int $n): string
         }
         $laeuft = prozess_laeuft($m['pid'] ? (int) $m['pid'] : null);
         $hoechster = $m['start_teil'] !== null ? hoechster_fertiger($o, (int) $m['start_teil'], (int) $m['teile']) : -1;
-        if (is_file($ziel) && ($n !== null || $laeuft || $m['start_teil'] !== null)) {
+        // init.mp4 gilt erst als fertig, wenn ffmpeg den ersten Teil abgeschlossen hat (vorher kann sie leer bzw. halb geschrieben sein)
+        $fertig = is_file($ziel) && ($n !== null || (filesize($ziel) > 0 && (glob($o . '/teil_*.m4s') ?: [])));
+        clearstatcache();
+        if ($fertig) {
             // Drosseln: Encoder pausieren, wenn er über 3 Minuten voraus ist; weiter, wenn der Abstand schrumpft
             if ($laeuft && $n !== null) {
                 $vorsprung = $hoechster - $n;
@@ -471,6 +474,9 @@ function hls_teil(string $id, ?int $n): string
         }
         // Teil fehlt: Encoder läuft und ist kurz davor? Dann warten. Sonst ab hier neu starten.
         $baldDa = $laeuft && $m['start_teil'] !== null && $nr >= (int) $m['start_teil'] && $nr <= $hoechster + 4;
+        if ($n === null && $laeuft) {
+            $baldDa = true; // init.mp4: einfach auf den laufenden Encoder warten
+        }
         if (!$baldDa) {
             encoder_starten($id, $m, $nr);
         } elseif (!empty($m['gestoppt'])) {
@@ -484,6 +490,7 @@ function hls_teil(string $id, ?int $n): string
         $m2 = sitzung_meta($id);
         if ($m2 && !prozess_laeuft($m2['pid'] ? (int) $m2['pid'] : null) && !is_file($ziel)) {
             usleep(300000);
+            clearstatcache();
             if (!is_file($ziel)) {
                 $log = trim((string) @file_get_contents($o . '/ffmpeg.log'));
                 fclose($sperre);
