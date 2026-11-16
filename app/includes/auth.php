@@ -175,6 +175,7 @@ const NUTZER_STANDARD = [
     'qualitaet_unterwegs' => '1080',// original | 1080 | 720 | 480
     'nachtmodus' => 'aus',          // aus | leicht | stark – Standard aus: Ton bleibt unangetastet
     'dialog_db' => 0,               // 0 … 6 dB, Standard 0 = aus
+    'sortierung' => [],             // gemerkte Sortierung je Ansicht, z. B. {"filme": "neu", "universum:3": "erscheinung"}
 ];
 
 function nutzer_einstellungen_normal(array $e): array
@@ -182,6 +183,15 @@ function nutzer_einstellungen_normal(array $e): array
     $n = NUTZER_STANDARD;
     foreach ($e as $k => $v) {
         if (!array_key_exists($k, $n)) {
+            continue;
+        }
+        if (is_array(NUTZER_STANDARD[$k])) {
+            $n[$k] = [];
+            foreach (is_array($v) ? array_slice($v, 0, 80, true) : [] as $sk => $sv) {
+                if (preg_match('/^[a-z0-9_:-]{1,40}$/', (string) $sk) && preg_match('/^[a-z_]{1,20}$/', (string) $sv)) {
+                    $n[$k][(string) $sk] = (string) $sv;
+                }
+            }
             continue;
         }
         $n[$k] = is_int(NUTZER_STANDARD[$k]) ? (int) $v : (string) $v;

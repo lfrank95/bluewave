@@ -60,7 +60,9 @@ async function liste(app) {
 
 // ---------- Ansicht ----------
 async function universum(id, r, app) {
-    const sort = r.query.get('sort') === 'erscheinung' ? 'erscheinung' : 'eigen';
+    const gemerkt = app.sortierung('universum:' + id, 'eigen');
+    const sort = (r.query.get('sort') || gemerkt) === 'erscheinung' ? 'erscheinung' : 'eigen';
+    if (r.query.get('sort')) app.sortierungMerken('universum:' + id, sort);
     const d = await api(`universum/${id}?sort=${sort}`);
     letzterTitel = d.name;
     const admin = app.konto.rolle === 'admin';
@@ -139,8 +141,8 @@ async function universum(id, r, app) {
     zeichnen();
     const steuer = el('div.steuerleiste',
         el('span.beschr', 'Reihenfolge'),
-        el('a.pille' + (sort === 'eigen' ? '.an' : ''), { href: `#/universum/${id}` }, 'Eigene'),
-        el('a.pille' + (sort === 'erscheinung' ? '.an' : ''), { href: `#/universum/${id}?sort=erscheinung` }, 'Erscheinung'),
+        el('a.pille' + (sort === 'eigen' ? '.an' : ''), { href: `#/universum/${id}?sort=eigen`, onclick: (e) => { e.preventDefault(); location.replace(e.currentTarget.getAttribute('href')); } }, 'Eigene'),
+        el('a.pille' + (sort === 'erscheinung' ? '.an' : ''), { href: `#/universum/${id}?sort=erscheinung`, onclick: (e) => { e.preventDefault(); location.replace(e.currentTarget.getAttribute('href')); } }, 'Erscheinung'),
         el('span.trenner'),
         el('span.beschr', 'Zeigen'),
         filterPillen);
@@ -154,6 +156,12 @@ async function editor(id, app) {
     const seite = el('div.seite');
     let ziehen = null; // eintrag_id, der gerade gezogen wird
     const markiert = new Set(); // Mehrfachauswahl (eintrag_id)
+    // eingeklappte Abschnitte (pro Universum auf diesem Gerät gemerkt)
+    const zuSchluessel = `bluewave.eingeklappt.${id}`;
+    let zu = new Set();
+    try { zu = new Set(JSON.parse(localStorage.getItem(zuSchluessel) || '[]')); } catch { /* privat */ }
+    const zuMerken = () => { try { localStorage.setItem(zuSchluessel, JSON.stringify([...zu])); } catch { /* privat */ } };
+    const gKey = (g, gi) => (gi === 0 ? 'ohne' : g.id ? String(g.id) : 'neu' + gi);
     let letzteMarke = null;
 
     // Gruppen in bearbeitbare Form: [{id, name, eintraege: [titel…]}], erste Gruppe = ohne Abschnitt
@@ -343,10 +351,23 @@ async function editor(id, app) {
 
     const abschnitteEl = () => {
         let nr = 0;
+        let verstecktUnter = null; // Tiefe eines eingeklappten Abschnitts, dessen Unterabschnitte ausgeblendet sind
         return gruppen.map((g, gi) => {
+            if (gi > 0 && verstecktUnter !== null) {
+                if (g.tiefe > verstecktUnter) { nr += g.eintraege.length; return null; }
+                verstecktUnter = null;
+            }
             if (gi === 0 && !g.eintraege.length && gruppen.length > 1) return null;
+            const eingeklappt = zu.has(gKey(g, gi));
+            if (eingeklappt && gi > 0) verstecktUnter = g.tiefe;
+            const umschalter = el('button.mini-knopf.klapp' + (eingeklappt ? '.zu' : ''), { title: eingeklappt ? 'Aufklappen' : 'Einklappen', 'aria-expanded': String(!eingeklappt), onclick: () => {
+                if (eingeklappt) zu.delete(gKey(g, gi)); else zu.add(gKey(g, gi));
+                zuMerken();
+                zeichnen();
+            } }, icon('weiter'));
             const box = el('div.abschnitt-box' + (gi > 0 && g.tiefe > 0 ? '.unter' : ''), { style: { marginLeft: gi > 0 ? `calc(${g.tiefe} * var(--einzug))` : 0 } },
                 el('div.kopf-a',
+                    umschalter,
                     g.id === null && gi === 0
                         ? el('b', { style: { padding: '6px 8px', fontFamily: 'var(--font-display)' } }, gruppen.length > 1 ? 'Ohne Abschnitt' : 'Titel')
                         : el('input', { value: g.name || '', 'aria-label': 'Name des Abschnitts', onchange: (e) => { g.name = e.target.value; ordnungSpeichern(); } }),
@@ -365,7 +386,8 @@ async function editor(id, app) {
                     gi > 0 && vorigerGeschwister(gi) >= 0 && g.tiefe < 4 ? el('button.mini-knopf', { title: 'Einrücken (wird Unterabschnitt des Abschnitts darüber)', onclick: () => einruecken(gi) }, icon('rechts')) : null,
                     gi > 0 && g.tiefe < 4 ? el('button.mini-knopf', { title: 'Unterabschnitt anlegen', onclick: () => unterabschnitt(gi) }, icon('plus')) : null,
                     gi > 0 ? el('button.mini-knopf', { title: 'Abschnitt auflösen (Titel wandern eine Ebene höher)', onclick: () => aufloesen(gi) }, icon('loeschen')) : null),
-                g.eintraege.length ? g.eintraege.map((t, i) => eintragZeile(t, gi, i, ++nr))
+                eingeklappt ? (() => { nr += g.eintraege.length; return null; })()
+                    : g.eintraege.length ? g.eintraege.map((t, i) => eintragZeile(t, gi, i, ++nr))
                     : gi > 0 && gruppen[gi + 1]?.tiefe > g.tiefe ? el('div.leer-hinweis', { style: { padding: '8px 16px' } }, 'Titel stehen in den Unterabschnitten – oder zieh welche direkt hierher.')
                         : el('div.leer-hinweis', 'Leer – zieh Titel hierher oder füge sie rechts hinzu.'));
             box.addEventListener('dragover', (e) => { if (ziehen) { e.preventDefault(); box.classList.add('ziel'); } });
@@ -502,6 +524,12 @@ async function editor(id, app) {
                         await api(`universum/${id}/sortieren`, 'POST');
                         neuLaden();
                     } }, 'Nach Erscheinung sortieren'),
+                gruppen.length > 1 ? el('button.knopf', { onclick: () => {
+                        const alleZu = gruppen.every((g, gi) => (gi === 0 && !g.eintraege.length) || zu.has(gKey(g, gi)));
+                        zu = alleZu ? new Set() : new Set(gruppen.map((g, gi) => gKey(g, gi)));
+                        zuMerken();
+                        zeichnen();
+                    } }, gruppen.every((g, gi) => (gi === 0 && !g.eintraege.length) || zu.has(gKey(g, gi))) ? 'Alle aufklappen' : 'Alle einklappen') : null,
                     el('button.knopf', { onclick: () => {
                         gruppen.push({ id: null, name: `Abschnitt ${gruppen.length}`, tiefe: 0, eintraege: [] });
                         ordnungSpeichern();

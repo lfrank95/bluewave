@@ -334,6 +334,34 @@ function naechste_folge_fuer(int $serieId, int $konto): ?array
 
 // ---------- Reihen ----------
 
+/** Reihen als Kacheln (für „Filme › Reihen“): nur Reihen mit mindestens einem vorhandenen Film */
+function reihen_liste(int $konto, string $sort = 'titel', ?int $genre = null): array
+{
+    $wo = '';
+    $p = ['k' => $konto];
+    if ($genre) {
+        $wo = ' AND f.id IN (SELECT film_id FROM film_genres WHERE genre_id = :g)';
+        $p['g'] = $genre;
+    }
+    $zeilen = db_alle("SELECT r.id, r.name, r.sortname, r.poster, COUNT(DISTINCT f.id) AS n, MIN(f.jahr) AS von, MAX(f.jahr) AS bis, MAX(f.hinzugefuegt_am) AS neu,
+            COUNT(DISTINCT CASE WHEN w.gesehen = 1 THEN f.id END) AS gesehen
+        FROM reihen r JOIN filme f ON f.reihe_id = r.id
+        LEFT JOIN wiedergabe w ON w.art = 'film' AND w.ziel_id = f.id AND w.konto_id = :k
+        WHERE EXISTS (SELECT 1 FROM fassungen fa JOIN dateien d ON d.fassung_id = fa.id AND d.fehlt_seit IS NULL WHERE fa.film_id = f.id)$wo
+        GROUP BY r.id", $p);
+    usort($zeilen, match ($sort) {
+        'neu' => static fn($a, $b) => strcmp((string) $b['neu'], (string) $a['neu']),
+        'jahr' => static fn($a, $b) => [(int) $b['bis'], $a['sortname']] <=> [(int) $a['bis'], $b['sortname']],
+        default => static fn($a, $b) => strnatcasecmp((string) ($a['sortname'] ?: $a['name']), (string) ($b['sortname'] ?: $b['name'])),
+    });
+    return array_map(static fn($r) => ['art' => 'reihe', 'id' => (int) $r['id'], 'titel' => $r['name'], 'poster' => bild_url($r['poster']),
+        'jahr' => $r['von'] ? (int) $r['von'] : null,
+        'zusatz' => $r['n'] . ' ' . ((int) $r['n'] === 1 ? 'Film' : 'Filme') . ($r['von'] ? ' · ' . $r['von'] . ($r['bis'] && $r['bis'] !== $r['von'] ? '–' . $r['bis'] : '') : ''),
+        'fortschritt' => (int) $r['gesehen'] > 0 ? ['gesehen' => (int) $r['gesehen'] >= (int) $r['n'], 'prozent' => (int) round($r['gesehen'] * 100 / max(1, $r['n']))] : null],
+        $zeilen);
+}
+
+
 function reihe_detail(int $id, int $konto): ?array
 {
     $r = db_zeile('SELECT * FROM reihen WHERE id = :id', ['id' => $id]);

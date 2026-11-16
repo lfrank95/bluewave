@@ -173,6 +173,13 @@ pruefe(code == 200 and body[:2] == b'\xff\xd8', f'lokales Poster wird ausgeliefe
 pruefe('/bild/lokal/' in (admin.api('GET', f'serie/{serie["id"]}')['poster'] or ''), 'Serien-Poster lokal')
 pruefe(admin.api('PUT', 'einstellungen', {'lokale_bilder': True}) is not None, 'Einstellung lokale_bilder')
 
+schritt('Reihen-Übersicht, gemerkte Sortierung')
+rl = admin.api('GET', 'filme?filter=reihen')['filme']
+pruefe(rl and all(x['art'] == 'reihe' for x in rl) and any('2 Filme' in x['zusatz'] for x in rl), f'Reihen statt Filme: {rl}')
+admin.api('PUT', 'ich/einstellungen', {'sortierung': {'filme': 'neu', 'universum:1': 'erscheinung', 'böse!': 'x'}})
+so = admin.api('GET', 'ich')['einstellungen']['sortierung']
+pruefe(so == {'filme': 'neu', 'universum:1': 'erscheinung'}, f'Sortierung gemerkt (und bereinigt): {so}')
+
 schritt('Suche: tolerant (Tippfehler, Satzzeichen, Wortreihenfolge), Bester Treffer, Editor-Auswahl')
 for q, erwartet in [('avengers', "Marvel's The Avengers"), ('avengrs ultron', 'Avengers: Age of Ultron'), ('ultron age', 'Avengers: Age of Ultron'), ('marvels avengers', "Marvel's The Avengers")]:
     d = admin.api('GET', 'suche?q=' + urllib.parse.quote(q))

@@ -190,7 +190,10 @@ try {
         case 'filme':
             require_once __DIR__ . '/../includes/bibliothek.php';
             $alle = filme_liste($kid);
-            bw_json(['filme' => filme_liste($kid, (string) ($_GET['sort'] ?? 'titel'), isset($_GET['genre']) ? (int) $_GET['genre'] : null, (string) ($_GET['suche'] ?? ''), (string) ($_GET['filter'] ?? '')),
+            $filterArt = (string) ($_GET['filter'] ?? '');
+            bw_json(['filme' => $filterArt === 'reihen'
+                    ? reihen_liste($kid, (string) ($_GET['sort'] ?? 'titel'), isset($_GET['genre']) ? (int) $_GET['genre'] : null)
+                    : filme_liste($kid, (string) ($_GET['sort'] ?? 'titel'), isset($_GET['genre']) ? (int) $_GET['genre'] : null, (string) ($_GET['suche'] ?? ''), $filterArt),
                 'genres' => db_alle('SELECT g.id, g.name, COUNT(*) AS anzahl FROM genres g JOIN film_genres fg ON fg.genre_id = g.id GROUP BY g.id ORDER BY anzahl DESC, g.name'),
                 'zahlen' => ['gesamt' => count($alle), 'uhd' => count(array_filter($alle, static fn($f) => $f['qualitaet'] === '4K')),
                     'reihen' => (int) db_wert('SELECT COUNT(DISTINCT reihe_id) FROM filme WHERE reihe_id IS NOT NULL')],

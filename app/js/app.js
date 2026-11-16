@@ -11,6 +11,17 @@ const app = {
     },
     neuLaden: () => route(true, true),
     routeMerken: () => { letzteRoute = location.hash; },
+    // gemerkte Sortierung je Ansicht (am Konto gespeichert, gilt also auf allen Geräten)
+    sortierung: (schluessel, standard) => app.konto?.einstellungen?.sortierung?.[schluessel] || standard,
+    sortierungMerken: (schluessel, wert) => {
+        const e = app.konto?.einstellungen;
+        if (!e) return;
+        const s = Array.isArray(e.sortierung) || !e.sortierung ? {} : { ...e.sortierung };
+        if (s[schluessel] === wert) return;
+        s[schluessel] = wert;
+        e.sortierung = s;
+        api('ich/einstellungen', 'PUT', { sortierung: s }).catch(() => {});
+    },
 };
 window.__bluewave = app;
 

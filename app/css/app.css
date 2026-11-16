@@ -831,3 +831,6 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
 .chip-klein { padding: 5px 10px; border-radius: 999px; border: 1px solid rgba(92, 200, 255, 0.4); background: rgba(92, 200, 255, 0.08); color: var(--accent-text); font-size: 0.74rem; font-weight: 800; cursor: pointer; white-space: nowrap; flex: none; }
 .chip-klein:hover { background: rgba(92, 200, 255, 0.18); }
 @media (max-width: 767px) { .eintrag .chip-klein { padding: 4px 8px; font-size: 0.68rem; } }
+.mini-knopf.klapp svg.ic { transition: transform 0.18s; transform: rotate(90deg); }
+.mini-knopf.klapp.zu svg.ic { transform: rotate(0deg); }
+.mini-knopf.klapp { border-color: transparent; }

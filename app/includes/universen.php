@@ -28,7 +28,7 @@ function universum_titel(int $uid, int $konto, string $sort = 'eigen'): array
     $serien = [];
     if ($serieIds) {
         foreach (db_alle('SELECT s.id, s.titel, s.jahr_von, s.jahr_bis, s.status, s.poster, s.hintergrund,
-            (SELECT MIN(fo.erstausstrahlung) FROM folgen fo WHERE fo.serie_id = s.id) AS start,
+            (SELECT MIN(fo.erstausstrahlung) FROM folgen fo WHERE fo.serie_id = s.id AND fo.staffel_nr > 0) AS start,
             (SELECT COUNT(DISTINCT fo.id) FROM folgen fo JOIN dateien d ON d.folge_id = fo.id AND d.fehlt_seit IS NULL WHERE fo.serie_id = s.id AND fo.staffel_nr > 0) AS folgen
             FROM serien s WHERE s.id IN (' . implode(',', $serieIds) . ')') as $s) {
             $serien[(int) $s['id']] = $s;
@@ -42,6 +42,12 @@ function universum_titel(int $uid, int $konto, string $sort = 'eigen'): array
         foreach (db_alle("SELECT fo.serie_id, fo.staffel_nr, COUNT(DISTINCT fo.id) AS n, MIN(fo.erstausstrahlung) AS start FROM folgen fo
             JOIN dateien d ON d.folge_id = fo.id AND d.fehlt_seit IS NULL WHERE fo.serie_id IN ($liste) AND fo.staffel_nr > 0 GROUP BY fo.serie_id, fo.staffel_nr") as $z) {
             $je[(int) $z['serie_id']][(int) $z['staffel_nr']] = ['n' => (int) $z['n'], 'g' => 0, 'a' => 0, 'start' => $z['start'], 'name' => null, 'poster' => null];
+        }
+        // Start der Staffel: erste Folge laut TMDB, egal ob sie vorhanden ist
+        foreach (db_alle("SELECT serie_id, staffel_nr, MIN(erstausstrahlung) AS start FROM folgen WHERE serie_id IN ($liste) AND staffel_nr > 0 GROUP BY serie_id, staffel_nr") as $z) {
+            if (isset($je[(int) $z['serie_id']][(int) $z['staffel_nr']]) && $z['start']) {
+                $je[(int) $z['serie_id']][(int) $z['staffel_nr']]['start'] = $z['start'];
+            }
         }
         foreach (db_alle("SELECT fo.serie_id, fo.staffel_nr, SUM(w.gesehen) AS g, COUNT(*) AS a FROM wiedergabe w JOIN folgen fo ON fo.id = w.ziel_id
             WHERE w.konto_id = :k AND w.art = 'folge' AND fo.serie_id IN ($liste) AND fo.staffel_nr > 0 GROUP BY fo.serie_id, fo.staffel_nr", ['k' => $konto]) as $z) {
