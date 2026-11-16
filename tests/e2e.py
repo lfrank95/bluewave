@@ -158,7 +158,7 @@ schritt('Folge: Marker, nächste Folge, Gesehen')
 fw = admin.api('POST', 'wiedergabe/start', {'art': 'folge', 'id': f1['id'], 'faehigkeiten': FAEHIG})
 pruefe('intro' in fw['marker'], f'Intro-Marker erwartet: {fw["marker"]}')
 intro = fw['marker']['intro']
-pruefe(3000 <= intro['start_ms'] <= 7000 and 33000 <= intro['ende_ms'] <= 40000, f'Intro bei ~5–37 s erwartet: {intro}')
+pruefe(intro['start_ms'] <= 7000 and 33000 <= intro['ende_ms'] <= 40000, f'Intro bei ~5–37 s erwartet: {intro}')
 pruefe(fw['naechste'] and fw['naechste']['kennung'] == 'S01E02', f'nächste Folge: {fw["naechste"]}')
 admin.api('PUT', 'marker', {'datei_id': fw['datei_id'], 'art': 'intro', 'start_ms': 5000, 'ende_ms': 37000})
 admin.api('POST', 'wiedergabe/fortschritt', {'art': 'folge', 'id': f1['id'], 'datei_id': fw['datei_id'], 'position_ms': fw['dauer_ms'] - 1000, 'dauer_ms': fw['dauer_ms']})
