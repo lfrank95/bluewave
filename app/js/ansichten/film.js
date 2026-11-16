@@ -1,15 +1,16 @@
 // Filmseite: Titelbild, Abspielen/Weiterschauen, Fassungen, Technik, Besetzung, Reihe, Universen
 'use strict';
-import { el, icon, kachel, zeile, dauer, zeit, bytes, initialen, meldung, dialog, auswahl } from '../ui.js';
+import { el, icon, bild, dauer, zeit, bytes, initialen, meldung, dialog, auswahl } from '../ui.js';
 import { api } from '../api.js';
+import { universumBereich } from './universum_teile.js';
 
 let letzterTitel = 'Film';
 export const titel = () => letzterTitel + ' – Bluewave';
 
-export function hero(d, knoepfe, extra = []) {
+export function hero(d, knoepfe, extra = [], vor = []) {
     return el('section.hero',
         el('div.hg', { style: d.hintergrund ? { backgroundImage: `url("${d.hintergrund}")` } : {} }),
-        el('div.inhalt',
+        el('div.inhalt', vor,
             d.logo ? el('img.logo', { src: d.logo, alt: d.titel || d.name }) : el('h1.gross', d.titel || d.name),
             extra, knoepfe));
 }
@@ -17,7 +18,7 @@ export function hero(d, knoepfe, extra = []) {
 export function besetzung(liste) {
     if (!liste?.length) return null;
     return el('section.abschnitt', el('h2', 'Besetzung'),
-        el('div.besetzung', liste.map((p) => {
+        el('div.besetzung-raster', liste.slice(0, 16).map((p) => {
             const foto = el('div.foto', initialen(p.name));
             if (p.bild_url) {
                 const i = el('img', { src: p.bild_url, alt: p.name, loading: 'lazy' });
@@ -25,6 +26,10 @@ export function besetzung(liste) {
             }
             return el('div.person', foto, el('b', p.name), el('div.rolle', p.rolle));
         })));
+}
+
+export function technikChips(liste) {
+    return (liste || []).map((t) => el('span.tech' + (t.art === 'hdr' ? '.hdr' : ''), t.text));
 }
 
 export async function tmdbZuordnen(art, id, vorschlag, jahr) {
@@ -66,71 +71,88 @@ export async function zeigen(r, app) {
     const fs = d.fortschritt;
     const weiter = fs && !fs.gesehen && fs.position_ms > 30000;
 
-    const technik = el('div.technik');
+    // Infokasten: Technik der gewählten Fassung
+    const technik = el('dl');
     const technikZeigen = () => {
         const dat = fassung?.dateien[0];
-        if (!dat) { technik.replaceChildren(el('p.leise', 'Keine Datei vorhanden.')); return; }
         const zeilen = [
-            ['Bild', [fassung.dateien.map((x) => x.qualitaet).filter(Boolean).join(' / '), dat.hdr, dat.video_codec].filter(Boolean).join(' · ')],
-            ['Ton', dat.ton.map((t) => `${t.sprache_name} ${t.text}${t.kommentar ? ' (Kommentar)' : ''}`).join(', ') || '–'],
-            ['Untertitel', dat.untertitel.map((u) => u.sprache_name + (u.erzwungen ? ' (erzwungen)' : '') + (u.sdh ? ' (SDH)' : '')).join(', ') || '–'],
-            ['Datei', `${dat.dateiname} · ${bytes(dat.groesse)}`],
+            d.originaltitel && d.originaltitel !== d.titel ? ['Originaltitel', d.originaltitel] : null,
+            d.regie ? ['Regie', d.regie] : null,
+            d.reihe ? ['Reihe', el('a', { href: `#/reihe/${d.reihe.id}` }, d.reihe.name)] : null,
         ];
-        technik.replaceChildren(...zeilen.map(([a, b]) => el('div.zeile-t', el('b', a), el('span', b))));
+        if (dat) {
+            zeilen.push(['Bild', [fassung.dateien.map((x) => x.qualitaet).filter(Boolean).join(' / '), dat.hdr, dat.video_codec].filter(Boolean).join(' · ')],
+                ['Ton', dat.ton.map((t) => `${t.sprache_name} ${t.text}${t.kommentar ? ' (Kommentar)' : ''}`).join(', ') || '–'],
+                ['Untertitel', dat.untertitel.map((u) => u.sprache_name + (u.erzwungen ? ' (erzwungen)' : '') + (u.sdh ? ' (SDH)' : '')).join(', ') || '–'],
+                ['Datei', `${dat.dateiname} · ${bytes(dat.groesse)}`]);
+        } else zeilen.push(['Datei', 'Keine Datei vorhanden']);
+        technik.replaceChildren(...zeilen.filter(Boolean).flatMap(([a, b]) => [el('dt', a), el('dd', b)]));
     };
     technikZeigen();
 
-    const fassungsWahl = d.fassungen.length > 1 ? el('div.fassungs-wahl', d.fassungen.map((f) => {
-        const b = el('button', { class: f === fassung ? 'aktiv' : '', onclick: () => {
+    // Fassungen als Karten
+    const fassungKarten = d.fassungen.length ? el('div.fassung-karten', d.fassungen.map((f) => {
+        const dat = f.dateien[0];
+        const k = el('button.fassung-karte' + (f === fassung ? '.an' : ''), { onclick: () => {
             fassung = f;
-            fassungsWahl.querySelectorAll('button').forEach((x) => x.classList.remove('aktiv'));
-            b.classList.add('aktiv');
+            fassungKarten.querySelectorAll('.fassung-karte').forEach((x) => x.classList.toggle('an', x === k));
             technikZeigen();
-        } }, f.name);
-        return b;
+        } },
+            el('b', f.name, el('span.haken', icon('haken'))),
+            el('div.z', [d.laufzeit_min && f.dateien[0]?.dauer_ms ? dauer(Math.round(f.dateien[0].dauer_ms / 60000)) : null, f.dateien.length > 1 ? `${f.dateien.length} Qualitäten` : null].filter(Boolean).join(' · ') || 'Fassung'),
+            dat ? el('div.chips', f.dateien.map((x) => x.qualitaet).filter(Boolean).map((q) => el('span.tech', q)), dat.hdr ? el('span.tech.hdr', dat.hdr) : null) : null);
+        return k;
     })) : null;
 
-    const gesehenKnopf = el('button.knopf' + (fs?.gesehen ? '.haupt' : ''), { title: 'Als gesehen markieren', onclick: async () => {
+    const gesehenKnopf = el('button.knopf-kreis' + (fs?.gesehen ? '.an' : ''), { title: fs?.gesehen ? 'Als ungesehen markieren' : 'Als gesehen markieren', onclick: async () => {
         const neu = !(fs?.gesehen);
         await api('wiedergabe/gesehen', 'POST', { art: 'film', id, gesehen: neu });
         meldung(neu ? 'Als gesehen markiert.' : 'Als ungesehen markiert.');
         app.neuLaden();
-    } }, icon('haken'), fs?.gesehen ? 'Gesehen' : 'Als gesehen markieren');
+    } }, icon('haken'));
 
     const knoepfe = el('div.knoepfe',
         d.fassungen.length ? el('button.knopf.weiss', { onclick: () => app.abspielen({ art: 'film', id, fassung_id: fassung?.id }) }, icon('play'),
-            weiter ? `Weiterschauen ab ${zeit(fs.position_ms / 1000)}` : 'Abspielen') : el('span.chip', 'Datei fehlt'),
+            weiter ? `Weiterschauen ab ${zeit(fs.position_ms / 1000)}` : 'Abspielen',
+            weiter ? el('span.linie', { style: { width: fs.prozent + '%' } }) : null) : el('span.chip', 'Datei fehlt'),
         weiter ? el('button.knopf', { onclick: () => app.abspielen({ art: 'film', id, fassung_id: fassung?.id, start_ms: 0 }) }, icon('zurueck10'), 'Von vorn') : null,
         gesehenKnopf);
 
-    const metaTeile = [d.jahr, d.laufzeit_min ? dauer(d.laufzeit_min) : null].filter(Boolean);
+    const metaTeile = [d.jahr, d.laufzeit_min ? dauer(d.laufzeit_min) : null, d.genres.slice(0, 2).map((g) => g.name).join(', ') || null].filter(Boolean);
     const meta = el('div.meta', metaTeile.flatMap((m, i) => (i ? [el('span.trenn'), el('span', String(m))] : [el('span', String(m))])),
         d.freigabe ? el('span.freigabe', 'FSK ' + d.freigabe) : null,
-        d.bewertung ? el('span.stern', '★ ' + String(d.bewertung).replace('.', ',')) : null);
+        d.bewertung ? el('span.stern', '★ ' + String(d.bewertung).replace('.', ',')) : null,
+        technikChips(d.technik));
 
-    const extra = [meta, d.tagline ? el('div.tagline', d.tagline) : null,
-        el('div.chips', d.genres.map((g) => el('a.chip', { href: `#/filme?genre=${g.id}` }, g.name)),
-            d.universen.map((u) => el('a.chip.akzent', { href: `#/universum/${u.id}` }, icon('universum'), u.name)))];
+    const u0 = d.universen[0];
+    const vor = u0 ? el('a.universum-chip', { href: `#/universum/${u0.id}` }, icon('universum'), `${u0.name} · Nr. ${u0.nr} von ${u0.gesamt}`) : null;
+    const extra = [meta, d.tagline ? el('div.tagline', d.tagline) : null, d.beschreibung ? el('p.text', d.beschreibung) : null];
 
-    const seite = el('div',
-        hero(d, knoepfe, extra),
+    const reihe = d.reihe && d.reihe.filme.length > 1 ? el('section.reihe-band',
+        el('div.band-kopf', el('h2', d.reihe.name), el('span.leise', `${d.reihe.filme.length} Filme`),
+            el('a', { href: `#/reihe/${d.reihe.id}` }, 'Zur Reihe')),
+        el('div.reihe-teile', d.reihe.filme.map((t, i) => el('a.reihe-teil' + (t.id === id ? '.aktuell' : ''), { href: `#/film/${t.id}` },
+            el('div.p', bild(t.poster, t.titel)),
+            el('div', el('small', t.id === id ? `TEIL ${i + 1} · HIER` : `TEIL ${i + 1}`), el('b', t.titel),
+                el('span', [t.jahr, t.fortschritt?.gesehen ? 'gesehen' : null].filter(Boolean).join(' · '))))))) : null;
+
+    return el('div',
+        hero(d, knoepfe, extra, vor),
         el('div.detail-raster',
             el('div',
-                d.beschreibung ? el('section.abschnitt', el('p.beschreibung', d.beschreibung)) : null,
-                fassungsWahl ? el('section.abschnitt', el('h2', 'Fassung'), fassungsWahl) : null,
+                fassungKarten ? el('section.abschnitt', el('h2', d.fassungen.length > 1 ? 'Fassungen' : 'Fassung'), fassungKarten,
+                    d.fassungen.length > 1 ? el('p.hinweis-leise', 'Die Qualität (4K, 1080p …) wählt Bluewave je nach Gerät und Verbindung selbst.') : null) : null,
                 besetzung(d.besetzung)),
             el('aside',
-                el('div.infos.glass-panel',
-                    el('dl',
-                        d.originaltitel && d.originaltitel !== d.titel ? [el('dt', 'Originaltitel'), el('dd', d.originaltitel)] : null,
-                        d.regie ? [el('dt', 'Regie'), el('dd', d.regie)] : null,
-                        d.reihe ? [el('dt', 'Reihe'), el('dd', el('a', { href: `#/reihe/${d.reihe.id}` }, d.reihe.name))] : null),
+                el('div.info-box',
+                    el('div.chips', { style: { marginTop: 0 } }, d.genres.map((g) => el('a.chip', { href: `#/filme?genre=${g.id}` }, g.name))),
                     technik,
-                    admin ? el('div.knoepfe', { style: { marginTop: '16px' } },
+                    admin ? el('div.knoepfe', { style: { marginTop: '18px' } },
                         el('button.knopf.klein', { onclick: () => tmdbZuordnen('film', id, d.originaltitel || d.titel, d.jahr) }, icon('bearbeiten'), 'TMDB-Zuordnung'),
                         el('button.knopf.klein', { onclick: () => fassungKorrigieren(d, id) }, icon('film'), 'Fassungen')) : null))),
-        d.reihe && d.reihe.filme.length > 1 ? zeile(d.reihe.name, d.reihe.filme.map(kachel), { link: `#/reihe/${d.reihe.id}` }) : null);
-    return seite;
+        reihe,
+        universumBereich(d.universen, 'film', id, app),
+        el('div', { style: { height: '40px' } }));
 }
 
 async function fassungKorrigieren(d, filmId) {

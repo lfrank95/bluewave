@@ -118,6 +118,13 @@ function genres_merken(string $tabelle, string $spalte, int $id, array $genres):
     }
 }
 
+/** TMDB-Stichwörter (für Universums-Vorschläge) als JSON-Liste kleingeschriebener Namen */
+function stichwoerter_json(array $liste): ?string
+{
+    $w = array_values(array_unique(array_filter(array_map(static fn($k) => mb_strtolower(trim((string) ($k['name'] ?? ''))), $liste))));
+    return $w ? json_encode($w, JSON_UNESCAPED_UNICODE) : null;
+}
+
 function besetzung_aus(array $credits, int $max = 20): array
 {
     $aus = [];
@@ -151,7 +158,7 @@ function tmdb_film_uebernehmen(int $filmId, int $tmdbId, bool $manuell = false):
 {
     $spr = tmdb_sprache();
     $kurz = substr($spr, 0, 2);
-    $d = tmdb_get("movie/$tmdbId", ['language' => $spr, 'append_to_response' => 'credits,images,release_dates', 'include_image_language' => "$kurz,en,null"]);
+    $d = tmdb_get("movie/$tmdbId", ['language' => $spr, 'append_to_response' => 'credits,images,release_dates,keywords', 'include_image_language' => "$kurz,en,null"]);
     if (!$d) {
         throw new RuntimeException("TMDB kennt den Film $tmdbId nicht.");
     }
@@ -191,13 +198,13 @@ function tmdb_film_uebernehmen(int $filmId, int $tmdbId, bool $manuell = false):
     $titel = trim((string) ($d['title'] ?? '')) ?: (string) db_wert('SELECT titel FROM filme WHERE id = :id', ['id' => $filmId]);
     db_tun('UPDATE filme SET tmdb_id = :t, imdb_id = :im, titel = :ti, originaltitel = :ot, sortiertitel = :st, jahr = :j, erscheinungsdatum = :ed,
         laufzeit_min = :lz, tagline = :tg, beschreibung = :b, poster = COALESCE(:p, poster), hintergrund = COALESCE(:h, hintergrund), logo = COALESCE(:l, logo),
-        reihe_id = :r, besetzung = :bs, regie = :rg, freigabe = :fr, bewertung = :bw, metadaten_am = NOW(), metadaten_status = :ms WHERE id = :id', [
+        reihe_id = :r, besetzung = :bs, regie = :rg, freigabe = :fr, bewertung = :bw, stichwoerter = :sw, metadaten_am = NOW(), metadaten_status = :ms WHERE id = :id', [
         't' => $tmdbId, 'im' => $d['imdb_id'] ?? null, 'ti' => $titel, 'ot' => $d['original_title'] ?? null, 'st' => sortiertitel($titel),
         'j' => !empty($d['release_date']) ? (int) substr($d['release_date'], 0, 4) : null, 'ed' => !empty($d['release_date']) ? $d['release_date'] : null,
         'lz' => !empty($d['runtime']) ? (int) $d['runtime'] : null, 'tg' => $tagline ?: null, 'b' => $beschreibung ?: null,
         'p' => $poster, 'h' => $hintergrund, 'l' => $logo, 'r' => $reiheId, 'bs' => json_encode(besetzung_aus($d['credits'] ?? []), JSON_UNESCAPED_UNICODE),
         'rg' => $regie ?: null, 'fr' => $freigabe, 'bw' => isset($d['vote_average']) ? round((float) $d['vote_average'], 1) : null,
-        'ms' => $manuell ? 'manuell' : 'gefunden', 'id' => $filmId,
+        'ms' => $manuell ? 'manuell' : 'gefunden', 'id' => $filmId, 'sw' => stichwoerter_json($d['keywords']['keywords'] ?? []),
     ]);
     genres_merken('film_genres', 'film_id', $filmId, $d['genres'] ?? []);
     if ($reiheId) {
@@ -292,7 +299,7 @@ function tmdb_serie_uebernehmen(int $serieId, int $tmdbId, bool $manuell = false
 {
     $spr = tmdb_sprache();
     $kurz = substr($spr, 0, 2);
-    $d = tmdb_get("tv/$tmdbId", ['language' => $spr, 'append_to_response' => 'aggregate_credits,images,external_ids,episode_groups,content_ratings',
+    $d = tmdb_get("tv/$tmdbId", ['language' => $spr, 'append_to_response' => 'aggregate_credits,images,external_ids,episode_groups,content_ratings,keywords',
         'include_image_language' => "$kurz,en,null"]);
     if (!$d) {
         throw new RuntimeException("TMDB kennt die Serie $tmdbId nicht.");
@@ -336,7 +343,7 @@ function tmdb_serie_uebernehmen(int $serieId, int $tmdbId, bool $manuell = false
     $titel = trim((string) ($d['name'] ?? '')) ?: (string) db_wert('SELECT titel FROM serien WHERE id = :id', ['id' => $serieId]);
     db_tun('UPDATE serien SET tmdb_id = :t, tvdb_id = COALESCE(:tv, tvdb_id), imdb_id = :im, titel = :ti, originaltitel = :ot, sortiertitel = :st,
         jahr_von = :jv, jahr_bis = :jb, status = :ss, beschreibung = :b, poster = COALESCE(:p, poster), hintergrund = COALESCE(:h, hintergrund),
-        logo = COALESCE(:l, logo), besetzung = :bs, sender = :se, freigabe = :fr, bewertung = :bw, metadaten_am = NOW(), metadaten_status = :ms WHERE id = :id', [
+        logo = COALESCE(:l, logo), besetzung = :bs, sender = :se, freigabe = :fr, bewertung = :bw, stichwoerter = :sw, metadaten_am = NOW(), metadaten_status = :ms WHERE id = :id', [
         't' => $tmdbId, 'tv' => $d['external_ids']['tvdb_id'] ?? null, 'im' => $d['external_ids']['imdb_id'] ?? null, 'ti' => $titel,
         'ot' => $d['original_name'] ?? null, 'st' => sortiertitel($titel),
         'jv' => !empty($d['first_air_date']) ? (int) substr($d['first_air_date'], 0, 4) : null,
@@ -344,6 +351,7 @@ function tmdb_serie_uebernehmen(int $serieId, int $tmdbId, bool $manuell = false
         'ss' => $status, 'b' => $beschreibung ?: null, 'p' => $poster, 'h' => $hg, 'l' => $logo,
         'bs' => json_encode($besetzung, JSON_UNESCAPED_UNICODE), 'se' => isset($d['networks'][0]['name']) ? $d['networks'][0]['name'] : null,
         'fr' => $freigabe, 'bw' => isset($d['vote_average']) ? round((float) $d['vote_average'], 1) : null, 'ms' => $manuell ? 'manuell' : 'gefunden', 'id' => $serieId,
+        'sw' => stichwoerter_json($d['keywords']['results'] ?? []),
     ]);
     genres_merken('serie_genres', 'serie_id', $serieId, $d['genres'] ?? []);
 

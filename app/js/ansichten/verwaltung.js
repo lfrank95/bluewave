@@ -74,82 +74,26 @@ function offenListe(titel, liste, art) {
 }
 
 // ---------- Universen ----------
-async function universen(r) {
+async function universen() {
     const d = await api('universen');
-    const gewaehlt = parseInt(r.query.get('id') || '', 10) || null;
-    const neuName = el('input.eingabe', { placeholder: 'z. B. Marvel Cinematic Universe' });
-    const liste = el('section.karte.glass-panel', el('h2', 'Universen'),
-        el('div', { style: { display: 'flex', gap: '10px', marginBottom: '14px' } }, neuName, el('button.knopf.haupt', { onclick: async () => {
-            if (!neuName.value.trim()) return;
+    const neuName = el('input.eingabe', { placeholder: 'Name, z. B. Marvel Cinematic Universe' });
+    const anlegen = async () => {
+        if (!neuName.value.trim()) return;
+        try {
             const n = await api('universen', 'POST', { name: neuName.value.trim() });
-            location.hash = '#/verwaltung/universen?id=' + n.id;
-        } }, icon('plus'), 'Anlegen')),
-        d.universen.length ? el('table.tabelle', d.universen.map((u) => el('tr', { style: u.id === gewaehlt ? { background: 'rgba(92,200,255,.08)' } : {} },
-            el('td', el('a', { href: '#/verwaltung/universen?id=' + u.id }, u.name)), el('td.leise', `${u.eintraege} Einträge`)))) : el('p.leise', 'Noch keine Universen.'));
-    if (!gewaehlt) return liste;
-    return el('div', liste, await universumBearbeiten(gewaehlt));
+            location.hash = `#/universum/${n.id}/bearbeiten`;
+        } catch (x) { meldung(x.message, true); }
+    };
+    neuName.addEventListener('keydown', (e) => { if (e.key === 'Enter') anlegen(); });
+    return el('div',
+        el('div.karte.glass-panel', el('h2', 'Neues Universum'),
+            el('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap' } }, neuName, el('button.knopf.haupt', { onclick: anlegen }, icon('plus'), 'Anlegen')),
+            el('p.leise', 'Bearbeitet wird im Universum selbst: Abschnitte, Reihenfolge per Ziehen, Suche und Vorschläge.')),
+        d.universen.length ? el('table.tabelle', d.universen.map((u) => el('tr',
+            el('td', el('a', { href: `#/universum/${u.id}` }, u.name)), el('td.leise', `${u.eintraege} Titel`),
+            el('td', { style: { textAlign: 'right' } }, el('a.knopf.klein', { href: `#/universum/${u.id}/bearbeiten` }, icon('bearbeiten'), 'Bearbeiten'))))) : el('p.leise', 'Noch keine Universen.'));
 }
 
-async function universumBearbeiten(id) {
-    const u = await api('universum/' + id);
-    const name = el('input.eingabe', { value: u.name });
-    const beschreibung = el('textarea.eingabe', u.beschreibung || '');
-    const eintraegeEl = el('div');
-    let eintraege = u.eintraege;
-    const eintraegeZeigen = () => {
-        eintraegeEl.replaceChildren(...(eintraege.length ? eintraege.map((e, i) => el('div.liste-eintrag',
-            bild(e.poster, '') || el('img'),
-            el('div.mitte', el('b', e.titel), el('span', e.zusatz || e.art)),
-            el('button.icon-knopf', { title: 'Nach oben', disabled: i === 0, onclick: () => verschieben(i, -1) }, icon('hoch')),
-            el('button.icon-knopf', { title: 'Nach unten', disabled: i === eintraege.length - 1, onclick: () => verschieben(i, 1) }, icon('runter')),
-            el('button.icon-knopf', { title: 'Entfernen', onclick: async () => {
-                await api(`universum/${id}/eintrag/${e.eintrag_id}`, 'DELETE');
-                eintraege = eintraege.filter((x) => x !== e);
-                eintraegeZeigen();
-            } }, icon('loeschen')))) : [el('p.leise', 'Noch leer – füge unten Reihen, Filme oder Serien hinzu.')]));
-    };
-    const verschieben = async (i, d) => {
-        [eintraege[i], eintraege[i + d]] = [eintraege[i + d], eintraege[i]];
-        eintraegeZeigen();
-        await api(`universum/${id}/eintraege`, 'PUT', { ids: eintraege.map((e) => e.eintrag_id) });
-    };
-    eintraegeZeigen();
-    const suche = el('input.eingabe', { type: 'search', placeholder: 'Reihe, Film oder Serie suchen …' });
-    const treffer = el('div');
-    let t = null;
-    suche.addEventListener('input', () => {
-        clearTimeout(t);
-        t = setTimeout(async () => {
-            if (suche.value.trim().length < 2) { treffer.replaceChildren(); return; }
-            const d = await api('auswahl?q=' + encodeURIComponent(suche.value.trim()));
-            treffer.replaceChildren(...d.treffer.map((x) => el('div.liste-eintrag', bild(x.poster, '') || el('img'),
-                el('div.mitte', el('b', x.titel), el('span', x.zusatz)),
-                el('button.knopf.klein', { onclick: async () => {
-                    await api(`universum/${id}/eintraege`, 'POST', { art: x.art, id: x.id });
-                    eintraege = (await api('universum/' + id)).eintraege;
-                    eintraegeZeigen();
-                    meldung(`${x.titel} hinzugefügt.`);
-                } }, icon('plus'), 'Hinzufügen'))));
-        }, 250);
-    });
-    return el('section.karte.glass-panel', el('h2', u.name),
-        el('div.feld-reihe', feld('Name', name), feld('Beschreibung', beschreibung)),
-        el('div.knoepfe', { style: { marginTop: 0, marginBottom: '20px' } },
-            el('button.knopf.haupt', { onclick: async () => {
-                await api('universum/' + id, 'PUT', { name: name.value, beschreibung: beschreibung.value });
-                meldung('Gespeichert.');
-            } }, 'Speichern'),
-            el('a.knopf', { href: '#/universum/' + id }, 'Ansehen'),
-            el('button.knopf.gefahr', { onclick: async () => {
-                if (!(await bestaetigen('Universum löschen?', `„${u.name}“ wird gelöscht. Filme und Serien bleiben natürlich erhalten.`, 'Löschen', true))) return;
-                await api('universum/' + id, 'DELETE');
-                location.hash = '#/verwaltung/universen';
-            } }, icon('loeschen'), 'Löschen')),
-        el('h3', { style: { margin: '6px 0 10px' } }, 'Inhalt (Reihenfolge = Anzeige)'), eintraegeEl,
-        el('h3', { style: { margin: '20px 0 10px' } }, 'Hinzufügen'), suche, treffer);
-}
-
-// ---------- Aufräumen ----------
 async function aufraeumen() {
     const d = await api('aufraeumen/vorschau');
     const auswahlSet = new Set(d.liste.map((x) => x.datei_id));

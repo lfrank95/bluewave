@@ -110,16 +110,35 @@ pruefe(admin.api('GET', f'serie/{serie["id"]}')['reihenfolge'] == netflix, 'Stan
 f1 = sd['staffeln'][0]['folgen'][0]
 pruefe(f1['titel'] == 'Der Plan' and f1['vorhanden'], 'Folgentitel aus TMDB')
 
-schritt('Universum')
+schritt('Universum: Reihen werden aufgelöst, Abschnitte, Sortierung, Position, Vorschläge')
 uid = admin.api('POST', 'universen', {'name': 'Marvel Cinematic Universe'})['id']
-admin.api('POST', f'universum/{uid}/eintraege', {'art': 'reihe', 'id': avd['reihe']['id']})
+r = admin.api('POST', f'universum/{uid}/eintraege', {'art': 'reihe', 'id': avd['reihe']['id']})
+pruefe(r['hinzugefuegt'] == 2, f'Reihe sollte 2 Filme einzeln hinzufügen: {r}')
 admin.api('POST', f'universum/{uid}/eintraege', {'art': 'serie', 'id': serie['id']})
 admin.api('POST', f'universum/{uid}/eintraege', {'art': 'film', 'id': test['id']})
+pruefe(admin.api('POST', f'universum/{uid}/eintraege', {'art': 'film', 'id': test['id']})['hinzugefuegt'] == 0, 'kein Doppel')
 u = admin.api('GET', f'universum/{uid}')
-pruefe([e['art'] for e in u['eintraege']] == ['reihe', 'serie', 'film'], f'Universum: {u["eintraege"]}')
-admin.api('PUT', f'universum/{uid}/eintraege', {'ids': [e['eintrag_id'] for e in reversed(u['eintraege'])]})
-pruefe([e['art'] for e in admin.api('GET', f'universum/{uid}')['eintraege']] == ['film', 'serie', 'reihe'], 'Neue Reihenfolge')
-pruefe(any(x['id'] == uid for x in admin.api('GET', f'film/{av["id"]}')['universen']), 'Film kennt sein Universum über die Reihe')
+alle = [t for a in u['abschnitte'] for t in a['titel']]
+pruefe([t['art'] for t in alle] == ['film', 'film', 'serie', 'film'], f'Universum: {[t["titel"] for t in alle]}')
+pruefe([t['nr'] for t in alle] == [1, 2, 3, 4] and u['zahlen']['filme'] == 3 and u['zahlen']['serien'] == 1, f'Zahlen: {u["zahlen"]}')
+pruefe(u['naechstes'] and u['naechstes']['titel'] == "Marvel's The Avengers", f'Als Nächstes: {u["naechstes"]}')
+eids = [t['eintrag_id'] for t in alle]
+admin.api('PUT', f'universum/{uid}/ordnung', {'ohne': [eids[3]], 'abschnitte': [{'id': None, 'name': 'Phase 1', 'eintraege': eids[:2]}, {'id': None, 'name': 'Phase 2', 'eintraege': [eids[2]]}]})
+u = admin.api('GET', f'universum/{uid}')
+pruefe([(a['name'], len(a['titel'])) for a in u['abschnitte']] == [(None, 1), ('Phase 1', 2), ('Phase 2', 1)], f'Abschnitte: {[(a["name"], len(a["titel"])) for a in u["abschnitte"]]}')
+ue = admin.api('GET', f'universum/{uid}?sort=erscheinung')
+pruefe([t['titel'] for t in ue['abschnitte'][0]['titel']][:2] == ["Marvel's The Avengers", 'Avengers: Age of Ultron'], 'nach Erscheinung')
+pos = admin.api('GET', f'film/{av["id"]}')['universen']
+pruefe(pos and pos[0]['gesamt'] == 4 and pos[0]['nr'] == 2 and len(pos[0]['nachbarn']) >= 2, f'Position auf der Filmseite: {pos}')
+pruefe(admin.api('GET', f'serie/{serie["id"]}')['universen'][0]['name'] == 'Marvel Cinematic Universe', 'Serienseite kennt das Universum')
+uid2 = admin.api('POST', 'universen', {'name': 'Nur Avengers'})['id']
+admin.api('PUT', f'film/{av["id"]}/universen', {'ids': [uid, uid2]})
+v = admin.api('GET', f'universum/{uid2}/vorschlaege')['vorschlaege']
+pruefe(any(x['titel'] == 'Avengers: Age of Ultron' for x in v), f'Vorschlag aus Reihe/Stichwort: {v}')
+pruefe(len(admin.api('GET', 'universen')['universen']) == 2, 'zwei Universen')
+admin.api('DELETE', f'universum/{uid2}')
+st = admin.api('GET', 'start')
+pruefe(st['universum_band'] and st['universum_band']['id'] == uid, 'Universums-Band auf der Startseite')
 
 FAEHIG = {'video': {'h264': True, 'hevc': False, 'av1': False, 'vp9': False}, 'audio': {'aac': True, 'mp3': True},
           'container': {'mp4': True, 'webm': False, 'mkv': False}, 'hdr': False, 'hls': 'mse', 'max_hoehe': 1080}

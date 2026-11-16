@@ -189,8 +189,16 @@ try {
             // no break
         case 'filme':
             require_once __DIR__ . '/../includes/bibliothek.php';
-            bw_json(['filme' => filme_liste($kid, (string) ($_GET['sort'] ?? 'titel'), isset($_GET['genre']) ? (int) $_GET['genre'] : null, (string) ($_GET['suche'] ?? '')),
-                'genres' => db_alle('SELECT g.id, g.name, COUNT(*) AS anzahl FROM genres g JOIN film_genres fg ON fg.genre_id = g.id GROUP BY g.id ORDER BY g.name')]);
+            $alle = filme_liste($kid);
+            bw_json(['filme' => filme_liste($kid, (string) ($_GET['sort'] ?? 'titel'), isset($_GET['genre']) ? (int) $_GET['genre'] : null, (string) ($_GET['suche'] ?? ''), (string) ($_GET['filter'] ?? '')),
+                'genres' => db_alle('SELECT g.id, g.name, COUNT(*) AS anzahl FROM genres g JOIN film_genres fg ON fg.genre_id = g.id GROUP BY g.id ORDER BY anzahl DESC, g.name'),
+                'zahlen' => ['gesamt' => count($alle), 'uhd' => count(array_filter($alle, static fn($f) => $f['qualitaet'] === '4K')),
+                    'reihen' => (int) db_wert('SELECT COUNT(DISTINCT reihe_id) FROM filme WHERE reihe_id IS NOT NULL')],
+                'highlights' => array_map(static function ($z) use ($kid) {
+                    $f = film_detail((int) $z['id'], $kid);
+                    return ['id' => $f['id'], 'titel' => $f['titel'], 'jahr' => $f['jahr'], 'poster' => $f['poster'], 'hintergrund' => $f['hintergrund'],
+                        'zusatz' => implode(' · ', array_filter([$f['jahr'], implode(', ', array_slice(array_column($f['genres'], 'name'), 0, 2))])), 'technik' => $f['technik']];
+                }, db_alle(FILM_KACHEL_SQL . ' WHERE f.hintergrund IS NOT NULL GROUP BY f.id ORDER BY MAX(d.hinzugefuegt_am) DESC LIMIT 2'))]);
             // no break
         case 'film':
             require_once __DIR__ . '/../includes/bibliothek.php';
@@ -203,6 +211,12 @@ try {
                 require_once __DIR__ . '/../includes/tmdb.php';
                 $neu = tmdb_film_uebernehmen(zahl($t1), (int) (eingabe()['tmdb_id'] ?? 0), true);
                 bw_json(['ok' => true, 'id' => $neu]);
+            }
+            if (zahl($t1) && $t2 === 'universen' && $methode === 'PUT') {
+                admin_noetig();
+                require_once __DIR__ . '/../includes/universen.php';
+                titel_universen_setzen('film', zahl($t1), (array) (eingabe()['ids'] ?? []));
+                bw_json(['ok' => true]);
             }
             if (zahl($t1) && $t2 === 'fassung' && $methode === 'PUT') {
                 // Fassung einer Datei von Hand korrigieren: {datei_id, art, name}
@@ -231,6 +245,12 @@ try {
                 $r = $gesetzt && ctype_digit((string) $_GET['reihenfolge']) ? (int) $_GET['reihenfolge'] : null;
                 bw_json(serie_detail(zahl($t1), $kid, $r, $gesetzt) ?? fehler('Serie nicht gefunden.', 404));
             }
+            if (zahl($t1) && $t2 === 'universen' && $methode === 'PUT') {
+                admin_noetig();
+                require_once __DIR__ . '/../includes/universen.php';
+                titel_universen_setzen('serie', zahl($t1), (array) (eingabe()['ids'] ?? []));
+                bw_json(['ok' => true]);
+            }
             if (zahl($t1) && $t2 === 'reihenfolge' && $methode === 'PUT') {
                 admin_noetig();
                 $r = eingabe()['reihenfolge_id'] ?? null;
@@ -258,9 +278,9 @@ try {
             break;
 
         case 'universen':
-            require_once __DIR__ . '/../includes/bibliothek.php';
+            require_once __DIR__ . '/../includes/universen.php';
             if ($methode === 'GET') {
-                bw_json(['universen' => universen_liste()]);
+                bw_json(['universen' => universen_liste($kid)]);
             }
             if ($methode === 'POST') {
                 admin_noetig();
@@ -268,54 +288,73 @@ try {
                 if ($name === '') {
                     fehler('Name fehlt.');
                 }
-                require_once __DIR__ . '/../includes/scanner.php';
                 bw_json(['id' => db_einfuegen('INSERT INTO universen (name, sortname, beschreibung) VALUES (:n, :s, :b)',
                     ['n' => mb_substr($name, 0, 255), 's' => sortiertitel($name), 'b' => trim((string) (eingabe()['beschreibung'] ?? '')) ?: null])]);
             }
             break;
 
         case 'universum':
-            require_once __DIR__ . '/../includes/bibliothek.php';
+            require_once __DIR__ . '/../includes/universen.php';
             $uid = zahl($t1);
-            if ($uid && $t2 === '' && $methode === 'GET') {
-                bw_json(universum_detail($uid, $kid) ?? fehler('Universum nicht gefunden.', 404));
+            if (!$uid || !db_wert('SELECT id FROM universen WHERE id = :u', ['u' => $uid])) {
+                fehler('Universum nicht gefunden.', 404);
+            }
+            if ($t2 === '' && $methode === 'GET') {
+                bw_json(universum_detail($uid, $kid, (string) ($_GET['sort'] ?? 'eigen')));
             }
             admin_noetig();
-            if ($uid && $t2 === '' && $methode === 'PUT') {
-                require_once __DIR__ . '/../includes/scanner.php';
+            if ($t2 === '' && $methode === 'PUT') {
                 $e = eingabe();
                 $name = trim((string) ($e['name'] ?? ''));
                 if ($name === '') {
                     fehler('Name fehlt.');
                 }
-                db_tun('UPDATE universen SET name = :n, sortname = :s, beschreibung = :b WHERE id = :id',
-                    ['n' => mb_substr($name, 0, 255), 's' => sortiertitel($name), 'b' => trim((string) ($e['beschreibung'] ?? '')) ?: null, 'id' => $uid]);
+                // Titelbild: nur Poster aus dem Cache (z. B. eines Titels im Universum); leer = automatisch
+                $bild = (string) ($e['bild'] ?? '');
+                $bild = preg_match('#^/api/v1/bild/([a-z]+/(w\d+|original)/[A-Za-z0-9_.-]+)$#', $bild, $mm) ? $mm[1] : null;
+                db_tun('UPDATE universen SET name = :n, sortname = :s, beschreibung = :b, bild = :bi WHERE id = :id',
+                    ['n' => mb_substr($name, 0, 255), 's' => sortiertitel($name), 'b' => trim((string) ($e['beschreibung'] ?? '')) ?: null, 'bi' => $bild, 'id' => $uid]);
                 bw_json(['ok' => true]);
             }
-            if ($uid && $t2 === '' && $methode === 'DELETE') {
+            if ($t2 === '' && $methode === 'DELETE') {
                 db_tun('DELETE FROM universen WHERE id = :id', ['id' => $uid]);
                 bw_json(['ok' => true]);
             }
-            if ($uid && $t2 === 'eintraege' && $methode === 'POST') {
+            if ($t2 === 'eintraege' && $methode === 'POST') {
                 $e = eingabe();
                 $art = (string) ($e['art'] ?? '');
-                $ziel = (int) ($e['id'] ?? 0);
-                $tabelle = ['reihe' => 'reihen', 'film' => 'filme', 'serie' => 'serien'][$art] ?? fehler('Unbekannte Art.');
-                if (!db_wert("SELECT id FROM $tabelle WHERE id = :i", ['i' => $ziel])) {
-                    fehler('Nicht gefunden.', 404);
+                if (!in_array($art, ['film', 'serie', 'reihe'], true)) {
+                    fehler('Unbekannte Art.');
                 }
-                $pos = (float) db_wert('SELECT COALESCE(MAX(position), 0) + 1 FROM universum_eintraege WHERE universum_id = :u', ['u' => $uid]);
-                db_tun("INSERT IGNORE INTO universum_eintraege (universum_id, art, {$art}_id, position) VALUES (:u, :a, :z, :p)", ['u' => $uid, 'a' => $art, 'z' => $ziel, 'p' => $pos]);
+                $ids = isset($e['ids']) ? array_map('intval', (array) $e['ids']) : [(int) ($e['id'] ?? 0)];
+                $n = 0;
+                foreach ($ids as $zid) {
+                    $n += universum_hinzufuegen($uid, $art, $zid, isset($e['abschnitt_id']) ? (int) $e['abschnitt_id'] : null);
+                }
+                bw_json(['ok' => true, 'hinzugefuegt' => $n]);
+            }
+            if ($t2 === 'liste' && $methode === 'POST') {
+                // mehrere auf einmal (Vorschläge): {titel: [{art, id}, …]}
+                $n = 0;
+                foreach ((array) (eingabe()['titel'] ?? []) as $x) {
+                    if (in_array($x['art'] ?? '', ['film', 'serie'], true)) {
+                        $n += universum_hinzufuegen($uid, $x['art'], (int) ($x['id'] ?? 0));
+                    }
+                }
+                bw_json(['ok' => true, 'hinzugefuegt' => $n]);
+            }
+            if ($t2 === 'ordnung' && $methode === 'PUT') {
+                universum_ordnung($uid, eingabe());
                 bw_json(['ok' => true]);
             }
-            if ($uid && $t2 === 'eintraege' && $methode === 'PUT') {
-                // neue Reihenfolge: {ids: [eintrag_id, …]}
-                foreach (array_values((array) (eingabe()['ids'] ?? [])) as $i => $eid) {
-                    db_tun('UPDATE universum_eintraege SET position = :p WHERE id = :e AND universum_id = :u', ['p' => $i + 1, 'e' => (int) $eid, 'u' => $uid]);
-                }
+            if ($t2 === 'sortieren' && $methode === 'POST') {
+                universum_nach_erscheinung($uid);
                 bw_json(['ok' => true]);
             }
-            if ($uid && $t2 === 'eintrag' && zahl($teile[3] ?? '') && $methode === 'DELETE') {
+            if ($t2 === 'vorschlaege' && $methode === 'GET') {
+                bw_json(['vorschlaege' => universum_vorschlaege($uid)]);
+            }
+            if ($t2 === 'eintrag' && zahl($teile[3] ?? '') && $methode === 'DELETE') {
                 db_tun('DELETE FROM universum_eintraege WHERE id = :e AND universum_id = :u', ['e' => zahl($teile[3]), 'u' => $uid]);
                 bw_json(['ok' => true]);
             }
@@ -333,19 +372,34 @@ try {
             bw_json(suche((string) ($_GET['q'] ?? ''), $kid));
             // no break
         case 'auswahl':
-            // für die Universums-Verwaltung: Reihen, Filme, Serien nach Name
+            // Universums-Editor: Reihen, Filme, Serien nach Name, mit „schon drin“ für das Universum ?u=
             admin_noetig();
-            $q = '%' . str_replace(['%', '_'], ['\%', '\_'], trim((string) ($_GET['q'] ?? ''))) . '%';
             require_once __DIR__ . '/../includes/bibliothek.php';
+            $q = '%' . str_replace(['%', '_'], ['\%', '\_'], trim((string) ($_GET['q'] ?? ''))) . '%';
+            $u = (int) ($_GET['u'] ?? 0);
+            $nur = (string) ($_GET['art'] ?? '');
+            $drinF = array_flip(array_map('intval', array_column(db_alle('SELECT film_id FROM universum_eintraege WHERE universum_id = :u AND film_id IS NOT NULL', ['u' => $u]), 'film_id')));
+            $drinS = array_flip(array_map('intval', array_column(db_alle('SELECT serie_id FROM universum_eintraege WHERE universum_id = :u AND serie_id IS NOT NULL', ['u' => $u]), 'serie_id')));
             $aus = [];
-            foreach (db_alle('SELECT id, name, poster FROM reihen WHERE name LIKE :q ORDER BY sortname LIMIT 15', ['q' => $q]) as $r) {
-                $aus[] = ['art' => 'reihe', 'id' => (int) $r['id'], 'titel' => $r['name'], 'zusatz' => 'Reihe', 'poster' => bild_url($r['poster'])];
+            if ($nur === '' || $nur === 'reihe') {
+                foreach (db_alle('SELECT r.id, r.name, r.poster, GROUP_CONCAT(f.id) AS filme FROM reihen r JOIN filme f ON f.reihe_id = r.id WHERE r.name LIKE :q GROUP BY r.id ORDER BY r.sortname LIMIT 15', ['q' => $q]) as $r) {
+                    $ids = array_map('intval', explode(',', (string) $r['filme']));
+                    $schon = count(array_filter($ids, static fn($i) => isset($drinF[$i])));
+                    $aus[] = ['art' => 'reihe', 'id' => (int) $r['id'], 'titel' => $r['name'], 'poster' => bild_url($r['poster']), 'drin' => $schon === count($ids),
+                        'zusatz' => 'Reihe · ' . count($ids) . ' ' . (count($ids) === 1 ? 'Film' : 'Filme') . ($schon ? ' · ' . $schon . ' schon drin' : '')];
+                }
             }
-            foreach (db_alle('SELECT id, titel, jahr, poster FROM filme WHERE titel LIKE :q ORDER BY sortiertitel LIMIT 25', ['q' => $q]) as $r) {
-                $aus[] = ['art' => 'film', 'id' => (int) $r['id'], 'titel' => $r['titel'], 'zusatz' => 'Film' . ($r['jahr'] ? ' · ' . $r['jahr'] : ''), 'poster' => bild_url($r['poster'])];
+            if ($nur === '' || $nur === 'film') {
+                foreach (db_alle('SELECT id, titel, jahr, poster FROM filme WHERE titel LIKE :q OR originaltitel LIKE :q ORDER BY sortiertitel LIMIT 25', ['q' => $q]) as $r) {
+                    $aus[] = ['art' => 'film', 'id' => (int) $r['id'], 'titel' => $r['titel'], 'poster' => bild_url($r['poster']), 'drin' => isset($drinF[(int) $r['id']]),
+                        'zusatz' => 'Film' . ($r['jahr'] ? ' · ' . $r['jahr'] : '')];
+                }
             }
-            foreach (db_alle('SELECT id, titel, jahr_von, poster FROM serien WHERE titel LIKE :q ORDER BY sortiertitel LIMIT 15', ['q' => $q]) as $r) {
-                $aus[] = ['art' => 'serie', 'id' => (int) $r['id'], 'titel' => $r['titel'], 'zusatz' => 'Serie' . ($r['jahr_von'] ? ' · ' . $r['jahr_von'] : ''), 'poster' => bild_url($r['poster'])];
+            if ($nur === '' || $nur === 'serie') {
+                foreach (db_alle('SELECT id, titel, jahr_von, poster FROM serien WHERE titel LIKE :q OR originaltitel LIKE :q ORDER BY sortiertitel LIMIT 15', ['q' => $q]) as $r) {
+                    $aus[] = ['art' => 'serie', 'id' => (int) $r['id'], 'titel' => $r['titel'], 'poster' => bild_url($r['poster']), 'drin' => isset($drinS[(int) $r['id']]),
+                        'zusatz' => 'Serie' . ($r['jahr_von'] ? ' · ' . $r['jahr_von'] : '')];
+                }
             }
             bw_json(['treffer' => $aus]);
             // no break

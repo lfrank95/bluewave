@@ -1,50 +1,373 @@
-// Universen (Liste und Detail) und Reihen
+// Universen: Liste, Universum-Ansicht (alle Titel einzeln, in Abschnitten), Editor; dazu die Reihen-Seite
 'use strict';
-import { el, icon, kachel } from '../ui.js';
+import { el, icon, kachel, bild, meldung, bestaetigen } from '../ui.js';
 import { api } from '../api.js';
 import { hero } from './film.js';
 
 let letzterTitel = 'Universen';
 export const titel = () => letzterTitel + ' – Bluewave';
 
+const zielLink = (t) => (t.art === 'serie' ? `#/serie/${t.id}` : `#/film/${t.id}`);
+const anzahl = (n, eins, mehr) => `${n} ${n === 1 ? eins : mehr}`;
+
 export async function zeigen(r, app) {
     if (r.name === 'universen') return liste(app);
     if (r.name === 'reihe') return reihe(parseInt(r.teile[1], 10));
-    return universum(parseInt(r.teile[1], 10), app);
+    const id = parseInt(r.teile[1], 10);
+    if (r.teile[2] === 'bearbeiten' && app.konto.rolle === 'admin') return editor(id, app);
+    return universum(id, r, app);
 }
 
+function collage(poster, n) {
+    const liste = poster.filter(Boolean);
+    if (!liste.length) return null;
+    const aus = [];
+    for (let i = 0; i < n; i++) aus.push(liste[i % liste.length]);
+    return el('div.collage', aus.map((p) => el('div', el('img', { src: p, alt: '', loading: 'lazy' }))));
+}
+
+// ---------- Liste ----------
 async function liste(app) {
     letzterTitel = 'Universen';
     const d = await api('universen');
+    const admin = app.konto.rolle === 'admin';
+    const neu = async () => {
+        const name = prompt('Name des neuen Universums');
+        if (!name?.trim()) return;
+        try {
+            const n = await api('universen', 'POST', { name: name.trim() });
+            location.hash = `#/universum/${n.id}/bearbeiten`;
+        } catch (x) { meldung(x.message, true); }
+    };
     return el('div.seite',
-        el('div.seiten-kopf', el('h1', 'Universen'), el('span.zahl', String(d.universen.length)),
-            app.konto.rolle === 'admin' ? el('div.werkzeuge', el('a.knopf', { href: '#/verwaltung/universen' }, icon('bearbeiten'), 'Verwalten')) : null),
-        d.universen.length ? el('div.raster', d.universen.map(kachel)) : el('div.leer', el('h2', 'Noch keine Universen'),
-            el('p', 'Universen fassen Reihen, Filme und Serien zusammen – zum Beispiel das Marvel Cinematic Universe.'),
-            app.konto.rolle === 'admin' ? el('a.knopf.haupt', { href: '#/verwaltung/universen' }, icon('plus'), 'Universum anlegen') : null));
+        el('div.bib-kopf',
+            el('div', el('h1', 'Universen'), el('p', 'Filme und Serien, die zusammengehören – jeder Titel einzeln, in deiner Reihenfolge.')),
+            admin ? el('div.werkzeuge', { style: { marginLeft: 'auto' } }, el('button.knopf.haupt', { onclick: neu }, icon('plus'), 'Neues Universum')) : null),
+        d.universen.length ? el('div.universum-karten', d.universen.map((u) => el('a.universum-karte', { href: `#/universum/${u.id}` },
+            collage(u.collage, 6),
+            el('div.t',
+                el('small', 'UNIVERSUM'),
+                el('b', u.name),
+                el('div.z', [u.filme ? anzahl(u.filme, 'Film', 'Filme') : null, u.serien ? anzahl(u.serien, 'Serie', 'Serien') : null,
+                    u.von ? (u.bis && u.bis !== u.von ? `${u.von}–${u.bis}` : String(u.von)) : null].filter(Boolean).join(' · ') || 'Noch leer'),
+                u.eintraege ? el('div', { style: { marginTop: '16px' } },
+                    el('div.balken-klein', { style: { margin: 0 } }, el('span', { style: { width: Math.round((u.gesehen / u.eintraege) * 100) + '%' } })),
+                    el('div.leise', { style: { fontSize: '0.82rem', marginTop: '6px' } }, `${u.gesehen} von ${u.eintraege} gesehen`)) : null))))
+            : el('div.leer', el('h2', 'Noch keine Universen'),
+                el('p', 'Universen fassen Filme und Serien zusammen – zum Beispiel das Marvel Cinematic Universe. Reihen kannst du komplett hinzufügen, ihre Filme erscheinen dann einzeln.'),
+                admin ? el('button.knopf.haupt', { onclick: neu }, icon('plus'), 'Universum anlegen') : null));
 }
 
-async function universum(id, app) {
-    const d = await api('universum/' + id);
+// ---------- Ansicht ----------
+async function universum(id, r, app) {
+    const sort = r.query.get('sort') === 'erscheinung' ? 'erscheinung' : 'eigen';
+    const d = await api(`universum/${id}?sort=${sort}`);
     letzterTitel = d.name;
-    const reihen = d.eintraege.filter((e) => e.art === 'reihe').length;
-    const filme = d.eintraege.filter((e) => e.art === 'film').length;
-    const serien = d.eintraege.filter((e) => e.art === 'serie').length;
-    const zusammenfassung = [reihen ? `${reihen} ${reihen === 1 ? 'Reihe' : 'Reihen'}` : null, filme ? `${filme} ${filme === 1 ? 'Film' : 'Filme'}` : null,
-        serien ? `${serien} ${serien === 1 ? 'Serie' : 'Serien'}` : null].filter(Boolean).join(' · ');
-    return el('div',
-        hero({ ...d, titel: d.name, logo: null }, app.konto.rolle === 'admin' ? el('div.knoepfe', el('a.knopf', { href: `#/verwaltung/universen?id=${id}` }, icon('bearbeiten'), 'Bearbeiten')) : null,
-            [el('div.meta', el('span', 'Universum'), zusammenfassung ? [el('span.trenn'), el('span', zusammenfassung)] : null), d.beschreibung ? el('p.text', d.beschreibung) : null]),
-        el('div.seite', d.eintraege.length ? el('div.raster', d.eintraege.map(kachel)) : el('div.leer', el('p', 'Dieses Universum ist noch leer.'))));
+    const admin = app.konto.rolle === 'admin';
+    const z = d.zahlen;
+    const n = d.naechstes;
+
+    const naechstesBox = n ? el('div.naechstes-box',
+        el('small', z.gesehen ? 'ALS NÄCHSTES IM UNIVERSUM' : 'HIER ANFANGEN'),
+        el('div.reihe',
+            el('a.p', { href: zielLink(n) }, bild(n.poster, n.titel)),
+            el('div', el('b', n.titel),
+                el('div.z', [`Nr. ${n.nr}`, n.art === 'serie' ? `Serie · ${n.folge.kennung}` : 'Film', n.jahr].filter(Boolean).join(' · ')),
+                n.prozent ? el('div.balken-klein', { style: { margin: '10px 0 0' } }, el('span', { style: { width: n.prozent + '%' } })) : null)),
+        el('button.knopf.weiss', { onclick: () => app.abspielen(n.art === 'serie' ? { art: 'folge', id: n.folge.id } : { art: 'film', id: n.id }) },
+            icon('play'), n.prozent ? 'Weiterschauen' : 'Abspielen')) : null;
+
+    const jahre = z.von ? (z.bis && z.bis !== z.von ? `${z.von}–${z.bis}` : String(z.von)) : null;
+    const heroEl = el('section.universum-hero',
+        collage(d.bild ? [d.bild, ...d.collage] : d.collage, 18),
+        el('div.inhalt',
+            el('div.links',
+                el('div.augenbraue', 'Universum'),
+                el('h1', d.name),
+                d.beschreibung ? el('p', d.beschreibung) : null,
+                el('div.zahlen',
+                    el('div', el('b', String(z.filme)), el('small', z.filme === 1 ? 'Film' : 'Filme')),
+                    z.serien ? el('div', el('b', String(z.serien)), el('small', z.serien === 1 ? 'Serie' : 'Serien')) : null,
+                    jahre ? el('div', el('b', jahre), el('small', 'Zeitraum')) : null,
+                    el('div', el('b', String(z.gesehen), el('span', ` / ${z.gesamt}`)), el('small', 'gesehen'))),
+                admin ? el('div.knoepfe', { style: { marginTop: '24px' } }, el('a.knopf', { href: `#/universum/${id}/bearbeiten` }, icon('bearbeiten'), 'Bearbeiten')) : null),
+            naechstesBox));
+
+    // Filter laufen im Browser, die Reihenfolge kommt vom Server
+    let filter = 'alle';
+    const inhalt = el('div.seite');
+    const zeichnen = () => {
+        const passt = (t) => filter === 'alle' || (filter === 'film' && t.art === 'film') || (filter === 'serie' && t.art === 'serie') || (filter === 'ungesehen' && !t.gesehen);
+        const gruppen = d.abschnitte.map((g) => ({ ...g, titel: g.titel.filter(passt) })).filter((g) => g.titel.length);
+        inhalt.replaceChildren(...(gruppen.length ? gruppen.map((g) => el('section',
+            g.name ? el('div.abschnitt-kopf', el('h2', g.name), el('span.leise', g.info), el('span.linie')) : el('div', { style: { height: '30px' } }),
+            el('div.raster', g.titel.map((t) => el('a.kachel' + (t.gesehen ? '.gesehen-ab' : ''), { href: zielLink(t), title: t.titel },
+                el('div.bild', bild(t.poster, t.titel) || el('div.ersatz', t.titel),
+                    el('span.nr-marke', String(t.nr)),
+                    el('span.art-marke' + (t.art === 'serie' ? '.serie' : ''), t.art === 'serie' ? 'SERIE' : 'FILM'),
+                    t.gesehen ? el('span.gesehen-haken.unten', icon('haken')) : null,
+                    !t.gesehen && t.prozent > 1 ? el('div.fortschritt', el('span', { style: { width: t.prozent + '%' } })) : null),
+                el('div.titel', t.titel),
+                el('div.zusatz', [t.zusatz, t.vorhanden ? null : 'nicht vorhanden'].filter(Boolean).join(' · '))))))) 
+            : [el('div.leer', el('p', z.gesamt ? 'Mit diesem Filter gibt es hier nichts.' : 'Dieses Universum ist noch leer.'),
+                admin && !z.gesamt ? el('a.knopf.haupt', { href: `#/universum/${id}/bearbeiten` }, icon('plus'), 'Titel hinzufügen') : null)]));
+    };
+    const filterPillen = [['alle', 'Alle'], ['film', 'Filme'], ['serie', 'Serien'], ['ungesehen', 'Ungesehen']].map(([w, t]) => {
+        const b = el('button.pille' + (w === filter ? '.an' : ''), { onclick: () => {
+            filter = w;
+            filterPillen.forEach((x) => x.classList.toggle('an', x === b));
+            zeichnen();
+        } }, t);
+        return b;
+    });
+    zeichnen();
+    const steuer = el('div.steuerleiste',
+        el('span.beschr', 'Reihenfolge'),
+        el('a.pille' + (sort === 'eigen' ? '.an' : ''), { href: `#/universum/${id}` }, 'Eigene'),
+        el('a.pille' + (sort === 'erscheinung' ? '.an' : ''), { href: `#/universum/${id}?sort=erscheinung` }, 'Erscheinung'),
+        el('span.trenner'),
+        el('span.beschr', 'Zeigen'),
+        filterPillen);
+    return el('div', heroEl, steuer, inhalt, el('div', { style: { height: '40px' } }));
 }
 
+// ---------- Editor ----------
+async function editor(id, app) {
+    let d = await api(`universum/${id}?sort=eigen`);
+    letzterTitel = d.name + ' bearbeiten';
+    const seite = el('div.seite');
+    let ziehen = null; // eintrag_id, der gerade gezogen wird
+
+    // Gruppen in bearbeitbare Form: [{id, name, eintraege: [titel…]}], erste Gruppe = ohne Abschnitt
+    let gruppen = [];
+    const ausDaten = () => {
+        const ohne = d.abschnitte.find((g) => g.id === null);
+        gruppen = [{ id: null, name: null, eintraege: ohne ? [...ohne.titel] : [] },
+            ...d.abschnitte.filter((g) => g.id !== null).map((g) => ({ id: g.id, name: g.name, eintraege: [...g.titel] }))];
+    };
+    ausDaten();
+
+    const neuLaden = async () => {
+        d = await api(`universum/${id}?sort=eigen`);
+        ausDaten();
+        zeichnen();
+    };
+    const ordnungSpeichern = async () => {
+        try {
+            await api(`universum/${id}/ordnung`, 'PUT', {
+                ohne: gruppen[0].eintraege.map((t) => t.eintrag_id),
+                abschnitte: gruppen.slice(1).map((g) => ({ id: g.id, name: g.name, eintraege: g.eintraege.map((t) => t.eintrag_id) })),
+            });
+            await neuLaden();
+        } catch (x) { meldung(x.message, true); }
+    };
+    const verschieben = (eid, zielGruppe, vorEid = null) => {
+        let titel = null;
+        for (const g of gruppen) {
+            const i = g.eintraege.findIndex((t) => t.eintrag_id === eid);
+            if (i >= 0) [titel] = g.eintraege.splice(i, 1);
+        }
+        if (!titel) return;
+        const ziel = gruppen[zielGruppe];
+        const j = vorEid === null ? -1 : ziel.eintraege.findIndex((t) => t.eintrag_id === vorEid);
+        if (j >= 0) ziel.eintraege.splice(j, 0, titel); else ziel.eintraege.push(titel);
+        ordnungSpeichern();
+    };
+    const schritt = (gi, i, rich) => {
+        const g = gruppen[gi];
+        const j = i + rich;
+        if (j >= 0 && j < g.eintraege.length) {
+            [g.eintraege[i], g.eintraege[j]] = [g.eintraege[j], g.eintraege[i]];
+            ordnungSpeichern();
+        } else if (gruppen[gi + rich]) {
+            // über den Rand: in den Nachbar-Abschnitt
+            const [t] = g.eintraege.splice(i, 1);
+            if (rich < 0) gruppen[gi - 1].eintraege.push(t); else gruppen[gi + 1].eintraege.unshift(t);
+            ordnungSpeichern();
+        }
+    };
+
+    // linke Spalte: Stammdaten + Abschnitte
+    const nameIn = el('input.eingabe', { value: d.name, 'aria-label': 'Name' });
+    const beschrIn = el('textarea.eingabe', { rows: 3, placeholder: 'Kurze Beschreibung (optional)' }, d.beschreibung || '');
+    let bildWahl = d.bild;
+    const stamm = () => {
+        const poster = [...new Map(d.abschnitte.flatMap((g) => g.titel).filter((t) => t.poster).map((t) => [t.poster, t])).values()].slice(0, 24);
+        const wahl = el('div.bild-wahl',
+            el('button' + (!bildWahl ? '.an' : ''), { title: 'Automatisch', style: { display: 'grid', placeItems: 'center', color: 'var(--text-leise)', fontSize: '0.8rem', fontWeight: 700 },
+                onclick: () => { bildWahl = null; zeichnen(); } }, 'Auto'),
+            poster.map((t) => el('button' + (bildWahl === t.poster ? '.an' : ''), { title: t.titel, onclick: () => { bildWahl = t.poster; zeichnen(); } }, el('img', { src: t.poster, alt: t.titel, loading: 'lazy' }))));
+        return el('div.editor-karte',
+            el('div', { style: { display: 'grid', gap: '12px' } }, nameIn, beschrIn),
+            el('h3', { style: { margin: '20px 0 10px', fontSize: '1rem' } }, 'Titelbild'),
+            wahl,
+            el('div.knoepfe', { style: { marginTop: '16px' } },
+                el('button.knopf.haupt', { onclick: async () => {
+                    try {
+                        await api(`universum/${id}`, 'PUT', { name: nameIn.value, beschreibung: beschrIn.value, bild: bildWahl || '' });
+                        meldung('Gespeichert.');
+                        d.name = nameIn.value;
+                    } catch (x) { meldung(x.message, true); }
+                } }, icon('haken'), 'Speichern'),
+                el('a.knopf', { href: `#/universum/${id}` }, 'Zur Ansicht')));
+    };
+
+    const eintragZeile = (t, gi, i, nr) => {
+        const z = el('div.eintrag', { draggable: 'true' },
+            el('span.griff', { title: 'Ziehen zum Verschieben' }, icon('verwaltung')),
+            el('span.nr', String(nr)),
+            t.poster ? el('img', { src: t.poster, alt: '', loading: 'lazy' }) : el('span.p'),
+            el('div.mitte', el('b', t.titel), el('span', [t.jahr, t.vorhanden ? null : 'nicht vorhanden'].filter(Boolean).join(' · '))),
+            el('span.art-marke' + (t.art === 'serie' ? '.serie' : ''), t.art === 'serie' ? 'SERIE' : 'FILM'),
+            el('button.mini-knopf', { title: 'Nach oben', onclick: () => schritt(gi, i, -1) }, icon('hoch')),
+            el('button.mini-knopf', { title: 'Nach unten', onclick: () => schritt(gi, i, 1) }, icon('runter')),
+            el('button.mini-knopf', { title: 'Aus dem Universum entfernen', onclick: async () => {
+                await api(`universum/${id}/eintrag/${t.eintrag_id}`, 'DELETE');
+                meldung(`„${t.titel}“ entfernt.`);
+                neuLaden();
+            } }, icon('schliessen')));
+        z.addEventListener('dragstart', (e) => { ziehen = t.eintrag_id; z.classList.add('zieht'); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(t.eintrag_id)); });
+        z.addEventListener('dragend', () => { z.classList.remove('zieht'); ziehen = null; });
+        z.addEventListener('dragover', (e) => { if (ziehen && ziehen !== t.eintrag_id) { e.preventDefault(); z.classList.add('drueber'); } });
+        z.addEventListener('dragleave', () => z.classList.remove('drueber'));
+        z.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            z.classList.remove('drueber');
+            if (ziehen && ziehen !== t.eintrag_id) verschieben(ziehen, gi, t.eintrag_id);
+        });
+        return z;
+    };
+
+    const abschnitteEl = () => {
+        let nr = 0;
+        return gruppen.map((g, gi) => {
+            if (gi === 0 && !g.eintraege.length && gruppen.length > 1) return null;
+            const box = el('div.abschnitt-box',
+                el('div.kopf-a',
+                    g.id === null && gi === 0
+                        ? el('b', { style: { padding: '6px 8px', fontFamily: 'var(--font-display)' } }, gruppen.length > 1 ? 'Ohne Abschnitt' : 'Titel')
+                        : el('input', { value: g.name || '', 'aria-label': 'Name des Abschnitts', onchange: (e) => { g.name = e.target.value; ordnungSpeichern(); } }),
+                    el('span.leise', { style: { fontSize: '0.82rem', whiteSpace: 'nowrap' } }, anzahl(g.eintraege.length, 'Titel', 'Titel')),
+                    gi > 1 ? el('button.mini-knopf', { title: 'Abschnitt nach oben', onclick: () => { [gruppen[gi - 1], gruppen[gi]] = [gruppen[gi], gruppen[gi - 1]]; ordnungSpeichern(); } }, icon('hoch')) : null,
+                    gi > 0 && gi < gruppen.length - 1 ? el('button.mini-knopf', { title: 'Abschnitt nach unten', onclick: () => { [gruppen[gi + 1], gruppen[gi]] = [gruppen[gi], gruppen[gi + 1]]; ordnungSpeichern(); } }, icon('runter')) : null,
+                    gi > 0 ? el('button.mini-knopf', { title: 'Abschnitt auflösen (Titel bleiben erhalten)', onclick: () => {
+                        const [weg] = gruppen.splice(gi, 1);
+                        gruppen[gi - 1].eintraege.push(...weg.eintraege);
+                        ordnungSpeichern();
+                    } }, icon('loeschen')) : null),
+                g.eintraege.length ? g.eintraege.map((t, i) => eintragZeile(t, gi, i, ++nr))
+                    : el('div.leer-hinweis', 'Leer – zieh Titel hierher oder füge sie rechts hinzu.'));
+            box.addEventListener('dragover', (e) => { if (ziehen) { e.preventDefault(); box.classList.add('ziel'); } });
+            box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove('ziel'); });
+            box.addEventListener('drop', (e) => {
+                e.preventDefault();
+                box.classList.remove('ziel');
+                if (ziehen) verschieben(ziehen, gi, null);
+            });
+            return box;
+        });
+    };
+
+    // rechte Spalte: Suche, Vorschläge, Gefahr
+    let reiter = '';
+    let suchText = '';
+    const trefferEl = el('div', { style: { marginTop: '12px', maxHeight: '420px', overflowY: 'auto' } });
+    const suchen = async () => {
+        const p = new URLSearchParams({ q: suchText, u: id });
+        if (reiter) p.set('art', reiter);
+        try {
+            const t = await api('auswahl?' + p);
+            trefferEl.replaceChildren(...(t.treffer.length ? t.treffer.map((x) => el('div.treffer',
+                x.poster ? el('img', { src: x.poster, alt: '', loading: 'lazy' }) : el('span.p'),
+                el('div.mitte', el('b', x.titel), el('span', x.zusatz)),
+                el('button.knopf-dazu', { disabled: x.drin, onclick: async (e) => {
+                    e.target.disabled = true;
+                    const letzter = gruppen.length > 1 ? gruppen[gruppen.length - 1].id : null;
+                    const r = await api(`universum/${id}/eintraege`, 'POST', { art: x.art, id: x.id, abschnitt_id: letzter });
+                    meldung(x.art === 'reihe' ? `${anzahl(r.hinzugefuegt, 'Film', 'Filme')} aus „${x.titel}“ einzeln hinzugefügt.` : `„${x.titel}“ hinzugefügt.`);
+                    await neuLaden();
+                } }, x.drin ? 'Drin' : '+ Dazu'))) : [el('p.leise', 'Keine Treffer.')]));
+        } catch (x) { trefferEl.replaceChildren(el('p.schlecht', x.message)); }
+    };
+    let suchTimer = null;
+    const suchFeld = el('input.eingabe', { type: 'search', placeholder: 'Filme, Serien, Reihen suchen …', oninput: (e) => {
+        suchText = e.target.value;
+        clearTimeout(suchTimer);
+        suchTimer = setTimeout(suchen, 250);
+    } });
+    const reiterEl = el('div.segment', { style: { marginTop: '12px' } }, [['', 'Alle'], ['film', 'Filme'], ['serie', 'Serien'], ['reihe', 'Reihen']].map(([w, t]) => {
+        const b = el('button' + (w === reiter ? '.an' : ''), { onclick: () => {
+            reiter = w;
+            reiterEl.querySelectorAll('button').forEach((x) => x.classList.toggle('an', x === b));
+            suchen();
+        } }, t);
+        return b;
+    }));
+    const vorschlagEl = el('div');
+    const vorschlaegeLaden = async () => {
+        try {
+            const v = (await api(`universum/${id}/vorschlaege`)).vorschlaege;
+            vorschlagEl.replaceChildren(...(v.length ? [
+                el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } },
+                    el('h3', { style: { margin: 0, fontSize: '1rem' } }, 'Vorschläge'), el('span.leise', { style: { fontSize: '0.82rem' } }, String(v.length)),
+                    el('button.knopf.klein', { style: { marginLeft: 'auto' }, onclick: async () => {
+                        const r = await api(`universum/${id}/liste`, 'POST', { titel: v.map((x) => ({ art: x.art, id: x.id })) });
+                        meldung(`${anzahl(r.hinzugefuegt, 'Titel', 'Titel')} hinzugefügt.`);
+                        neuLaden();
+                    } }, 'Alle hinzufügen')),
+                el('div', { style: { marginTop: '10px' } }, v.slice(0, 12).map((x) => el('div.treffer',
+                    x.poster ? el('img', { src: x.poster, alt: '', loading: 'lazy' }) : el('span.p'),
+                    el('div.mitte', el('b', x.titel), el('span', [x.jahr, x.grund].filter(Boolean).join(' · '))),
+                    el('button.knopf-dazu', { onclick: async () => {
+                        await api(`universum/${id}/eintraege`, 'POST', { art: x.art, id: x.id });
+                        meldung(`„${x.titel}“ hinzugefügt.`);
+                        neuLaden();
+                    } }, '+ Dazu'))))] : [el('h3', { style: { margin: 0, fontSize: '1rem' } }, 'Vorschläge'),
+                el('p.leise', { style: { fontSize: '0.88rem', margin: '8px 0 0' } }, 'Gerade nichts – Vorschläge kommen aus Reihen und typischen TMDB-Stichwörtern der Titel.')]));
+        } catch { vorschlagEl.replaceChildren(); }
+    };
+
+    const zeichnen = () => {
+        const gesamt = gruppen.reduce((s, g) => s + g.eintraege.length, 0);
+        seite.replaceChildren(
+            el('div.bib-kopf',
+                el('div', el('div.augenbraue', 'Universum bearbeiten'), el('h1', d.name), el('p', `${anzahl(gesamt, 'Titel', 'Titel')} · Reihen kommen als einzelne Filme hinein`)),
+                el('div.werkzeuge', { style: { marginLeft: 'auto' } },
+                    el('button.knopf', { onclick: async () => {
+                        if (!await bestaetigen('Nach Erscheinung sortieren', 'Die Titel werden innerhalb jedes Abschnitts nach dem Erscheinungsdatum sortiert. Die bisherige eigene Reihenfolge geht dabei verloren.', 'Sortieren')) return;
+                        await api(`universum/${id}/sortieren`, 'POST');
+                        neuLaden();
+                    } }, 'Nach Erscheinung sortieren'),
+                    el('button.knopf', { onclick: () => {
+                        gruppen.push({ id: null, name: `Abschnitt ${gruppen.length}`, eintraege: [] });
+                        ordnungSpeichern();
+                    } }, icon('plus'), 'Abschnitt'))),
+            el('div.editor',
+                el('div.links', stamm(), el('div', { style: { height: '18px' } }), abschnitteEl()),
+                el('aside',
+                    el('div.editor-karte', el('h3', { style: { margin: 0, fontSize: '1rem' } }, 'Hinzufügen'), el('div', { style: { marginTop: '12px' } }, suchFeld), reiterEl, trefferEl),
+                    el('div.editor-karte.vorschlag', vorschlagEl),
+                    el('div.editor-karte', el('button.knopf.gefahr', { onclick: async () => {
+                        if (!await bestaetigen('Universum löschen', `„${d.name}“ wird gelöscht. Die Filme und Serien selbst bleiben erhalten.`, 'Löschen', true)) return;
+                        await api(`universum/${id}`, 'DELETE');
+                        meldung('Universum gelöscht.');
+                        location.hash = '#/universen';
+                    } }, icon('loeschen'), 'Universum löschen')))));
+        vorschlaegeLaden();
+    };
+    zeichnen();
+    suchen();
+    return seite;
+}
+
+// ---------- Reihe ----------
 async function reihe(id) {
     const d = await api('reihe/' + id);
     letzterTitel = d.name;
     return el('div',
-        hero({ ...d, titel: d.name, logo: null }, null, [el('div.meta', el('span', 'Reihe'), el('span.trenn'), el('span', `${d.filme.length} ${d.filme.length === 1 ? 'Film' : 'Filme'}`)),
+        hero({ ...d, titel: d.name, logo: null }, null, [el('div.meta', el('span', 'Reihe'), el('span.trenn'), el('span', anzahl(d.filme.length, 'Film', 'Filme'))),
             el('div.chips', d.universen.map((u) => el('a.chip.akzent', { href: `#/universum/${u.id}` }, icon('universum'), u.name))),
-            d.beschreibung ? el('p.text', d.beschreibung) : null]),
+            d.beschreibung ? el('p.text', d.beschreibung) : null], el('div.augenbraue', 'Reihe')),
         el('div.seite', el('div.raster', d.filme.map(kachel))));
 }
-

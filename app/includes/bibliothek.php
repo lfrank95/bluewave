@@ -87,10 +87,19 @@ function film_kacheln(array $zeilen, int $konto): array
     ], $zeilen);
 }
 
-function filme_liste(int $konto, string $sort = 'titel', ?int $genre = null, string $suche = ''): array
+function filme_liste(int $konto, string $sort = 'titel', ?int $genre = null, string $suche = '', string $filter = ''): array
 {
     $wo = [];
     $p = [];
+    $having = '';
+    if ($filter === '4k') {
+        $having = ' HAVING MAX(d.hoehe) >= 1700 OR MAX(d.breite) >= 3200';
+    } elseif ($filter === 'ungesehen') {
+        $wo[] = 'NOT EXISTS (SELECT 1 FROM wiedergabe w WHERE w.konto_id = :k AND w.art = \'film\' AND w.ziel_id = f.id AND w.gesehen = 1)';
+        $p['k'] = $konto;
+    } elseif ($filter === 'reihen') {
+        $wo[] = 'f.reihe_id IS NOT NULL';
+    }
     if ($genre) {
         $wo[] = 'f.id IN (SELECT film_id FROM film_genres WHERE genre_id = :g)';
         $p['g'] = $genre;
@@ -102,7 +111,7 @@ function filme_liste(int $konto, string $sort = 'titel', ?int $genre = null, str
     $ordnung = match ($sort) {
         'neu' => 'f.hinzugefuegt_am DESC', 'jahr' => 'f.jahr DESC, f.sortiertitel', 'bewertung' => 'f.bewertung DESC, f.sortiertitel', default => 'f.sortiertitel',
     };
-    $sql = FILM_KACHEL_SQL . ($wo ? ' WHERE ' . implode(' AND ', $wo) : '') . ' GROUP BY f.id ORDER BY ' . $ordnung;
+    $sql = FILM_KACHEL_SQL . ($wo ? ' WHERE ' . implode(' AND ', $wo) : '') . ' GROUP BY f.id' . $having . ' ORDER BY ' . $ordnung;
     return film_kacheln(db_alle($sql, $p), $konto);
 }
 
@@ -134,7 +143,8 @@ function film_detail(int $id, int $konto): ?array
         'regie' => $f['regie'], 'freigabe' => $f['freigabe'], 'bewertung' => $f['bewertung'] !== null ? (float) $f['bewertung'] : null,
         'besetzung' => array_map(static fn($b) => $b + ['bild_url' => bild_url($b['bild'] ?? null)], json_decode((string) $f['besetzung'], true) ?: []),
         'genres' => db_alle('SELECT g.id, g.name FROM genres g JOIN film_genres fg ON fg.genre_id = g.id WHERE fg.film_id = :f ORDER BY g.name', ['f' => $id]),
-        'fassungen' => $fassungen, 'reihe' => $reihe, 'universen' => universen_von('film', $id, $f['reihe_id'] ? (int) $f['reihe_id'] : null),
+        'fassungen' => $fassungen, 'reihe' => $reihe, 'universen' => universum_positionen('film', $id, $konto),
+        'technik' => technik_marken($fassungen),
         'fortschritt' => $fs[$id] ?? null, 'tmdb_id' => $f['tmdb_id'] ? (int) $f['tmdb_id'] : null, 'metadaten_status' => $f['metadaten_status'],
     ];
 }
@@ -256,7 +266,7 @@ function serie_detail(int $id, int $konto, ?int $reihenfolgeWunsch = null, bool 
         'besetzung' => array_map(static fn($b) => $b + ['bild_url' => bild_url($b['bild'] ?? null)], json_decode((string) $s['besetzung'], true) ?: []),
         'genres' => db_alle('SELECT g.id, g.name FROM genres g JOIN serie_genres sg ON sg.genre_id = g.id WHERE sg.serie_id = :s ORDER BY g.name', ['s' => $id]),
         'reihenfolgen' => $reihenfolgen, 'reihenfolge_standard' => $standard, 'reihenfolge' => $aktiv,
-        'staffeln' => serie_staffeln($id, $aktiv, $konto), 'naechste' => $naechste, 'universen' => universen_von('serie', $id, null),
+        'staffeln' => serie_staffeln($id, $aktiv, $konto), 'naechste' => $naechste, 'universen' => universum_positionen('serie', $id, $konto),
         'tmdb_id' => $s['tmdb_id'] ? (int) $s['tmdb_id'] : null, 'metadaten_status' => $s['metadaten_status'],
     ];
 }
@@ -322,77 +332,7 @@ function naechste_folge_fuer(int $serieId, int $konto): ?array
         'fortschritt' => $fs[(int) $f['id']] ?? null] : null;
 }
 
-// ---------- Universen und Reihen ----------
-
-function universen_von(string $art, int $id, ?int $reiheId): array
-{
-    $sql = 'SELECT DISTINCT u.id, u.name FROM universen u JOIN universum_eintraege e ON e.universum_id = u.id WHERE ';
-    $p = ['id' => $id];
-    $sql .= $art === 'film' ? '(e.film_id = :id' . ($reiheId ? ' OR e.reihe_id = :r' : '') . ')' : 'e.serie_id = :id';
-    if ($reiheId) {
-        $p['r'] = $reiheId;
-    }
-    return array_map(static fn($u) => ['id' => (int) $u['id'], 'name' => $u['name']], db_alle($sql . ' ORDER BY u.sortname', $p));
-}
-
-function universen_liste(): array
-{
-    $aus = [];
-    foreach (db_alle('SELECT u.*, COUNT(e.id) AS eintraege FROM universen u LEFT JOIN universum_eintraege e ON e.universum_id = u.id GROUP BY u.id ORDER BY u.sortname') as $u) {
-        $bild = $u['bild'];
-        $hg = $u['hintergrund'];
-        if (!$bild || !$hg) {
-            // ohne eigenes Bild: Poster/Hintergrund des ersten Eintrags
-            $e = db_zeile('SELECT COALESCE(r.poster, f.poster, s.poster) AS poster, COALESCE(r.hintergrund, f.hintergrund, s.hintergrund) AS hg
-                FROM universum_eintraege e LEFT JOIN reihen r ON r.id = e.reihe_id LEFT JOIN filme f ON f.id = e.film_id LEFT JOIN serien s ON s.id = e.serie_id
-                WHERE e.universum_id = :u ORDER BY e.position IS NULL, e.position, e.id LIMIT 1', ['u' => $u['id']]);
-            $bild = $bild ?: ($e['poster'] ?? null);
-            $hg = $hg ?: ($e['hg'] ?? null);
-        }
-        $aus[] = ['art' => 'universum', 'id' => (int) $u['id'], 'name' => $u['name'], 'titel' => $u['name'], 'beschreibung' => $u['beschreibung'],
-            'poster' => bild_url($bild), 'hintergrund' => bild_url($hg), 'eintraege' => (int) $u['eintraege']];
-    }
-    return $aus;
-}
-
-function universum_detail(int $id, int $konto): ?array
-{
-    $u = db_zeile('SELECT * FROM universen WHERE id = :id', ['id' => $id]);
-    if (!$u) {
-        return null;
-    }
-    $eintraege = [];
-    foreach (db_alle('SELECT * FROM universum_eintraege WHERE universum_id = :u ORDER BY position IS NULL, position, id', ['u' => $id]) as $e) {
-        $kachel = null;
-        if ($e['art'] === 'reihe') {
-            $r = db_zeile('SELECT r.id, r.name, r.poster, COUNT(f.id) AS anzahl, MIN(f.jahr) AS von, MAX(f.jahr) AS bis FROM reihen r LEFT JOIN filme f ON f.reihe_id = r.id WHERE r.id = :r GROUP BY r.id', ['r' => $e['reihe_id']]);
-            if ($r) {
-                $kachel = ['art' => 'reihe', 'id' => (int) $r['id'], 'titel' => $r['name'], 'poster' => bild_url($r['poster']),
-                    'zusatz' => 'Reihe · ' . (int) $r['anzahl'] . ' ' . ((int) $r['anzahl'] === 1 ? 'Film' : 'Filme') . ($r['von'] ? ' · ' . $r['von'] . ($r['bis'] != $r['von'] ? '–' . $r['bis'] : '') : '')];
-            }
-        } elseif ($e['art'] === 'film') {
-            $k = film_kacheln(db_alle(FILM_KACHEL_SQL . ' WHERE f.id = :f GROUP BY f.id', ['f' => $e['film_id']]), $konto);
-            if (!$k) {
-                $f = db_zeile('SELECT id, titel, jahr, poster FROM filme WHERE id = :f', ['f' => $e['film_id']]);
-                $k = $f ? [['art' => 'film', 'id' => (int) $f['id'], 'titel' => $f['titel'], 'jahr' => $f['jahr'], 'poster' => bild_url($f['poster'])]] : [];
-            }
-            $kachel = $k ? $k[0] + ['zusatz' => 'Film' . (($k[0]['jahr'] ?? null) ? ' · ' . $k[0]['jahr'] : '')] : null;
-        } else {
-            $s = db_zeile('SELECT id, titel, jahr_von, poster FROM serien WHERE id = :s', ['s' => $e['serie_id']]);
-            if ($s) {
-                $kachel = ['art' => 'serie', 'id' => (int) $s['id'], 'titel' => $s['titel'], 'jahr' => $s['jahr_von'], 'poster' => bild_url($s['poster']),
-                    'zusatz' => 'Serie' . ($s['jahr_von'] ? ' · ' . $s['jahr_von'] : '')];
-            }
-        }
-        if ($kachel) {
-            $eintraege[] = $kachel + ['eintrag_id' => (int) $e['id'], 'position' => $e['position'] !== null ? (float) $e['position'] : null];
-        }
-    }
-    $liste = universen_liste();
-    $info = array_values(array_filter($liste, static fn($x) => $x['id'] === $id))[0] ?? [];
-    return ['art' => 'universum', 'id' => $id, 'name' => $u['name'], 'beschreibung' => $u['beschreibung'],
-        'poster' => $info['poster'] ?? null, 'hintergrund' => $info['hintergrund'] ?? null, 'eintraege' => $eintraege];
-}
+// ---------- Reihen ----------
 
 function reihe_detail(int $id, int $konto): ?array
 {
@@ -404,7 +344,7 @@ function reihe_detail(int $id, int $konto): ?array
         'hintergrund' => bild_url($r['hintergrund']),
         'filme' => film_kacheln(db_alle(FILM_KACHEL_SQL . ' WHERE f.reihe_id = :r GROUP BY f.id ORDER BY f.reihe_position IS NULL, f.reihe_position, f.jahr', ['r' => $id]), $konto),
         'universen' => array_map(static fn($u) => ['id' => (int) $u['id'], 'name' => $u['name']],
-            db_alle('SELECT DISTINCT u.id, u.name FROM universen u JOIN universum_eintraege e ON e.universum_id = u.id WHERE e.reihe_id = :r', ['r' => $id]))];
+            db_alle('SELECT DISTINCT u.id, u.name FROM universen u JOIN universum_eintraege e ON e.universum_id = u.id JOIN filme f ON f.id = e.film_id WHERE f.reihe_id = :r', ['r' => $id]))];
 }
 
 // ---------- Startseite ----------
@@ -459,7 +399,8 @@ function startseite(int $konto): array
         'hero' => $hero ? ['art' => 'film', 'id' => (int) $hero['id'], 'titel' => $hero['titel'], 'text' => $hero['tagline'] ?: mb_strimwidth((string) $hero['beschreibung'], 0, 220, '…'),
             'hintergrund' => bild_url($hero['hintergrund']), 'logo' => bild_url($hero['logo']), 'jahr' => $hero['jahr'], 'laufzeit_min' => $hero['laufzeit_min']] : null,
         'weiterschauen' => $weiter, 'als_naechstes' => $naechste, 'neue_filme' => $neueFilme, 'neue_serien' => $neueSerien,
-        'universen' => universen_liste(),
+        'universen' => $universen = universen_liste($konto),
+        'universum_band' => universum_band($universen, $konto),
         'leer' => !$neueFilme && !$neueSerien,
     ];
 }
@@ -473,8 +414,61 @@ function suche(string $q, int $konto): array
     return [
         'filme' => array_slice(filme_liste($konto, 'titel', null, $q), 0, 30),
         'serien' => array_slice(serien_liste($konto, 'titel', null, $q), 0, 30),
-        'universen' => array_values(array_filter(universen_liste(), static fn($u) => mb_stripos($u['name'], trim($q)) !== false)),
+        'universen' => array_values(array_filter(universen_liste($konto), static fn($u) => mb_stripos($u['name'], trim($q)) !== false)),
         'reihen' => array_map(static fn($r) => ['art' => 'reihe', 'id' => (int) $r['id'], 'titel' => $r['name'], 'poster' => bild_url($r['poster'])],
             db_alle('SELECT id, name, poster FROM reihen WHERE name LIKE :q ORDER BY sortname LIMIT 20', ['q' => $like])),
     ];
 }
+
+/** Abzeichen für die Technikzeile: Auflösung, HDR, Ton (aus der besten Datei der Standardfassung) */
+function technik_marken(array $fassungen): array
+{
+    $d = $fassungen[0]['dateien'][0] ?? null;
+    if (!$d) {
+        return [];
+    }
+    $m = [];
+    if ($d['qualitaet'] === '4K') {
+        $m[] = ['text' => '4K', 'art' => 'normal'];
+    }
+    if ($d['hdr']) {
+        $m[] = ['text' => strtoupper($d['hdr']), 'art' => 'hdr'];
+    }
+    $ton = db_alle('SELECT codec, profil, titel FROM tonspuren WHERE datei_id = :d', ['d' => $d['id']]);
+    $text = null;
+    foreach ($ton as $t) {
+        $alles = strtolower($t['codec'] . ' ' . $t['profil'] . ' ' . $t['titel']);
+        if (str_contains($alles, 'atmos')) {
+            $text = 'ATMOS';
+            break;
+        }
+        if (str_contains($alles, 'dts:x') || str_contains($alles, 'dts-x')) {
+            $text = 'DTS:X';
+        } elseif ($text === null && $t['codec'] === 'dts' && str_contains($alles, 'ma')) {
+            $text = 'DTS-HD MA';
+        } elseif ($text === null && $t['codec'] === 'truehd') {
+            $text = 'TRUEHD';
+        }
+    }
+    if ($text) {
+        $m[] = ['text' => $text, 'art' => 'normal'];
+    }
+    return $m;
+}
+
+/** Für die Startseite: ein Universum als Band (das größte) mit seinen ersten Titeln */
+function universum_band(array $universen, int $konto): ?array
+{
+    if (!$universen) {
+        return null;
+    }
+    usort($universen, static fn($a, $b) => $b['eintraege'] <=> $a['eintraege']);
+    $u = $universen[0];
+    if ($u['eintraege'] < 2) {
+        return null;
+    }
+    $titel = universum_naechstes(universum_titel($u['id'], $konto), $konto);
+    return $u + ['titel_liste' => array_slice(universum_titel($u['id'], $konto), 0, 6), 'naechstes' => $titel];
+}
+
+require_once __DIR__ . '/universen.php';

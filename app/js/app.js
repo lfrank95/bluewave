@@ -87,7 +87,7 @@ async function route(erzwingen = false) {
         || (r.name === 'film' && a.dataset.route === 'filme') || (r.name === 'serie' && a.dataset.route === 'serien')
         || ((r.name === 'universum' || r.name === 'reihe') && a.dataset.route === 'universen')));
     document.querySelector('.menue')?.remove();
-    heroAktiv = MIT_HERO.has(r.name);
+    heroAktiv = MIT_HERO.has(r.name) && r.teile[2] !== 'bearbeiten';
     kopfStil();
     const laden = ANSICHTEN[r.name];
     if (!laden) {

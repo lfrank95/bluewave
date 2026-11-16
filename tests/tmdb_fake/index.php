@@ -71,6 +71,7 @@ if (preg_match('#^/3/movie/(\d+)$#', $pfad, $m) && isset($filme[(int) $m[1]])) {
         'images' => ['posters' => [['iso_639_1' => 'de', 'file_path' => "/p{$id}de.jpg", 'vote_average' => 5]], 'backdrops' => [['iso_639_1' => null, 'file_path' => "/b$id.jpg"]],
             'logos' => [['iso_639_1' => 'de', 'file_path' => "/l$id.png"]]],
         'release_dates' => ['results' => [['iso_3166_1' => 'DE', 'release_dates' => [['certification' => '12']]]]],
+        'keywords' => ['keywords' => $f['coll'] ? [['id' => 180547, 'name' => 'Marvel Cinematic Universe (MCU)'], ['id' => 9715, 'name' => 'superhero']] : [['id' => 1, 'name' => 'test']]],
     ]);
 }
 if ($pfad === '/3/collection/86311') {
@@ -91,7 +92,8 @@ if ($pfad === '/3/tv/71446') {
         'aggregate_credits' => ['cast' => [['name' => 'Úrsula Corberó', 'roles' => [['character' => 'Tokio']], 'profile_path' => '/uc.jpg']]],
         'images' => ['posters' => [], 'backdrops' => [], 'logos' => []], 'external_ids' => ['tvdb_id' => 327417, 'imdb_id' => 'tt6468322'],
         'content_ratings' => ['results' => [['iso_3166_1' => 'DE', 'rating' => '16']]],
-        'episode_groups' => ['results' => [['id' => 'netflix1', 'name' => 'Netflix-Reihenfolge', 'type' => 4]]]]);
+        'episode_groups' => ['results' => [['id' => 'netflix1', 'name' => 'Netflix-Reihenfolge', 'type' => 4]]],
+        'keywords' => ['results' => [['id' => 2, 'name' => 'heist']]]]);
 }
 if ($pfad === '/3/tv/71446/season/1') {
     antwort(['name' => 'Staffel 1', 'overview' => 'Der Überfall beginnt.', 'poster_path' => '/s1.jpg', 'episodes' => [
