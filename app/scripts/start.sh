@@ -86,6 +86,10 @@ runuser -u www-data -- php /var/www/html/scripts/migrate.php --start || true
 # ---- Hardware erkennen (Ergebnis landet in <Cache>/hardware.json, die App zeigt es an) ----
 runuser -u www-data -- php /var/www/html/scripts/hardware.php --start || true
 
+# ---- Zeitplan: jede Minute Streams aufräumen und Ordner auf Neues prüfen (Intervall in der App einstellbar) ----
+(while true; do sleep 60; [ "$(stat -c %s /tmp/zeitplan.log 2>/dev/null || echo 0)" -gt 2000000 ] && : > /tmp/zeitplan.log
+    runuser -u www-data -- php /var/www/html/scripts/zeitplan.php >> /tmp/zeitplan.log 2>&1; done) &
+
 if [ "${BLUEWAVE_AIO:-0}" = "1" ]; then
     aio_waechter &
     AIO_WACHE=$!

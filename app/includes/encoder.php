@@ -65,16 +65,24 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     [$b, $h] = encoder_zielmasse((int) ($q['breite'] ?? 0), (int) ($q['hoehe'] ?? 0), (int) $v['hoehe']);
     $tonemap = !empty($v['tonemap']) && !empty($q['hdr']);
 
-    $cmd = [$k['ffmpeg'], '-hide_banner', '-nostdin', '-y', '-loglevel', 'error', '-stats_period', '1', '-progress', 'pipe:1'];
+    $cmd = [$k['ffmpeg'], '-hide_banner', '-nostdin', '-y', '-loglevel', 'error'];
     $cmd = array_merge($cmd, encoder_geraet_args($profil, $geraet));
 
-    // Hardware-Dekodieren nur bei echten Dateien und wenn die GPU das Format kann (sonst dekodiert die CPU, kodiert die GPU)
-    $hwDekodieren = $profil === 'quicksync' && !$lavfi && !empty($q['hw_dekodieren']);
+    $einbrennen = isset($a['einbrennen']) ? (int) $a['einbrennen'] : null; // Index des Bild-Untertitels (0:s:N)
+    // Hardware-Dekodieren nur bei echten Dateien und wenn die GPU das Format kann (sonst dekodiert die CPU, kodiert die GPU).
+    // Beim Einbrennen von Bild-Untertiteln dekodiert die CPU (Overlay), kodiert wird trotzdem auf der GPU.
+    $hwDekodieren = $profil === 'quicksync' && !$lavfi && !empty($q['hw_dekodieren']) && $einbrennen === null;
+    $hls = ($a['ziel']['format'] ?? '') === 'hls';
+    $start = (float) ($a['start_s'] ?? 0);
     if ($hwDekodieren) {
         $cmd = array_merge($cmd, ['-hwaccel', 'vaapi', '-hwaccel_output_format', 'vaapi', '-hwaccel_device', 'va']);
     }
-    if (!empty($a['start_s'])) {
-        $cmd = array_merge($cmd, ['-ss', sprintf('%.3f', (float) $a['start_s'])]);
+    if ($start > 0) {
+        $cmd = array_merge($cmd, ['-ss', sprintf('%.3f', $start)]);
+    }
+    if ($hls) {
+        // Zeitstempel der Quelle behalten: Teil n beginnt genau bei n × 6 s – passt zur fertigen Wiedergabeliste, auch nach einem Neustart beim Spulen
+        $cmd = array_merge($cmd, ['-copyts', '-start_at_zero']);
     }
     if ($lavfi) {
         $cmd = array_merge($cmd, ['-f', 'lavfi', '-i', (string) $a['eingabe']['lavfi']]);
@@ -103,7 +111,12 @@ function encoder_befehl(string $profil, array $a, array $hw): array
         $kette[] = 'scale=' . ($b > 0 ? $b . ':' . $h : '-2:' . $h) . ':flags=lanczos';
         $kette[] = 'format=yuv420p';
     }
-    $cmd = array_merge($cmd, ['-map', '0:v:0', '-vf', implode(',', $kette)]);
+    if ($einbrennen !== null) {
+        // Bild-Untertitel (PGS/VobSub) über das Bild legen, dann wie gewohnt weiter
+        $cmd = array_merge($cmd, ['-filter_complex', '[0:v:0][0:s:' . $einbrennen . ']overlay=eof_action=pass,' . implode(',', $kette) . '[v]', '-map', '[v]']);
+    } else {
+        $cmd = array_merge($cmd, ['-map', '0:v:0', '-vf', implode(',', $kette)]);
+    }
 
     // ---- Video-Encoder ----
     $bitrate = max(500, (int) $v['bitrate_k']);
@@ -117,7 +130,7 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     }
     $cmd = array_merge($cmd, [
         '-b:v', $bitrate . 'k', '-maxrate', (int) ($bitrate * 1.5) . 'k', '-bufsize', ($bitrate * 2) . 'k',
-        // feste Schlüsselbilder alle 6 s = HLS-Segmentgrenzen (Spulen ohne Neustart)
+        // feste Schlüsselbilder alle 6 s ab dem Startpunkt (t zählt ab dem ersten Bild) = HLS-Segmentgrenzen
         '-force_key_frames', 'expr:gte(t,n_forced*6)',
     ]);
     if ($v['codec'] === 'hevc') {
@@ -147,10 +160,14 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     switch ($z['format']) {
         case 'hls':
             $o = rtrim((string) $z['ordner'], '/');
+            // temp_file: Teile erscheinen erst fertig geschrieben – „Datei da“ heißt „Teil vollständig“
             $cmd = array_merge($cmd, [
-                '-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'event', '-hls_segment_type', 'fmp4',
+                '-max_muxing_queue_size', '2048',
+                // frag_discont: echte Zeitstempel (tfdt) auch nach einem Neustart mitten im Film, ohne Edit-Liste
+                '-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'event', '-hls_segment_type', 'fmp4', '-hls_flags', 'temp_file',
+                '-hls_segment_options', 'movflags=+frag_discont',
                 '-hls_fmp4_init_filename', 'init.mp4', '-hls_segment_filename', $o . '/teil_%05d.m4s',
-                '-start_number', '0', $o . '/index.m3u8',
+                '-start_number', (string) (int) ($z['start_nummer'] ?? 0), $o . '/ffmpeg.m3u8',
             ]);
             break;
         case 'mp4':

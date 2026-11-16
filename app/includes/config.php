@@ -48,7 +48,7 @@ function konfig(): array
     }
 
     $k = [
-        'version' => '0.1.0-dev.1',
+        'version' => '0.2.0-dev.1',
         'app_name' => 'Bluewave',
         'zeitzone' => date_default_timezone_get(),
         'db' => [

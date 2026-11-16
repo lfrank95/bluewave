@@ -65,6 +65,17 @@ RUN printf '<Directory /var/www/html>\n    AllowOverride All\n</Directory>\n' > 
     && a2enconf haertung
 
 COPY app /var/www/html
+
+# hls.js (Apache-2.0) für die HLS-Wiedergabe im Browser – feste Version, Prüfsumme aus dem npm-Register
+ARG HLSJS_VERSION=1.7.4
+ARG HLSJS_SHA1=1857f0cf1b849da5d7ea86b42bce8a321bf912de
+RUN curl -fsSL "https://registry.npmjs.org/hls.js/-/hls.js-${HLSJS_VERSION}.tgz" -o /tmp/hls.tgz \
+    && echo "${HLSJS_SHA1}  /tmp/hls.tgz" | sha1sum -c - \
+    && mkdir -p /tmp/hls /var/www/html/js/vendor \
+    && tar -xzf /tmp/hls.tgz -C /tmp/hls \
+    && cp /tmp/hls/package/dist/hls.min.js /var/www/html/js/vendor/hls.min.js \
+    && cp /tmp/hls/package/LICENSE /var/www/html/js/vendor/hls.LICENSE.txt \
+    && rm -rf /tmp/hls /tmp/hls.tgz
 # Treiberpfade setzt jellyfin-ffmpeg selbst (eigene libva samt iHD-Treiber) – hier nichts überschreiben
 ENV BLUEWAVE_IMAGE=1
 HEALTHCHECK --interval=60s --timeout=10s --start-period=60s --retries=3 \

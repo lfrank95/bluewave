@@ -2,6 +2,13 @@
 declare(strict_types=1);
 require_once __DIR__ . '/config.php';
 
+// Signal-Nummern (Linux), falls die pcntl-Erweiterung im Webserver nicht geladen ist
+foreach (['SIGKILL' => 9, 'SIGTERM' => 15, 'SIGSTOP' => 19, 'SIGCONT' => 18] as $n => $w) {
+    if (!defined($n)) {
+        define($n, $w);
+    }
+}
+
 /**
  * Programm ohne Shell starten (Argumente als Liste, nichts wird interpretiert) und mit Zeitlimit warten.
  * @return array{code:int, aus:string, fehler:string, sekunden:float, zeit_um:bool}

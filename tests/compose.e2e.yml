@@ -1,0 +1,14 @@
+# Ende-zu-Ende-Test: ohne Grafik, mit Ersatz-TMDB und den erzeugten Testmedien
+services:
+  app:
+    devices: !reset []
+    environment:
+      TMDB_URL: http://tmdbfake/3
+      TMDB_BILD_URL: http://tmdbfake/t/p
+  tmdbfake:
+    image: ${BLUEWAVE_IMAGE}
+    command: ["php", "-S", "0.0.0.0:80", "/fake/index.php"]
+    healthcheck:
+      disable: true
+    volumes:
+      - ./tests/tmdb_fake:/fake:ro

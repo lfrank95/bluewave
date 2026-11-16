@@ -1,0 +1,17 @@
+<?php
+// Läuft jede Minute (start.sh): liegengebliebene Streams aufräumen, Ordner regelmäßig auf Neues prüfen.
+declare(strict_types=1);
+require_once __DIR__ . '/../includes/auftrag.php';
+require_once __DIR__ . '/../includes/wiedergabe.php';
+
+try {
+    sitzungen_aufraeumen();
+    db_tun('DELETE FROM kopplungen WHERE erstellt_am < NOW() - INTERVAL 15 MINUTE');
+    $min = (int) server_einstellungen()['scan_minuten'];
+    $letzter = strtotime((string) (system_wert('letzter_scan') ?? '')) ?: 0;
+    if ($min > 0 && time() - $letzter >= $min * 60 && !auftrag_laeuft()) {
+        auftrag_starten('alles');
+    }
+} catch (Throwable $e) {
+    // Datenbank noch nicht bereit o. ä. – nächste Minute erneut
+}
