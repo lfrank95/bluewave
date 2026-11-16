@@ -69,17 +69,28 @@ export async function zeigen(r, app) {
     }
 
     const folgenEl = el('div.folgen');
-    const tabs = el('div.teil-karten');
+    const tabs = el('div.staffel-cover');
     const staffelZeigen = () => {
-        tabs.querySelectorAll('.teil-karte').forEach((b) => b.classList.toggle('an', Number(b.dataset.nr) === staffelNr));
+        tabs.querySelectorAll('.staffel-karte').forEach((b) => b.classList.toggle('an', Number(b.dataset.nr) === staffelNr));
         const st = d.staffeln.find((s) => s.nummer === staffelNr);
         folgenEl.replaceChildren(...(st?.folgen || []).map((f) => folgeZeile(f, app, id, n)));
     };
+    // Staffeln als Cover (wie bei Plex): Poster der Staffel, sonst das der Serie; Fortschritt darunter
     tabs.append(...d.staffeln.map((s) => {
         const da = s.folgen.filter((f) => f.vorhanden);
         const ges = da.filter((f) => f.fortschritt?.gesehen).length;
-        return el('button.teil-karte', { 'data-nr': s.nummer, onclick: () => { staffelNr = s.nummer; staffelZeigen(); } },
-            el('b', s.name), el('span', `${s.folgen.length} ${s.folgen.length === 1 ? 'Folge' : 'Folgen'}` + (da.length && ges ? ` · ${ges === da.length ? 'gesehen' : ges + ' gesehen'}` : '')));
+        const alle = da.length > 0 && ges === da.length;
+        return el('button.staffel-karte', { 'data-nr': s.nummer, title: s.name, onclick: () => {
+            staffelNr = s.nummer;
+            staffelZeigen();
+            history.replaceState(history.state, '', `#/serie/${id}?` + new URLSearchParams({ ...(d.reihenfolge !== null && d.reihenfolge !== undefined ? { reihenfolge: d.reihenfolge } : {}), staffel: s.nummer }));
+            window.__bluewave.routeMerken?.();
+        } },
+            el('div.cover', bild(s.poster || d.poster, s.name) || el('div.ersatz', s.name),
+                alle ? el('span.gesehen-haken.unten', icon('haken')) : null,
+                ges && !alle ? el('div.fortschritt', el('span', { style: { width: Math.round(ges * 100 / da.length) + '%' } })) : null),
+            el('b', s.name),
+            el('span', `${s.folgen.length} ${s.folgen.length === 1 ? 'Folge' : 'Folgen'}` + (da.length < s.folgen.length ? ` · ${da.length} da` : '')));
     }));
     staffelZeigen();
 

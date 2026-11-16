@@ -299,52 +299,7 @@ a.chip:hover { border-color: var(--accent-a); color: var(--text-primary); }
 .meldung.fehler { border-color: rgba(255, 107, 107, 0.5); color: #ffb3b3; }
 @keyframes rein { from { opacity: 0; transform: translate(-50%, 10px); } }
 
-/* ---------- Player ---------- */
-.player { position: fixed; inset: 0; z-index: 500; background: #000; display: grid; cursor: default; }
-.player.leerlauf { cursor: none; }
-.player video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
-.player video::cue { background: rgba(0, 0, 0, 0.55); color: #fff; font-family: var(--font-body); font-size: clamp(1rem, 0.7rem + 1.4vw, 2rem); text-shadow: 0 1px 3px #000; }
-.player .ebene { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: space-between; transition: opacity 0.3s; pointer-events: none;
-    background: linear-gradient(180deg, rgba(0,0,0,.7), transparent 22%, transparent 68%, rgba(0,0,0,.85)); }
-.player.leerlauf .ebene { opacity: 0; }
-.player .ebene > * { pointer-events: auto; }
-.player .oben { display: flex; align-items: center; gap: 16px; padding: calc(18px + env(safe-area-inset-top)) clamp(16px, 3vw, 40px) 0; }
-.player .oben .titel b { display: block; font-family: var(--font-display); font-size: 1.25rem; }
-.player .oben .titel span { color: #c4cfdf; }
-.player .unten { padding: 0 clamp(16px, 3vw, 40px) calc(18px + env(safe-area-inset-bottom)); }
-.player .zeitleiste { position: relative; height: 22px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
-.player .zeitleiste .spur { position: relative; width: 100%; height: 5px; border-radius: 3px; background: rgba(255,255,255,.22); transition: height 0.15s; }
-.player .zeitleiste:hover .spur { height: 8px; }
-.player .zeitleiste .geladen { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,.3); border-radius: 3px; }
-.player .zeitleiste .gespielt { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-gradient); border-radius: 3px; }
-.player .zeitleiste .knauf { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(92,200,255,.35); }
-.player .zeitleiste .markierung { position: absolute; top: 0; bottom: 0; background: rgba(255, 217, 138, 0.55); }
-.player .zeitleiste .vorschau-zeit { position: absolute; bottom: 26px; transform: translateX(-50%); padding: 3px 8px; border-radius: 6px; background: rgba(0,0,0,.8); font-size: 0.85rem; font-weight: 700; pointer-events: none; }
-.player .steuerung { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
-.player .steuerung .zeit { font-variant-numeric: tabular-nums; color: #dfe7f2; font-weight: 600; margin: 0 8px; }
-.player .steuerung .rechts { margin-left: auto; display: flex; gap: 6px; align-items: center; }
-.player .p-knopf { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; background: transparent; border: 0; color: #fff; cursor: pointer; }
-.player .p-knopf:hover { background: rgba(255,255,255,.12); }
-.player .p-knopf svg.ic { width: 26px; height: 26px; }
-.player .p-knopf.gross svg.ic { width: 34px; height: 34px; }
-.player .mitte-status { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
-.player .kreisel { width: 56px; height: 56px; border-radius: 50%; border: 4px solid rgba(255,255,255,.2); border-top-color: var(--accent-a); animation: drehen 0.8s linear infinite; }
-@keyframes drehen { to { transform: rotate(360deg); } }
-.player .ueberspringen { position: absolute; right: clamp(16px, 3vw, 40px); bottom: 120px; }
-.player .naechste-karte { position: absolute; right: clamp(16px, 3vw, 40px); bottom: 110px; width: min(380px, calc(100% - 32px)); padding: 14px; display: grid; grid-template-columns: 130px 1fr; gap: 14px; align-items: center;
-    background: rgba(12, 19, 32, 0.9); }
-.player .naechste-karte img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 8px; background: #111a2a; }
-.player .naechste-karte .klein { color: var(--text-leise); font-size: 0.8rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
-.player .naechste-karte b { display: block; margin: 2px 0 8px; }
-.player .naechste-karte .knoepfe { margin-top: 0; gap: 8px; }
-.player .panel { position: absolute; right: clamp(16px, 3vw, 40px); bottom: 96px; width: min(360px, calc(100% - 32px)); max-height: 60vh; overflow: auto; padding: 14px; background: rgba(12, 19, 32, 0.94); }
-.player .panel h3 { font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-leise); margin: 10px 4px 6px; }
-.player .panel h3:first-child { margin-top: 0; }
-.player .panel button.wahl { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border-radius: 8px; background: none; border: 0; color: var(--text-primary); cursor: pointer; text-align: left; }
-.player .panel button.wahl:hover { background: rgba(255,255,255,.08); }
-.player .panel button.wahl .haken { width: 18px; color: var(--accent-a); }
-.player .panel .info-text { color: var(--text-leise); font-size: 0.82rem; padding: 4px 10px; }
-.player .fehler-box { position: absolute; inset: 0; display: grid; place-items: center; padding: 20px; text-align: center; }
+/* ---------- Player: siehe unten (neu) ---------- */
 
 /* ---------- Tablet / Handy ---------- */
 @media (max-width: 1023px) {
@@ -367,9 +322,6 @@ a.chip:hover { border-color: var(--accent-a); color: var(--text-primary); }
     .hero { min-height: 72vh; }
     .hero .inhalt { padding-bottom: 24px; }
     .knoepfe .knopf { flex: 1 1 auto; }
-    .player .naechste-karte { grid-template-columns: 100px 1fr; bottom: 100px; }
-    .player .steuerung .zeit { font-size: 0.85rem; margin: 0 4px; }
-    .player .p-knopf { width: 40px; height: 40px; }
     .karte { padding: 16px; }
     .tabelle { font-size: 0.85rem; }
 }
@@ -834,3 +786,143 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
 .mini-knopf.klapp svg.ic { transition: transform 0.18s; transform: rotate(90deg); }
 .mini-knopf.klapp.zu svg.ic { transform: rotate(0deg); }
 .mini-knopf.klapp { border-color: transparent; }
+
+/* ---------- Player ---------- */
+.player { position: fixed; inset: 0; z-index: 500; background: #000; cursor: default; overflow: hidden; color: #fff; -webkit-tap-highlight-color: transparent; user-select: none; }
+.player.leerlauf { cursor: none; }
+.player video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #000; }
+.player video::cue { background: rgba(0, 0, 0, 0.6); color: #fff; font-family: var(--font-body); font-size: clamp(1rem, 0.7rem + 1.4vw, 2rem); line-height: 1.35; text-shadow: 0 1px 3px #000; }
+.player .ebene { position: absolute; inset: 0; display: grid; grid-template-rows: auto 1fr auto; transition: opacity 0.35s; pointer-events: none; }
+.player .ebene::before, .player .ebene::after { content: ""; position: absolute; left: 0; right: 0; pointer-events: none; }
+.player .ebene::before { top: 0; height: 180px; background: linear-gradient(180deg, rgba(0, 0, 0, 0.75), transparent); }
+.player .ebene::after { bottom: 0; height: 240px; background: linear-gradient(0deg, rgba(0, 0, 0, 0.88), rgba(0, 0, 0, 0.4) 55%, transparent); }
+.player.leerlauf .ebene, .player.leerlauf .ueberspringen.mit-leiste { opacity: 0; }
+.player.leerlauf .ebene * { pointer-events: none !important; }
+.player .ebene > * { position: relative; z-index: 1; pointer-events: auto; }
+.player .oben { display: flex; align-items: center; gap: 16px; padding: calc(16px + env(safe-area-inset-top)) clamp(16px, 3vw, 44px) 0 calc(clamp(16px, 3vw, 44px) + env(safe-area-inset-left)); }
+.player .oben .titel { min-width: 0; }
+.player .oben .titel small { display: block; color: #b9c6d8; font-size: 0.82rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.player .oben .titel b { display: block; font-family: var(--font-display); font-size: clamp(1.1rem, 0.9rem + 0.8vw, 1.6rem); line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player .mitte-steuerung { display: flex; align-items: center; justify-content: center; gap: clamp(24px, 6vw, 64px); pointer-events: none; }
+.player .mitte-steuerung > * { pointer-events: auto; }
+.player .mitte-play { width: clamp(68px, 9vw, 92px); height: clamp(68px, 9vw, 92px); border-radius: 50%; display: grid; place-items: center; border: 0; cursor: pointer; color: #fff;
+    background: rgba(255, 255, 255, 0.16); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25); transition: transform 0.15s, background 0.15s; }
+.player .mitte-play:hover { transform: scale(1.06); background: rgba(255, 255, 255, 0.24); }
+.player .mitte-play svg.ic { width: 42%; height: 42%; }
+/* Am Rechner nur bei Pause in der Mitte zeigen, auf Touch immer mit der Steuerung */
+@media (pointer: fine) { .player:not(.pausiert) .mitte-steuerung { opacity: 0; pointer-events: none; } .player:not(.pausiert) .mitte-steuerung > * { pointer-events: none; } .player .mitte-steuerung .p-knopf { display: none; } }
+.player .unten { padding: 0 clamp(16px, 3vw, 44px) calc(14px + env(safe-area-inset-bottom)); padding-left: calc(clamp(16px, 3vw, 44px) + env(safe-area-inset-left)); padding-right: calc(clamp(16px, 3vw, 44px) + env(safe-area-inset-right)); }
+.player .leiste-zeile { display: flex; align-items: center; gap: 14px; }
+.player .zeit { font-variant-numeric: tabular-nums; font-size: 0.9rem; font-weight: 700; color: #e4ebf5; min-width: 46px; }
+.player .zeit.rest { text-align: right; color: #b9c6d8; }
+.player .zeitleiste { position: relative; flex: 1; height: 28px; display: flex; align-items: center; cursor: pointer; touch-action: none; }
+.player .leiste-spur { position: relative; width: 100%; height: 5px; border-radius: 3px; background: rgba(255, 255, 255, 0.22); transition: height 0.15s; }
+.player .zeitleiste:hover .leiste-spur, .player .zeitleiste.zieht .leiste-spur { height: 8px; }
+.player .leiste-spur .geladen { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255, 255, 255, 0.28); border-radius: 3px; }
+.player .leiste-spur .gespielt { position: absolute; left: 0; top: 0; bottom: 0; background: var(--accent-gradient); border-radius: 3px; }
+.player .leiste-spur .markierungen { position: absolute; inset: 0; }
+.player .leiste-spur .markierung { position: absolute; top: 0; bottom: 0; background: rgba(255, 217, 138, 0.5); border-radius: 2px; }
+.player .leiste-spur .knauf { position: absolute; top: 50%; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: #fff; box-shadow: 0 0 0 4px rgba(92, 200, 255, 0.35), 0 2px 8px rgba(0, 0, 0, 0.5);
+    transform: scale(0.75); transition: transform 0.15s; }
+.player .zeitleiste:hover .knauf, .player .zeitleiste.zieht .knauf { transform: scale(1); }
+.player .vorschau-zeit { position: absolute; bottom: 30px; transform: translateX(-50%); padding: 4px 9px; border-radius: 8px; background: rgba(10, 14, 22, 0.92); font-size: 0.85rem; font-weight: 700;
+    font-variant-numeric: tabular-nums; pointer-events: none; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
+.player .steuerung { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
+.player .steuerung .links, .player .steuerung .rechts { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.player .p-knopf { width: 46px; height: 46px; flex: none; border-radius: 50%; display: inline-grid; place-items: center; background: transparent; border: 0; color: #fff; cursor: pointer; transition: background 0.15s, transform 0.15s; }
+.player .p-knopf:hover { background: rgba(255, 255, 255, 0.14); }
+.player .p-knopf:active { transform: scale(0.94); }
+.player .p-knopf svg.ic { width: 25px; height: 25px; }
+.player .p-knopf.rund { background: rgba(255, 255, 255, 0.12); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.player .p-knopf.mittel { width: 60px; height: 60px; background: rgba(0, 0, 0, 0.28); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+.player .p-knopf.mittel svg.ic { width: 30px; height: 30px; }
+.player .p-knopf.mit-text { width: auto; padding: 0 16px 0 12px; gap: 8px; display: inline-flex; border-radius: 999px; font-weight: 700; font-size: 0.9rem; }
+.player .lautstaerke { display: flex; align-items: center; }
+.player .laut { width: 0; opacity: 0; transition: width 0.2s, opacity 0.2s; accent-color: #5cc8ff; cursor: pointer; }
+.player .lautstaerke:hover .laut, .player .laut:focus { width: 96px; opacity: 1; margin: 0 8px 0 2px; }
+.player .mitte-status { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 2; }
+.player .kreisel { width: 56px; height: 56px; border-radius: 50%; border: 4px solid rgba(255, 255, 255, 0.2); border-top-color: var(--accent-a); animation: drehen 0.8s linear infinite; }
+.player .fehler-box { padding: 28px; max-width: 460px; text-align: center; border-radius: 22px; background: rgba(12, 18, 30, 0.92); box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6); }
+.player .ueberspringen { position: absolute; z-index: 3; right: calc(clamp(16px, 3vw, 44px) + env(safe-area-inset-right)); bottom: calc(124px + env(safe-area-inset-bottom));
+    display: inline-flex; align-items: center; gap: 10px; padding: 13px 20px; border-radius: 14px; border: 1px solid rgba(255, 255, 255, 0.35); cursor: pointer;
+    background: rgba(12, 18, 30, 0.72); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); color: #fff; font-weight: 800; font-size: 1rem; box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    animation: rein-rechts 0.25s ease-out; transition: bottom 0.3s, background 0.15s; }
+.player .ueberspringen:hover { background: #f2f6fc; color: #06101d; }
+.player.leerlauf .ueberspringen { bottom: calc(40px + env(safe-area-inset-bottom)); }
+.player .naechste-karte { position: absolute; z-index: 3; right: calc(clamp(16px, 3vw, 44px) + env(safe-area-inset-right)); bottom: calc(124px + env(safe-area-inset-bottom));
+    width: min(440px, calc(100% - 32px)); padding: 12px; display: grid; grid-template-columns: 168px 1fr; gap: 14px; align-items: center; overflow: hidden; border-radius: 18px;
+    background: rgba(12, 18, 30, 0.88); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.14); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); animation: rein-rechts 0.3s ease-out; }
+.player .naechste-karte .bild { position: relative; padding: 0; border: 0; border-radius: 10px; overflow: hidden; aspect-ratio: 16 / 9; background: #15233b; cursor: pointer; }
+.player .naechste-karte .bild img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.player .naechste-karte .play-rund { position: absolute; inset: 0; margin: auto; width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; background: rgba(242, 246, 252, 0.95); color: #06101d; }
+.player .naechste-karte .text { min-width: 0; }
+.player .naechste-karte small { color: var(--accent-text); font-size: 0.78rem; font-weight: 800; }
+.player .naechste-karte b { display: block; font-family: var(--font-display); font-size: 1.05rem; line-height: 1.2; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player .naechste-karte .text > span { color: #b9c6d8; font-size: 0.82rem; }
+.player .naechste-karte .knoepfe { margin-top: 10px; gap: 8px; flex-wrap: nowrap; }
+.player .countdown-balken { position: absolute; left: 0; bottom: 0; height: 3px; width: 100%; background: var(--accent-gradient); transform-origin: left; animation: countdown linear forwards; }
+@keyframes countdown { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes rein-rechts { from { opacity: 0; transform: translateX(24px); } }
+.player .sprung-anzeige { position: absolute; z-index: 4; top: 50%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 22px; border-radius: 999px; background: rgba(0, 0, 0, 0.45);
+    font-weight: 800; transform: translateY(-50%); animation: sprung 0.65s ease-out forwards; pointer-events: none; }
+.player .sprung-anzeige.links { left: 12%; }
+.player .sprung-anzeige.rechts { right: 12%; }
+.player .sprung-anzeige svg.ic { width: 30px; height: 30px; }
+@keyframes sprung { 0% { opacity: 0; transform: translateY(-50%) scale(0.8); } 25% { opacity: 1; transform: translateY(-50%) scale(1); } 100% { opacity: 0; } }
+.player .panel { position: absolute; z-index: 5; right: calc(clamp(16px, 3vw, 44px) + env(safe-area-inset-right)); bottom: calc(96px + env(safe-area-inset-bottom)); width: min(380px, calc(100% - 32px));
+    max-height: min(64vh, calc(100% - 140px)); overflow: auto; padding: 14px; border-radius: 20px; background: rgba(12, 18, 30, 0.94); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+    border: 1px solid rgba(255, 255, 255, 0.12); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); animation: rein-unten 0.2s ease-out; scrollbar-width: thin; }
+.player .panel.zweispaltig { width: min(640px, calc(100% - 32px)); display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; align-items: start; }
+@keyframes rein-unten { from { opacity: 0; transform: translateY(10px); } }
+.player .panel h3 { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-leise); margin: 12px 6px 6px; }
+.player .panel h3:first-child { margin-top: 2px; }
+.player .panel button.wahl { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px 10px; border-radius: 10px; background: none; border: 0; color: var(--text-primary); cursor: pointer; text-align: left; font: inherit; }
+.player .panel button.wahl:hover { background: rgba(255, 255, 255, 0.08); }
+.player .panel button.wahl.an { background: rgba(92, 200, 255, 0.1); }
+.player .panel button.wahl .haken { width: 18px; flex: none; color: var(--accent-a); display: grid; place-items: center; }
+.player .panel button.wahl .haken svg.ic { width: 18px; height: 18px; }
+.player .panel button.wahl .text { display: flex; flex-direction: column; min-width: 0; }
+.player .panel button.wahl small { color: var(--text-leise); font-size: 0.78rem; }
+.player .panel .info-text { color: var(--text-leise); font-size: 0.82rem; padding: 4px 10px; line-height: 1.5; }
+@media (max-width: 767px), (max-height: 500px) {
+    .player .nur-gross, .player .lautstaerke { display: none; }
+    .player .p-knopf { width: 42px; height: 42px; }
+    .player .p-knopf.mit-text span { display: none; }
+    .player .p-knopf.mit-text { padding: 0; width: 42px; justify-content: center; }
+    .player .zeit { font-size: 0.8rem; min-width: 38px; }
+    .player .leiste-zeile { gap: 10px; }
+    .player .ueberspringen, .player .naechste-karte { bottom: calc(104px + env(safe-area-inset-bottom)); }
+    .player .naechste-karte { grid-template-columns: 112px 1fr; }
+    .player .naechste-karte .knoepfe .knopf:not(.weiss) { display: none; }
+    .player .panel, .player .panel.zweispaltig { left: 10px; right: 10px; width: auto; bottom: calc(10px + env(safe-area-inset-bottom)); grid-template-columns: 1fr; max-height: 70vh; }
+}
+@media (max-height: 500px) {
+    .player .ebene::before { height: 110px; }
+    .player .ebene::after { height: 150px; }
+    .player .oben { padding-top: calc(8px + env(safe-area-inset-top)); }
+    .player .unten { padding-bottom: calc(6px + env(safe-area-inset-bottom)); }
+    .player .mitte-play { width: 60px; height: 60px; }
+    .player .ueberspringen, .player .naechste-karte { bottom: calc(84px + env(safe-area-inset-bottom)); }
+}
+@keyframes drehen { to { transform: rotate(360deg); } }
+
+/* Staffeln als Cover (Serienseite) */
+.staffel-cover { display: grid; grid-auto-flow: column; grid-auto-columns: clamp(118px, 10.5vw, 158px); gap: 16px; overflow-x: auto; padding: 6px 4px 10px; margin: 18px -4px 6px; scrollbar-width: none; scroll-snap-type: x proximity; }
+.staffel-cover::-webkit-scrollbar { display: none; }
+.staffel-karte { padding: 0; border: 0; background: none; color: var(--text-primary); text-align: left; cursor: pointer; font: inherit; scroll-snap-align: start; min-width: 0; }
+.staffel-karte .cover { position: relative; aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; background: linear-gradient(160deg, #15233b, #0b1220);
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45); transition: transform 0.2s, box-shadow 0.2s, outline-color 0.2s; outline: 3px solid transparent; outline-offset: 3px; }
+.staffel-karte .cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.staffel-karte .cover .ersatz { position: absolute; inset: 0; display: grid; place-items: center; padding: 10px; text-align: center; font-family: var(--font-display); font-weight: 700; color: var(--text-muted); }
+.staffel-karte:hover .cover { transform: translateY(-3px); }
+.staffel-karte.an .cover { outline-color: var(--accent-a); }
+.staffel-karte:not(.an) .cover::after { content: ""; position: absolute; inset: 0; background: rgba(6, 9, 15, 0.25); transition: background 0.2s; }
+.staffel-karte:not(.an):hover .cover::after { background: transparent; }
+.staffel-karte .cover .fortschritt { position: absolute; left: 8px; right: 8px; bottom: 8px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.25); z-index: 2; }
+.staffel-karte .cover .fortschritt span { display: block; height: 100%; border-radius: 2px; background: var(--accent-gradient); }
+.staffel-karte .cover .gesehen-haken { z-index: 2; }
+.staffel-karte b { display: block; margin-top: 10px; font-family: var(--font-display); font-size: 0.98rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.staffel-karte.an b { color: var(--accent-text); }
+.staffel-karte span { color: var(--text-leise); font-size: 0.8rem; }
+@media (max-width: 767px) { .staffel-cover { grid-auto-columns: 104px; gap: 12px; } }
+.staffel-karte .cover .gesehen-haken svg.ic { width: 16px; height: 16px; }

@@ -76,38 +76,64 @@ class Player {
         this.kreisel = el('div.kreisel');
         this.mitte = el('div.mitte-status', this.kreisel);
         this.titelEl = el('div.titel');
-        this.zeitEl = el('span.zeit', '0:00 / 0:00');
+        this.zeitJetzt = el('span.zeit', '0:00');
+        this.zeitRest = el('span.zeit.rest', '0:00');
         this.gespielt = el('div.gespielt');
         this.geladen = el('div.geladen');
         this.knauf = el('div.knauf');
-        this.markierungen = el('div');
+        this.markierungen = el('div.markierungen');
         this.vorschau = el('div.vorschau-zeit', { hidden: true });
-        this.spur = el('div.spur', this.geladen, this.markierungen, this.gespielt, this.knauf);
-        this.leiste = el('div.zeitleiste', this.spur, this.vorschau);
-        this.playKnopf = el('button.p-knopf.gross', { 'aria-label': 'Abspielen/Pause', onclick: () => this.umschalten() }, icon('play'));
-        this.vollKnopf = el('button.p-knopf', { 'aria-label': 'Vollbild', onclick: () => this.vollbild() }, icon('vollbild'));
-        this.panelEl = el('div.panel.glass-panel', { hidden: true });
-        this.ueberspringenEl = el('button.knopf.weiss.ueberspringen', { hidden: true, onclick: () => this.introUeberspringen() }, 'Intro überspringen', icon('naechste'));
-        this.naechsteEl = el('div.naechste-karte.glass-panel', { hidden: true });
+        this.spurEl = el('div.leiste-spur', this.geladen, this.markierungen, this.gespielt, this.knauf);
+        this.leiste = el('div.zeitleiste', this.spurEl, this.vorschau);
+        const knopf = (name, label, fn, extra = '') => el('button.p-knopf' + extra, { 'aria-label': label, title: label, onclick: (e) => { e.stopPropagation(); fn(); } }, icon(name));
+        this.playKnopf = knopf('play', 'Abspielen/Pause (Leertaste)', () => this.umschalten());
+        this.mittePlay = el('button.mitte-play', { 'aria-label': 'Abspielen/Pause', onclick: (e) => { e.stopPropagation(); this.umschalten(); } }, icon('play'));
+        this.vollKnopf = knopf('vollbild', 'Vollbild (F)', () => this.vollbild());
+        // Lautstärke: Knopf schaltet stumm, Regler (am Rechner) daneben
+        this.tonKnopf = knopf('ton', 'Stumm (M)', () => { this.video.muted = !this.video.muted; });
+        this.lautRegler = el('input.laut', { type: 'range', min: 0, max: 1, step: 0.05, value: 1, 'aria-label': 'Lautstärke',
+            oninput: (e) => { this.video.volume = Number(e.target.value); this.video.muted = this.video.volume === 0; }, onclick: (e) => e.stopPropagation() });
+        this.naechsteKnopf = el('button.p-knopf.mit-text', { hidden: true, title: 'Nächste Folge', onclick: (e) => { e.stopPropagation(); this.naechste(); } }, icon('naechste'), el('span', 'Nächste'));
+        this.panelEl = el('div.panel', { hidden: true, onclick: (e) => e.stopPropagation() });
+        this.ueberspringenEl = el('button.ueberspringen', { hidden: true, onclick: (e) => { e.stopPropagation(); this.introUeberspringen(); } }, 'Intro überspringen', icon('naechste'));
+        this.naechsteEl = el('div.naechste-karte', { hidden: true, onclick: (e) => e.stopPropagation() });
         this.ebene = el('div.ebene',
-            el('div.oben', el('button.p-knopf', { 'aria-label': 'Schließen', onclick: () => this.schliessen() }, icon('zurueck')), this.titelEl),
-            el('div.unten', this.leiste,
+            el('div.oben', knopf('zurueck', 'Zurück (Esc)', () => this.schliessen(), '.rund'), this.titelEl),
+            el('div.mitte-steuerung',
+                knopf('zurueck10', '10 Sekunden zurück (←)', () => this.springen(-10), '.mittel'),
+                this.mittePlay,
+                knopf('vor10', '10 Sekunden vor (→)', () => this.springen(10), '.mittel')),
+            el('div.unten',
+                el('div.leiste-zeile', this.zeitJetzt, this.leiste, this.zeitRest),
                 el('div.steuerung',
-                    this.playKnopf,
-                    el('button.p-knopf', { 'aria-label': '10 Sekunden zurück', onclick: () => this.springen(-10) }, icon('zurueck10')),
-                    el('button.p-knopf', { 'aria-label': '10 Sekunden vor', onclick: () => this.springen(10) }, icon('vor10')),
-                    this.zeitEl,
-                    el('div.rechts',
-                        el('button.p-knopf', { 'aria-label': 'Ton und Untertitel', onclick: () => this.panel('spuren') }, icon('untertitel')),
-                        el('button.p-knopf', { 'aria-label': 'Einstellungen', onclick: () => this.panel('einstellungen') }, icon('einstellungen')),
+                    el('div.links', this.playKnopf, knopf('zurueck10', '10 Sekunden zurück (←)', () => this.springen(-10), '.nur-gross'),
+                        knopf('vor10', '10 Sekunden vor (→)', () => this.springen(10), '.nur-gross'), el('div.lautstaerke', this.tonKnopf, this.lautRegler)),
+                    el('div.rechts', this.naechsteKnopf,
+                        knopf('untertitel', 'Ton und Untertitel', () => this.panel('spuren')),
+                        knopf('einstellungen', 'Einstellungen', () => this.panel('einstellungen')),
                         this.vollKnopf))));
         this.wurzel = el('div.player', this.video, this.mitte, this.ebene, this.ueberspringenEl, this.naechsteEl, this.panelEl);
         document.body.append(this.wurzel);
         document.body.style.overflow = 'hidden';
 
         const v = this.video;
-        v.addEventListener('play', () => this.playKnopf.replaceChildren(icon('pause')));
-        v.addEventListener('pause', () => { this.playKnopf.replaceChildren(icon('play')); this.fortschrittSenden(); this.wach(); });
+        const playIcons = () => {
+            const n = v.paused ? 'play' : 'pause';
+            this.playKnopf.replaceChildren(icon(n));
+            this.mittePlay.replaceChildren(icon(n));
+            this.wurzel.classList.toggle('pausiert', v.paused);
+        };
+        v.addEventListener('play', playIcons);
+        v.addEventListener('pause', () => { playIcons(); this.fortschrittSenden(); this.wach(); });
+        v.addEventListener('volumechange', () => {
+            this.tonKnopf.replaceChildren(icon(v.muted || v.volume === 0 ? 'stumm' : 'ton'));
+            this.lautRegler.value = v.muted ? 0 : v.volume;
+            try { localStorage.setItem('bluewave.lautstaerke', JSON.stringify({ v: v.volume, m: v.muted })); } catch { /* privat */ }
+        });
+        try {
+            const l = JSON.parse(localStorage.getItem('bluewave.lautstaerke') || 'null');
+            if (l) { v.volume = Math.min(1, Math.max(0, Number(l.v) || 1)); v.muted = !!l.m; }
+        } catch { /* privat */ }
         v.addEventListener('waiting', () => { this.mitte.hidden = false; });
         v.addEventListener('playing', () => { this.mitte.hidden = true; });
         v.addEventListener('canplay', () => { this.mitte.hidden = true; });
@@ -115,47 +141,69 @@ class Player {
         v.addEventListener('progress', () => this.zeitAktualisieren());
         v.addEventListener('ended', () => this.ende());
         v.addEventListener('error', () => { if (!this.hls) this.fehler('Die Datei lässt sich hier nicht abspielen.' + (this.daten?.modus === 'direkt' ? ' Versuche es mit Umwandlung …' : ''), this.daten?.modus === 'direkt'); });
+        playIcons();
 
-        // Zeitleiste: klicken und ziehen
+        // Zeitleiste: klicken und ziehen, Vorschau der Zielzeit
         const position = (ev) => {
-            const r = this.spur.getBoundingClientRect();
-            return Math.min(1, Math.max(0, ((ev.touches?.[0]?.clientX ?? ev.clientX) - r.left) / r.width));
+            const r = this.spurEl.getBoundingClientRect();
+            return Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width));
         };
         let ziehen = false;
-        this.leiste.addEventListener('pointerdown', (ev) => { ziehen = true; this.leiste.setPointerCapture(ev.pointerId); this.zeigeZiel(position(ev)); });
+        this.leiste.addEventListener('click', (ev) => ev.stopPropagation());
+        this.leiste.addEventListener('pointerdown', (ev) => { ziehen = true; this.leiste.setPointerCapture(ev.pointerId); this.leiste.classList.add('zieht'); this.zeigeZiel(position(ev)); });
         this.leiste.addEventListener('pointermove', (ev) => {
             const p = position(ev);
             this.vorschau.hidden = false;
             this.vorschau.style.left = p * 100 + '%';
             this.vorschau.textContent = zeit(p * this.dauer());
             if (ziehen) this.zeigeZiel(p);
+            this.wach();
         });
-        this.leiste.addEventListener('pointerleave', () => { this.vorschau.hidden = true; });
-        this.leiste.addEventListener('pointerup', (ev) => {
+        this.leiste.addEventListener('pointerleave', () => { if (!ziehen) this.vorschau.hidden = true; });
+        const loslassen = (ev) => {
             if (!ziehen) return;
             ziehen = false;
+            this.leiste.classList.remove('zieht');
+            this.vorschau.hidden = true;
             this.video.currentTime = position(ev) * this.dauer();
-        });
+        };
+        this.leiste.addEventListener('pointerup', loslassen);
+        this.leiste.addEventListener('pointercancel', loslassen);
 
         this.taste = (ev) => {
-            if (ev.target.closest('input, select, textarea')) return;
+            if (ev.target.closest('input:not([type=range]), select, textarea')) return;
             const k = ev.key;
             if (k === ' ' || k === 'k') { ev.preventDefault(); this.umschalten(); } else if (k === 'ArrowLeft') this.springen(-10);
             else if (k === 'ArrowRight') this.springen(10);
+            else if (k === 'ArrowUp') { ev.preventDefault(); this.video.volume = Math.min(1, this.video.volume + 0.1); this.video.muted = false; }
+            else if (k === 'ArrowDown') { ev.preventDefault(); this.video.volume = Math.max(0, this.video.volume - 0.1); }
+            else if (k === 'm') this.video.muted = !this.video.muted;
             else if (k === 'f') this.vollbild();
+            else if (k === 'n' && this.daten?.naechste) this.naechste();
             else if (k === 'Escape') { if (!this.panelEl.hidden) this.panelEl.hidden = true; else if (!document.fullscreenElement) this.schliessen(); }
             else return;
             this.wach();
         };
         document.addEventListener('keydown', this.taste);
-        this.wurzel.addEventListener('pointermove', () => this.wach());
+        this.wurzel.addEventListener('pointermove', (ev) => { if (ev.pointerType === 'mouse') this.wach(); });
+        // Klick/Tippen auf das Bild: Maus = Pause umschalten; Touch = Steuerung zeigen/verstecken, Doppeltipp links/rechts = ±10 s
+        let letzterTipp = 0;
         this.wurzel.addEventListener('click', (ev) => {
-            if (ev.target === this.video || ev.target === this.ebene) {
-                if (!this.panelEl.hidden) { this.panelEl.hidden = true; return; }
-                if (matchMedia('(pointer: coarse)').matches) this.wach(); else this.umschalten();
+            if (!this.panelEl.hidden) { this.panelEl.hidden = true; return; }
+            if (ev.target.closest('button, input, .zeitleiste, .naechste-karte')) return;
+            const touch = matchMedia('(pointer: coarse)').matches;
+            if (!touch) { this.umschalten(); this.wach(); return; }
+            const jetzt = Date.now();
+            if (jetzt - letzterTipp < 300) {
+                const x = ev.clientX / window.innerWidth;
+                if (x < 0.35) this.springen(-10, true); else if (x > 0.65) this.springen(10, true);
+                letzterTipp = 0;
+                return;
             }
+            letzterTipp = jetzt;
+            if (this.wurzel.classList.contains('leerlauf')) this.wach(); else if (!this.video.paused) this.wurzel.classList.add('leerlauf');
         });
-        this.video.addEventListener('dblclick', () => this.vollbild());
+        this.video.addEventListener('dblclick', () => { if (!matchMedia('(pointer: coarse)').matches) this.vollbild(); });
         document.addEventListener('fullscreenchange', this.vollAenderung = () => this.vollKnopf.replaceChildren(icon(document.fullscreenElement ? 'vollbildAus' : 'vollbild')));
         this.wach();
     }
@@ -176,7 +224,8 @@ class Player {
             return;
         }
         const d = this.daten;
-        this.titelEl.replaceChildren(el('b', d.info.titel), d.info.untertitel ? el('span', String(d.info.untertitel)) : null);
+        this.titelEl.replaceChildren(d.info.untertitel ? el('small', d.info.titel) : null, el('b', d.info.untertitel ? String(d.info.untertitel) : d.info.titel));
+        this.naechsteKnopf.hidden = !d.naechste;
         this.markerZeichnen();
         this.introUebersprungen = false;
         this.naechsteGezeigt = false;
@@ -233,7 +282,14 @@ class Player {
 
     // ---------- Steuerung ----------
     umschalten() { if (this.video.paused) this.video.play().catch(() => {}); else this.video.pause(); }
-    springen(s) { this.video.currentTime = Math.max(0, Math.min(this.dauer() - 1, this.video.currentTime + s)); }
+    springen(s, zeigen = false) {
+        this.video.currentTime = Math.max(0, Math.min(this.dauer() - 1, this.video.currentTime + s));
+        if (zeigen) {
+            const b = el('div.sprung-anzeige' + (s < 0 ? '.links' : '.rechts'), icon(s < 0 ? 'zurueck10' : 'vor10'), `${s > 0 ? '+' : ''}${s} s`);
+            this.wurzel.append(b);
+            setTimeout(() => b.remove(), 650);
+        }
+    }
     vollbild() {
         if (document.fullscreenElement) document.exitFullscreen?.();
         else (this.wurzel.requestFullscreen?.() || this.video.webkitEnterFullscreen?.());
@@ -256,7 +312,8 @@ class Player {
             const b = this.video.buffered;
             for (let i = 0; i < b.length; i++) if (b.start(i) <= t && b.end(i) >= t) this.geladen.style.width = (b.end(i) / d) * 100 + '%';
         }
-        this.zeitEl.textContent = `${zeit(t)} / ${zeit(d)}`;
+        this.zeitJetzt.textContent = zeit(t);
+        this.zeitRest.textContent = d > 0 ? '−' + zeit(Math.max(0, d - t)) : '0:00';
         this.markerPruefen(t);
     }
 
@@ -299,12 +356,14 @@ class Player {
     naechsteKarte(n) {
         let rest = Number(this.e.countdown_s || 10);
         const zaehler = el('span', String(rest));
+        const balken = el('span.countdown-balken', { style: { animationDuration: rest + 's' } });
         this.naechsteEl.replaceChildren(
-            n.standbild ? el('img', { src: n.standbild, alt: '' }) : el('img'),
-            el('div', el('div.klein', 'Nächste Folge'), el('b', `${n.kennung} · ${n.titel}`),
+            el('button.bild', { onclick: () => this.naechste(), 'aria-label': 'Nächste Folge jetzt' }, n.standbild ? el('img', { src: n.standbild, alt: '' }) : null, el('span.play-rund', icon('play'))),
+            el('div.text', el('small', 'Nächste Folge in ', zaehler, ' s'), el('b', n.titel), el('span', n.kennung),
                 el('div.knoepfe',
-                    el('button.knopf.weiss.klein', { onclick: () => this.naechste() }, icon('play'), 'Jetzt (', zaehler, ')'),
-                    el('button.knopf.klein', { onclick: () => { clearInterval(this.countdownTimer); this.naechsteEl.hidden = true; } }, 'Abspann ansehen'))));
+                    el('button.knopf.weiss.klein', { onclick: () => this.naechste() }, icon('play'), 'Jetzt ansehen'),
+                    el('button.knopf.klein', { onclick: () => { clearInterval(this.countdownTimer); this.naechsteEl.hidden = true; } }, 'Abspann'))),
+            balken);
         this.naechsteEl.hidden = false;
         clearInterval(this.countdownTimer);
         this.countdownTimer = setInterval(() => {
@@ -336,21 +395,24 @@ class Player {
         this.panelEl.dataset.art = art;
         const d = this.daten;
         if (!d) return;
-        const wahl = (text, an, fn, zusatz) => el('button.wahl', { onclick: fn }, el('span.haken', an ? icon('haken') : null), el('span', text, zusatz ? el('span.leise', ' ' + zusatz) : null));
+        const wahl = (text, an, fn, zusatz) => el('button.wahl' + (an ? '.an' : ''), { onclick: fn }, el('span.haken', an ? icon('haken') : null),
+            el('span.text', el('span', text), zusatz ? el('small', zusatz) : null));
+        const setzen = (...teile) => this.panelEl.replaceChildren(...teile.flat(Infinity).filter(Boolean));
         if (art === 'spuren') {
-            this.panelEl.replaceChildren(
+            setzen(el('div.panel-spalte',
                 el('h3', 'Ton'),
-                d.tonspuren.map((t) => wahl(t.sprache_name, t.index === d.ton, () => this.neuStarten({ ton: t.index }), t.text + (t.kommentar ? ' · Kommentar' : ''))),
+                d.tonspuren.map((t) => wahl(t.sprache_name, t.index === d.ton, () => this.neuStarten({ ton: t.index }), t.text + (t.kommentar ? ' · Kommentar' : '')))),
+                el('div.panel-spalte',
                 el('h3', 'Untertitel'),
                 wahl('Aus', !d.untertitel_aktiv, () => { if (d.transkodierung?.eingebrannt) this.neuStarten({ untertitel: 'aus' }); else { this.untertitelAktivieren(null); this.panelEl.hidden = true; } }),
                 d.untertitel.map((u) => wahl(u.sprache_name + (u.erzwungen ? ' (erzwungen)' : '') + (u.sdh ? ' (SDH)' : ''), u.id === d.untertitel_aktiv, () => {
                     if (u.bild || d.transkodierung?.eingebrannt) this.neuStarten({ untertitel: u.id });
                     else { this.untertitelAktivieren(u.id); this.panelEl.hidden = true; }
-                }, u.bild ? 'wird eingebrannt' : (u.quelle === 'opensubtitles' ? 'OpenSubtitles' : ''))));
+                }, u.bild ? 'wird eingebrannt' : (u.quelle === 'opensubtitles' ? 'OpenSubtitles' : '')))));
         } else {
             const info = d.modus === 'direkt' ? 'Direkt abgespielt (Original)' : `Umgewandelt: ${d.transkodierung.hoehe}p · ${(d.transkodierung.bitrate_k / 1000).toString().replace('.', ',')} Mbit/s · ${d.transkodierung.profil}`
                 + (d.transkodierung.tonemap ? ' · HDR→SDR' : '') + (d.grund ? ` (${d.grund})` : '');
-            this.panelEl.replaceChildren(
+            setzen(
                 el('h3', 'Nachtmodus'),
                 ['aus', 'leicht', 'stark'].map((n) => wahl({ aus: 'Aus (Ton unverändert)', leicht: 'Leicht', stark: 'Stark' }[n], this.nacht === n, () => { this.nacht = n; this.tonKette(); this.panel('einstellungen'); this.panel('einstellungen'); })),
                 el('h3', 'Dialog-Anhebung'),
@@ -367,6 +429,7 @@ class Player {
                     d.marker?.abspann ? wahl('Abspann-Marker löschen', false, () => this.markerLoeschen('abspann'), d.marker.abspann.quelle) : null,
                 ] : null);
         }
+        this.panelEl.classList.toggle('zweispaltig', art === 'spuren');
         this.panelEl.hidden = false;
         this.wach();
     }
