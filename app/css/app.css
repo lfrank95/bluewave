@@ -926,3 +926,6 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
 .staffel-karte span { color: var(--text-leise); font-size: 0.8rem; }
 @media (max-width: 767px) { .staffel-cover { grid-auto-columns: 104px; gap: 12px; } }
 .staffel-karte .cover .gesehen-haken svg.ic { width: 16px; height: 16px; }
+.player .qualitaet-chip { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.02em; padding: 0 12px; height: 32px; border: 1px solid rgba(255, 255, 255, 0.3); }
+.player .qualitaet-chip.original { border-color: rgba(92, 200, 255, 0.6); color: var(--accent-text); }
+@media (max-width: 767px), (max-height: 500px) { .player .qualitaet-chip span { display: inline; } .player .p-knopf.mit-text.qualitaet-chip { width: auto; padding: 0 10px; } }

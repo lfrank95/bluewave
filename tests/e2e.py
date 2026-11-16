@@ -211,6 +211,25 @@ pruefe(w['modus'] == 'direkt', f'direkt erwartet: {w.get("grund")}')
 code, body, h = admin.roh('GET', w['url'], kopf={'Range': 'bytes=0-1023'})
 pruefe(code == 206 and len(body) == 1024 and 'bytes 0-1023/' in h.get('Content-Range', ''), f'Range: {code} {h.get("Content-Range")}')
 
+schritt('Direct Stream (MKV: Video unverändert, nur Container) und Qualitätswahl')
+ultron = next(f for f in filme if f['titel'] == 'Avengers: Age of Ultron')
+w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': {**FAEHIG, 'remux': True}})
+pruefe(w['modus'] == 'remux' and w['remux']['audio'] == 'copy' and 'mkv' in w.get('grund', ''), f'Direct Stream erwartet: {w.get("modus")} {w.get("grund")} {w.get("remux")}')
+k = admin.api('GET', f'remux/{w["datei_id"]}/position?start=12.5')['start']
+pruefe(0 <= k <= 12.5, f'Schlüsselbild vor 12,5 s: {k}')
+code, body, h = admin.roh('GET', f'/api/v1/remux/{w["datei_id"]}/strom?start={k}&ton=0&audio=copy&kanaele=2')
+pruefe(code == 200 and body[4:8] == b'ftyp' and b'moof' in body[:400000] and len(body) > 20000, f'fragmentiertes MP4: {code} {body[:16]} {len(body)}')
+w2 = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': FAEHIG})
+pruefe(w2['modus'] == 'hls', 'ohne remux-Fähigkeit (alte App) wie bisher umwandeln')
+admin.api('DELETE', 'stream/' + w2['sitzung'])
+w3 = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'faehigkeiten': {**FAEHIG, 'remux': True}, 'qualitaet': '480', 'datei_id': None})
+pruefe(w3['qualitaet'] == '480' and 'original' in w3['qualitaeten'], f'Qualitätswahl: {w3.get("qualitaet")} {w3.get("qualitaeten")}')
+if w3.get('sitzung'):
+    admin.api('DELETE', 'stream/' + w3['sitzung'])
+w4 = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': {**FAEHIG, 'remux': True}, 'erzwinge_transkodieren': True})
+pruefe(w4['modus'] == 'hls', 'Umwandeln erzwingen schlägt Direct Stream')
+admin.api('DELETE', 'stream/' + w4['sitzung'])
+
 schritt('Transkodieren (HLS) mit Spulen')
 # kleine Bildschirmhöhe → die 270p-Datei (die mit dem externen Untertitel) wird gewählt
 w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'faehigkeiten': {**FAEHIG, 'max_hoehe': 400}, 'start_ms': 0})

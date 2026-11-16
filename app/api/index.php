@@ -522,13 +522,36 @@ try {
             }
             break;
 
+        case 'remux':
+            // Direct Stream: remux/{datei}/position?start=S → Schlüsselbild; remux/{datei}/strom?start=&ton=&audio=&kanaele=
+            require_once __DIR__ . '/../includes/wiedergabe.php';
+            $d = zahl($t1) ? db_zeile('SELECT pfad, video_codec FROM dateien WHERE id = :id AND fehlt_seit IS NULL', ['id' => zahl($t1)]) : null;
+            if (!$d || !is_file($d['pfad'])) {
+                fehler('Datei nicht gefunden.', 404);
+            }
+            db_schliessen();
+            session_write_close();
+            if ($t2 === 'position' && $methode === 'GET') {
+                bw_json(['start' => remux_schluesselbild($d['pfad'], max(0, (float) ($_GET['start'] ?? 0)))]);
+            }
+            if ($t2 === 'strom' && $methode === 'GET') {
+                remux_senden(remux_befehl($d['pfad'], max(0, (float) ($_GET['start'] ?? 0)), max(0, (int) ($_GET['ton'] ?? 0)),
+                    ($_GET['audio'] ?? '') === 'copy' ? 'copy' : 'aac', (int) ($_GET['kanaele'] ?? 2), strtolower((string) $d['video_codec']) === 'hevc'));
+            }
+            break;
+
         case 'untertitel':
             require_once __DIR__ . '/../includes/wiedergabe.php';
             if (preg_match('/^(\d+)\.vtt$/', $t1, $mm) && $methode === 'GET') {
                 $p = untertitel_vtt((int) $mm[1]);
                 header('Content-Type: text/vtt; charset=utf-8');
                 header('Cache-Control: private, max-age=3600');
-                readfile($p);
+                $versatz = (int) ($_GET['versatz_ms'] ?? 0);
+                if ($versatz > 0) {
+                    echo vtt_verschieben((string) file_get_contents($p), $versatz); // Direct Stream nach dem Spulen
+                } else {
+                    readfile($p);
+                }
                 exit;
             }
             if ($t1 === 'suchen' && $methode === 'POST') {

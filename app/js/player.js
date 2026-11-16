@@ -28,6 +28,8 @@ function faehigkeiten() {
         hdr: window.matchMedia('(dynamic-range: high)').matches && video.hevc,
         hls: v.canPlayType('application/vnd.apple.mpegurl') ? 'nativ' : (window.MediaSource ? 'mse' : false),
         max_hoehe: Math.round(Math.max(screen.width, screen.height) * dpr * 9 / 16),
+        // Direct Stream (Video unverändert, fortlaufendes fragmentiertes MP4) kann jeder Browser
+        remux: true,
     };
 }
 
@@ -68,6 +70,8 @@ class Player {
         this.nacht = this.e.nachtmodus || 'aus';
         this.dialogDb = Number(this.e.dialog_db || 0);
         this.markerEntwurf = {};
+        this.versatz = 0;          // Direct Stream: Startpunkt des laufenden Stroms in der Datei (Sekunden)
+        this.qualitaetWahl = null; // im Player gewählte Qualität (gilt bis zum Schließen)
         this.aufbauen();
     }
 
@@ -93,6 +97,7 @@ class Player {
         this.tonKnopf = knopf('ton', 'Stumm (M)', () => { this.video.muted = !this.video.muted; });
         this.lautRegler = el('input.laut', { type: 'range', min: 0, max: 1, step: 0.05, value: 1, 'aria-label': 'Lautstärke',
             oninput: (e) => { this.video.volume = Number(e.target.value); this.video.muted = this.video.volume === 0; }, onclick: (e) => e.stopPropagation() });
+        this.qualitaetKnopf = el('button.p-knopf.mit-text.qualitaet-chip', { title: 'Qualität', onclick: (e) => { e.stopPropagation(); this.panel('einstellungen'); } }, el('span', ''));
         this.naechsteKnopf = el('button.p-knopf.mit-text', { hidden: true, title: 'Nächste Folge', onclick: (e) => { e.stopPropagation(); this.naechste(); } }, icon('naechste'), el('span', 'Nächste'));
         this.panelEl = el('div.panel', { hidden: true, onclick: (e) => e.stopPropagation() });
         this.ueberspringenEl = el('button.ueberspringen', { hidden: true, onclick: (e) => { e.stopPropagation(); this.introUeberspringen(); } }, 'Intro überspringen', icon('naechste'));
@@ -108,7 +113,7 @@ class Player {
                 el('div.steuerung',
                     el('div.links', this.playKnopf, knopf('zurueck10', '10 Sekunden zurück (←)', () => this.springen(-10), '.nur-gross'),
                         knopf('vor10', '10 Sekunden vor (→)', () => this.springen(10), '.nur-gross'), el('div.lautstaerke', this.tonKnopf, this.lautRegler)),
-                    el('div.rechts', this.naechsteKnopf,
+                    el('div.rechts', this.naechsteKnopf, this.qualitaetKnopf,
                         knopf('untertitel', 'Ton und Untertitel', () => this.panel('spuren')),
                         knopf('einstellungen', 'Einstellungen', () => this.panel('einstellungen')),
                         this.vollKnopf))));
@@ -140,7 +145,23 @@ class Player {
         v.addEventListener('timeupdate', () => this.zeitAktualisieren());
         v.addEventListener('progress', () => this.zeitAktualisieren());
         v.addEventListener('ended', () => this.ende());
-        v.addEventListener('error', () => { if (!this.hls) this.fehler('Die Datei lässt sich hier nicht abspielen.' + (this.daten?.modus === 'direkt' ? ' Versuche es mit Umwandlung …' : ''), this.daten?.modus === 'direkt'); });
+        // Direct Stream: natives Spulen (Medientasten, Systemsteuerung) außerhalb des Puffers → Strom neu starten
+        v.addEventListener('seeking', () => {
+            if (this.daten?.modus !== 'remux' || this.remuxNr === undefined) return;
+            const rel = v.currentTime;
+            const drin = (r) => { for (let i = 0; i < r.length; i++) if (rel >= r.start(i) && rel <= r.end(i)) return true; return false; };
+            if (drin(v.buffered) && drin(v.seekable)) return;
+            this.remuxLaden(this.versatz + rel);
+        });
+        v.addEventListener('error', () => {
+            // Direct Stream klappt auf diesem Gerät nicht → einmal automatisch mit Umwandlung
+            if (this.daten?.modus === 'remux' && !this.remuxFehler) {
+                this.remuxFehler = true;
+                meldung('Direct Stream klappt hier nicht – wandle um …');
+                this.neuStarten({ erzwinge_transkodieren: true });
+                return;
+            }
+            if (!this.hls) this.fehler('Die Datei lässt sich hier nicht abspielen.' + (this.daten?.modus === 'direkt' ? ' Versuche es mit Umwandlung …' : ''), this.daten?.modus === 'direkt'); });
         playIcons();
 
         // Zeitleiste: klicken und ziehen, Vorschau der Zielzeit
@@ -165,7 +186,7 @@ class Player {
             ziehen = false;
             this.leiste.classList.remove('zieht');
             this.vorschau.hidden = true;
-            this.video.currentTime = position(ev) * this.dauer();
+            this.gehe(position(ev) * this.dauer());
         };
         this.leiste.addEventListener('pointerup', loslassen);
         this.leiste.addEventListener('pointercancel', loslassen);
@@ -217,7 +238,8 @@ class Player {
         this.mitte.style.pointerEvents = '';
         this.mitte.replaceChildren(this.kreisel);
         try {
-            const d = await api('wiedergabe/start', 'POST', { ...this.ziel, ...extra, faehigkeiten: faehigkeiten(), sitzung_alt: this.daten?.sitzung || '' });
+            const d = await api('wiedergabe/start', 'POST', { ...this.ziel, ...(this.qualitaetWahl ? { qualitaet: this.qualitaetWahl } : {}), ...extra,
+                faehigkeiten: faehigkeiten(), sitzung_alt: this.daten?.sitzung || '' });
             this.daten = d;
         } catch (x) {
             this.fehler(x.message);
@@ -226,6 +248,8 @@ class Player {
         const d = this.daten;
         this.titelEl.replaceChildren(d.info.untertitel ? el('small', d.info.titel) : null, el('b', d.info.untertitel ? String(d.info.untertitel) : d.info.titel));
         this.naechsteKnopf.hidden = !d.naechste;
+        this.qualitaetKnopf.firstChild.textContent = this.qualitaetText(d);
+        this.qualitaetKnopf.classList.toggle('original', d.modus !== 'hls');
         this.markerZeichnen();
         this.introUebersprungen = false;
         this.naechsteGezeigt = false;
@@ -241,6 +265,11 @@ class Player {
         const v = this.video;
         if (this.hls) { this.hls.destroy(); this.hls = null; }
         v.querySelectorAll('track').forEach((t) => t.remove());
+        this.versatz = 0;
+        if (d.modus === 'remux') {
+            await this.remuxLaden(start, false);
+            return;
+        }
         if (d.modus === 'hls' && v.canPlayType('application/vnd.apple.mpegurl')) {
             v.src = d.url;
             v.addEventListener('loadedmetadata', () => { if (start > 0) v.currentTime = start; }, { once: true });
@@ -261,14 +290,65 @@ class Player {
             v.src = d.url;
             v.addEventListener('loadedmetadata', () => { if (start > 0) v.currentTime = start; }, { once: true });
         }
-        // Text-Untertitel als Spuren; die gewählte einschalten
+        this.spurenSetzen();
+        try { await v.play(); } catch (x) { this.playKnopf.replaceChildren(icon('play')); this.mitte.hidden = true; }
+    }
+
+    /** Text-Untertitel als Spuren (bei Direct Stream um den Versatz verschoben); die gewählte einschalten */
+    spurenSetzen() {
+        const v = this.video;
+        const d = this.daten;
+        v.querySelectorAll('track').forEach((t) => t.remove());
+        const versatzMs = Math.round(this.versatz * 1000);
         for (const u of d.untertitel.filter((x) => x.url)) {
-            const t = el('track', { kind: 'subtitles', src: u.url, srclang: (u.sprache || 'und').slice(0, 2), label: u.sprache_name + (u.erzwungen ? ' (erzwungen)' : '') });
+            const t = el('track', { kind: 'subtitles', src: u.url + (versatzMs > 0 ? '?versatz_ms=' + versatzMs : ''), srclang: (u.sprache || 'und').slice(0, 2),
+                label: u.sprache_name + (u.erzwungen ? ' (erzwungen)' : '') });
             t.dataset.id = u.id;
             v.append(t);
         }
         this.untertitelAktivieren(d.untertitel_aktiv);
+    }
+
+    /** Direct Stream ab Sekunde $start (wird auf das Schlüsselbild davor gelegt) neu laden */
+    async remuxLaden(start, weiterSpielen = true) {
+        const d = this.daten;
+        const v = this.video;
+        const nr = (this.remuxNr = (this.remuxNr || 0) + 1);
+        const warPausiert = weiterSpielen && v.paused && !!v.currentSrc;
+        this.mitte.hidden = false;
+        let k = 0;
+        if (start > 0.5) {
+            try { k = (await api(`remux/${d.datei_id}/position?start=${start.toFixed(3)}`)).start; } catch { k = Math.max(0, start - 2); }
+        }
+        if (nr !== this.remuxNr) return; // schon wieder gespult
+        this.versatz = k;
+        const p = new URLSearchParams({ start: k.toFixed(3), ton: d.remux.ton, audio: d.remux.audio, kanaele: d.remux.kanaele });
+        v.src = `${d.url}/strom?${p}`;
+        this.spurenSetzen();
+        this.zeitAktualisieren();
+        if (warPausiert) {
+            v.addEventListener('loadeddata', () => { this.mitte.hidden = true; }, { once: true });
+            return;
+        }
         try { await v.play(); } catch (x) { this.playKnopf.replaceChildren(icon('play')); this.mitte.hidden = true; }
+    }
+
+    /** Position in der Datei (Sekunden) – bei Direct Stream plus Versatz */
+    pos() { return this.versatz + (this.video.currentTime || 0); }
+
+    /** Springen: im Puffer direkt, bei Direct Stream außerhalb des Puffers Strom neu starten */
+    gehe(t) {
+        t = Math.max(0, Math.min(this.dauer() - 0.5, t));
+        if (this.daten?.modus === 'remux') {
+            // nur springen, wo der Browser wirklich kann (gepuffert UND spulbar); sonst Strom an der Stelle neu starten
+            const rel = t - this.versatz;
+            const drin = (r) => { for (let i = 0; i < r.length; i++) if (rel >= r.start(i) && rel <= r.end(i) - 0.5) return true; return false; };
+            if (drin(this.video.buffered) && drin(this.video.seekable)) { this.video.currentTime = rel; return; }
+            this.remuxLaden(t);
+            this.zeigeZiel(t / (this.dauer() || 1));
+            return;
+        }
+        this.video.currentTime = t;
     }
 
     untertitelAktivieren(id) {
@@ -283,7 +363,7 @@ class Player {
     // ---------- Steuerung ----------
     umschalten() { if (this.video.paused) this.video.play().catch(() => {}); else this.video.pause(); }
     springen(s, zeigen = false) {
-        this.video.currentTime = Math.max(0, Math.min(this.dauer() - 1, this.video.currentTime + s));
+        this.gehe(this.pos() + s);
         if (zeigen) {
             const b = el('div.sprung-anzeige' + (s < 0 ? '.links' : '.rechts'), icon(s < 0 ? 'zurueck10' : 'vor10'), `${s > 0 ? '+' : ''}${s} s`);
             this.wurzel.append(b);
@@ -305,12 +385,18 @@ class Player {
     }
 
     zeitAktualisieren() {
-        const t = this.video.currentTime;
+        const t = this.pos();
         const d = this.dauer();
         if (d > 0) {
             this.zeigeZiel(t / d);
             const b = this.video.buffered;
-            for (let i = 0; i < b.length; i++) if (b.start(i) <= t && b.end(i) >= t) this.geladen.style.width = (b.end(i) / d) * 100 + '%';
+            const rel = t - this.versatz;
+            for (let i = 0; i < b.length; i++) {
+                if (b.start(i) <= rel + 0.3 && b.end(i) >= rel) {
+                    this.geladen.style.left = ((b.start(i) + this.versatz) / d) * 100 + '%';
+                    this.geladen.style.width = ((b.end(i) - b.start(i)) / d) * 100 + '%';
+                }
+            }
         }
         this.zeitJetzt.textContent = zeit(t);
         this.zeitRest.textContent = d > 0 ? '−' + zeit(Math.max(0, d - t)) : '0:00';
@@ -350,7 +436,7 @@ class Player {
         if (!intro) return;
         this.introUebersprungen = true;
         this.ueberspringenEl.hidden = true;
-        this.video.currentTime = intro.ende_ms / 1000;
+        this.gehe(intro.ende_ms / 1000);
     }
 
     naechsteKarte(n) {
@@ -389,6 +475,12 @@ class Player {
         else this.schliessen();
     }
 
+    qualitaetText(d) {
+        if (d.modus === 'hls') return `${d.transkodierung.hoehe}p`;
+        const h = d.quelle?.hoehe || 0;
+        return (h >= 2000 ? '4K' : h ? `${h >= 1040 ? 1080 : h >= 700 ? 720 : h}p` : 'Original') + (d.modus === 'remux' ? ' · DS' : '');
+    }
+
     // ---------- Panels ----------
     panel(art) {
         if (!this.panelEl.hidden && this.panelEl.dataset.art === art) { this.panelEl.hidden = true; return; }
@@ -410,16 +502,28 @@ class Player {
                     else { this.untertitelAktivieren(u.id); this.panelEl.hidden = true; }
                 }, u.bild ? 'wird eingebrannt' : (u.quelle === 'opensubtitles' ? 'OpenSubtitles' : '')))));
         } else {
-            const info = d.modus === 'direkt' ? 'Direkt abgespielt (Original)' : `Umgewandelt: ${d.transkodierung.hoehe}p · ${(d.transkodierung.bitrate_k / 1000).toString().replace('.', ',')} Mbit/s · ${d.transkodierung.profil}`
-                + (d.transkodierung.tonemap ? ' · HDR→SDR' : '') + (d.grund ? ` (${d.grund})` : '');
+            const q = d.quelle || {};
+            const quelleText = [q.hoehe ? `${q.hoehe}p` : null, q.video_codec, q.hdr ? 'HDR' : null, q.bitrate_k ? `${(q.bitrate_k / 1000).toFixed(1).replace('.', ',')} Mbit/s` : null,
+                q.container ? q.container.toUpperCase() : null].filter(Boolean).join(' · ');
+            const info = d.modus === 'direkt' ? 'Direct Play – die Datei läuft unverändert.'
+                : d.modus === 'remux' ? `Direct Stream – Bild unverändert, ${d.remux.audio === 'copy' ? 'Ton unverändert' : 'Ton nach AAC'}, nur der Container wird angepasst${d.grund ? ` (${d.grund})` : ''}.`
+                : `Umgewandelt: ${d.transkodierung.hoehe}p · ${(d.transkodierung.bitrate_k / 1000).toString().replace('.', ',')} Mbit/s · ${d.transkodierung.profil}`
+                    + (d.transkodierung.tonemap ? ' · HDR→SDR' : '') + (d.grund ? ` (Grund: ${d.grund})` : '');
+            const QT = { original: ['Original', 'Direct Play/Stream, wenn möglich'], 2160: ['4K', '30 Mbit/s'], 1080: ['1080p', '10 Mbit/s'], 720: ['720p', '4 Mbit/s'], 480: ['480p', '1,5 Mbit/s'] };
+            const einst = { original: 'Original', 1080: '1080p', 720: '720p', 480: '480p' }[d.qualitaet_einstellung] || d.qualitaet_einstellung;
+            const qualitaet = [
+                wahl('Automatisch', !this.qualitaetWahl, () => { this.qualitaetWahl = null; this.neuStarten({ qualitaet: null }); }, `wie eingestellt: ${einst}`),
+                (d.qualitaeten || []).map((k) => wahl(QT[k][0], this.qualitaetWahl === k, () => { this.qualitaetWahl = k; this.neuStarten({ qualitaet: k }); }, QT[k][1])),
+            ];
             setzen(
+                el('h3', 'Qualität'),
+                qualitaet,
+                el('div.info-text', info, quelleText ? el('div', 'Quelle: ' + quelleText) : null),
+                d.modus !== 'hls' ? wahl('Umwandeln erzwingen', false, () => this.neuStarten({ erzwinge_transkodieren: true })) : null,
                 el('h3', 'Nachtmodus'),
                 ['aus', 'leicht', 'stark'].map((n) => wahl({ aus: 'Aus (Ton unverändert)', leicht: 'Leicht', stark: 'Stark' }[n], this.nacht === n, () => { this.nacht = n; this.tonKette(); this.panel('einstellungen'); this.panel('einstellungen'); })),
                 el('h3', 'Dialog-Anhebung'),
                 [0, 2, 4, 6].map((db) => wahl(db ? `+${db} dB` : 'Aus', this.dialogDb === db, () => { this.dialogDb = db; this.tonKette(); this.panel('einstellungen'); this.panel('einstellungen'); })),
-                el('h3', 'Wiedergabe'),
-                el('div.info-text', info),
-                d.modus === 'direkt' ? wahl('Umwandeln erzwingen', false, () => this.neuStarten({ erzwinge_transkodieren: true })) : null,
                 this.admin ? [
                     el('h3', 'Marker setzen (Admin)'),
                     wahl('Intro beginnt hier', false, () => this.markerSetzen('intro', 'start')),
@@ -436,13 +540,13 @@ class Player {
 
     async neuStarten(extra) {
         this.panelEl.hidden = true;
-        const pos = Math.round(this.video.currentTime * 1000);
+        const pos = Math.round(this.pos() * 1000);
         this.ziel = { ...this.ziel, datei_id: this.daten.datei_id };
-        await this.starten({ start_ms: pos, ton: this.daten.ton, untertitel: this.daten.untertitel_aktiv ?? 'aus', ...extra });
+        await this.starten({ start_ms: pos, ton: this.daten.ton, untertitel: this.daten.untertitel_aktiv ?? 'aus', ...(this.qualitaetWahl ? { qualitaet: this.qualitaetWahl } : {}), ...extra });
     }
 
     async markerSetzen(art, teil) {
-        const t = Math.round(this.video.currentTime * 1000);
+        const t = Math.round(this.pos() * 1000);
         const vorhanden = this.daten.marker?.[art] || {};
         const m = { start_ms: vorhanden.start_ms ?? 0, ende_ms: vorhanden.ende_ms ?? this.daten.dauer_ms, ...(this.markerEntwurf[art] || {}) };
         if (teil === 'start') m.start_ms = t; else m.ende_ms = t;
@@ -521,8 +625,8 @@ class Player {
     // ---------- Fortschritt und Ende ----------
     async fortschrittSenden(sofort = false) {
         const d = this.daten;
-        if (!d || !this.video.currentTime) return;
-        const daten = { art: d.art, id: d.id, datei_id: d.datei_id, position_ms: Math.round(this.video.currentTime * 1000), dauer_ms: d.dauer_ms, sitzung: d.sitzung || null };
+        if (!d || !this.pos()) return;
+        const daten = { art: d.art, id: d.id, datei_id: d.datei_id, position_ms: Math.round(this.pos() * 1000), dauer_ms: d.dauer_ms, sitzung: d.sitzung || null };
         try { await api('wiedergabe/fortschritt', 'POST', daten); } catch (x) { if (sofort) console.warn(x); }
     }
 

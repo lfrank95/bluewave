@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/hardware.php';
 require_once __DIR__ . '/bibliothek.php';
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/remux.php';
 
 const TEIL_SEKUNDEN = 6;
 
@@ -13,6 +14,7 @@ const BITRATE_JE_HOEHE = [2160 => 20000, 1440 => 12000, 1080 => 8000, 720 => 400
 function qualitaet_grenze(string $wahl): array
 {
     return match ($wahl) {
+        '2160' => ['hoehe' => 2160, 'bitrate_k' => 30000],
         '1080' => ['hoehe' => 1080, 'bitrate_k' => 10000],
         '720' => ['hoehe' => 720, 'bitrate_k' => 4000],
         '480' => ['hoehe' => 480, 'bitrate_k' => 1500],
@@ -150,9 +152,11 @@ function wiedergabe_starten(array $konto, array $w): array
     $id = (int) $w['id'];
     $e = $konto['einstellungen'];
     $heim = bw_ist_heimnetz();
-    $grenze = qualitaet_grenze($heim ? $e['qualitaet_heim'] : $e['qualitaet_unterwegs']);
+    // Qualität: im Player gewählt (gilt für diese Wiedergabe), sonst die Einstellung für Heimnetz bzw. unterwegs
+    $wahl = in_array((string) ($w['qualitaet'] ?? ''), ['original', '2160', '1080', '720', '480'], true) ? (string) $w['qualitaet'] : null;
+    $grenze = qualitaet_grenze($wahl ?? ($heim ? $e['qualitaet_heim'] : $e['qualitaet_unterwegs']));
     $hoehe = (int) ($w['faehigkeiten']['max_hoehe'] ?? 0);
-    if ($hoehe > 0) {
+    if ($hoehe > 0 && $wahl === null) {
         $grenze['hoehe'] = min($grenze['hoehe'], max(480, $hoehe));
     }
     $d = wiedergabe_datei($art, $id, isset($w['fassung_id']) ? (int) $w['fassung_id'] : null, isset($w['datei_id']) ? (int) $w['datei_id'] : null, $grenze);
@@ -197,11 +201,35 @@ function wiedergabe_starten(array $konto, array $w): array
         'naechste' => $art === 'folge' ? naechste_info(folge_danach($id)) : null,
         'heimnetz' => $heim,
     ];
+    // angebotene Qualitäten: Original plus jede Stufe bis zur Quellauflösung
+    $antwort['qualitaet'] = $wahl ?? 'auto';
+    $antwort['qualitaet_einstellung'] = $heim ? $e['qualitaet_heim'] : $e['qualitaet_unterwegs'];
+    $antwort['qualitaeten'] = array_values(array_filter(['original', '2160', '1080', '720', '480'],
+        static fn($q) => $q === 'original' || (int) $q <= (int) $d['hoehe'] + 40 || $q === '480'));
+    $antwort['quelle'] = ['hoehe' => (int) $d['hoehe'], 'video_codec' => strtoupper((string) $d['video_codec']), 'container' => (string) $d['container'],
+        'bitrate_k' => (int) round((int) $d['bitrate'] / 1000), 'hdr' => $d['hdr'] !== 'sdr'];
     if ($direkt) {
         $antwort['modus'] = 'direkt';
         $antwort['url'] = '/api/v1/datei/' . $d['id'] . '/inhalt';
         $antwort['grund'] = '';
         return $antwort;
+    }
+    // ---- Direct Stream: Video unverändert, nur Container (und ggf. Ton) neu ----
+    if (empty($w['erzwinge_transkodieren']) && !empty($w['faehigkeiten']['remux'])) {
+        [$rm, , $tonModus] = remux_moeglich($d, $ton, (array) $w['faehigkeiten'], $grenze, $ut, $tonIndex);
+        if ($rm) {
+            $kan = 2;
+            foreach ($ton as $t) {
+                if ((int) $t['strom_index'] === $tonIndex) {
+                    $kan = (int) $t['kanaele'];
+                }
+            }
+            $antwort['modus'] = 'remux';
+            $antwort['url'] = '/api/v1/remux/' . $d['id'];
+            $antwort['remux'] = ['ton' => $tonIndex, 'audio' => $tonModus, 'kanaele' => $kan];
+            $antwort['grund'] = $grund;
+            return $antwort;
+        }
     }
     // ---- Transkodieren ----
     $hw = hw_lesen() ?? hw_erkennen();
