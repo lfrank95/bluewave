@@ -46,7 +46,7 @@ export async function zeigen(r, app) {
         el('b', `${n.kennung} · ${n.titel}`),
         el('button.knopf.haupt', { onclick: () => app.abspielen({ art: 'folge', id: n.id }) }, icon('play'), n.modus === 'weiter' ? 'Weiterschauen' : 'Abspielen')) : null;
 
-    const heroEl = el('section.hero',
+    const heroEl = el('section.hero.detail',
         el('div.hg', { style: d.hintergrund ? { backgroundImage: `url("${d.hintergrund}")` } : {} }),
         el('div.inhalt', { style: { maxWidth: '100%' } }, el('div.serie-hero-inhalt',
             el('div.links', vor, d.logo ? el('img.logo', { src: d.logo, alt: d.titel }) : el('h1.gross', d.titel), meta,

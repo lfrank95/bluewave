@@ -9,7 +9,8 @@ const app = {
         const { spielen } = await import('./player.js');
         spielen(ziel, app);
     },
-    neuLaden: () => route(true),
+    neuLaden: () => route(true, true),
+    routeMerken: () => { letzteRoute = location.hash; },
 };
 window.__bluewave = app;
 
@@ -35,9 +36,25 @@ function rahmen() {
     const nav = [['', 'start', 'Start'], ['filme', 'film', 'Filme'], ['serien', 'serie', 'Serien'], ['universen', 'universum', 'Universen']];
     const suche = el('input', { type: 'search', placeholder: 'Suchen …', 'aria-label': 'Suchen' });
     let sucheTimer = null;
+    // Das Kopf-Suchfeld ist der Eingang: Tippen oder Enter öffnet die Suchseite, dort geht es im großen Feld weiter
+    // Fokus bleibt im Kopffeld, bis die Suchseite steht – sie übernimmt dann Text und Fokus (kein Tastendruck geht verloren)
+    app.kopfSuche = suche;
+    const zurSuche = () => {
+        if (parsen().name !== 'suche') location.hash = '#/suche';
+    };
     suche.addEventListener('input', () => {
         clearTimeout(sucheTimer);
-        sucheTimer = setTimeout(() => { location.hash = '#/suche?q=' + encodeURIComponent(suche.value.trim()); }, 300);
+        sucheTimer = setTimeout(zurSuche, 0);
+    });
+    suche.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); zurSuche(); } });
+    // „/“ oder Strg+K springt überall in die Suche
+    document.addEventListener('keydown', (e) => {
+        const tippt = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName || '');
+        if ((e.key === '/' && !tippt) || ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k')) {
+            e.preventDefault();
+            if (parsen().name === 'suche') document.querySelector('.such-gross')?.focus();
+            else location.hash = '#/suche';
+        }
     });
     const avatar = el('button.avatar', { 'aria-label': 'Menü', title: app.konto.anzeigename }, initialen(app.konto.anzeigename));
     avatar.addEventListener('click', (e) => {
@@ -53,7 +70,8 @@ function rahmen() {
         setTimeout(() => document.addEventListener('click', () => m.remove(), { once: true }));
     });
     kopfEl = el('header.kopf',
-        el('a.marke', { href: '#/' }, el('img', { src: '/img/logo.svg', alt: '' }), 'Bluewave'),
+        el('button.zurueck-knopf', { 'aria-label': 'Zurück', title: 'Zurück', onclick: zurueck }, icon('zurueck')),
+        el('a.marke', { href: '#/' }, el('img', { src: '/img/logo.svg', alt: '' }), el('span', 'Bluewave')),
         el('nav.nav', nav.map(([r, i, t]) => el('a', { href: '#/' + r, 'data-route': r }, icon(i), t))),
         el('div.kopf-rechts', el('label.suche-feld', icon('suche'), suche),
             el('a.rund-knopf', { href: '#/suche', 'aria-label': 'Suchen', style: { display: 'none' }, class: 'rund-knopf nur-mobil' }, icon('suche')), avatar));
@@ -75,14 +93,50 @@ function parsen() {
     return { name: teile[0] || '', teile, query: new URLSearchParams(query || '') };
 }
 
+// ---------- Verlauf: Zurück (Knopf und Browser) führt zur letzten Seite an die letzte Position ----------
+const OBEN = new Set(['', 'filme', 'serien', 'universen']);
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual';
+let positionen = {};
+try { positionen = JSON.parse(sessionStorage.getItem('bluewave.positionen') || '{}'); } catch { /* privat */ }
+let positionSperre = false;
+let speicherTimer = null;
+window.addEventListener('scroll', () => {
+    const id = history.state?.bw;
+    if (positionSperre || !id) return;
+    positionen[id] = window.scrollY;
+    clearTimeout(speicherTimer);
+    speicherTimer = setTimeout(() => {
+        try { sessionStorage.setItem('bluewave.positionen', JSON.stringify(positionen)); } catch { /* voll/privat */ }
+    }, 250);
+}, { passive: true });
+
+function elternSeite(r) {
+    if (r.name === 'film') return '#/filme';
+    if (r.name === 'serie') return '#/serien';
+    if (r.name === 'universum') return r.teile[2] === 'bearbeiten' ? `#/universum/${r.teile[1]}` : '#/universen';
+    if (r.name === 'reihe') return '#/filme?filter=reihen';
+    return '#/';
+}
+function zurueck() {
+    if (history.state?.vor) history.back();
+    else location.hash = elternSeite(parsen());
+}
+
 let letzteRoute = '';
-async function route(erzwingen = false) {
+async function route(erzwingen = false, neuLadenAufPlatz = false) {
     if (!app.konto) return;
     const r = parsen();
     const schluessel = location.hash;
     if (!erzwingen && schluessel === letzteRoute) return;
-    const gleicheSeite = letzteRoute.split('?')[0] === schluessel.split('?')[0] && r.name === 'suche';
+    // neuer Verlaufseintrag (Link, Eingabe) oder Rückkehr (Zurück/Vor)?
+    let rueckkehr = !!history.state?.bw;
+    if (!rueckkehr) history.replaceState({ bw: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), vor: letzteRoute !== '' }, '');
+    if (neuLadenAufPlatz) rueckkehr = true;
+    const ziel = rueckkehr ? (neuLadenAufPlatz ? window.scrollY : positionen[history.state.bw] || 0) : 0;
+    positionSperre = true;
     letzteRoute = schluessel;
+    kopfEl?.classList.toggle('mit-zurueck', !OBEN.has(r.name));
+    if (r.name !== 'suche') kopfEl?.classList.remove('auf-suche');
     document.querySelectorAll('[data-route]').forEach((a) => a.classList.toggle('aktiv', a.dataset.route === r.name
         || (r.name === 'film' && a.dataset.route === 'filme') || (r.name === 'serie' && a.dataset.route === 'serien')
         || ((r.name === 'universum' || r.name === 'reihe') && a.dataset.route === 'universen')));
@@ -91,6 +145,7 @@ async function route(erzwingen = false) {
     kopfStil();
     const laden = ANSICHTEN[r.name];
     if (!laden) {
+        positionSperre = false;
         hauptEl.replaceChildren(el('div.leer', el('h2', 'Seite nicht gefunden'), el('a', { href: '#/' }, 'Zur Startseite')));
         return;
     }
@@ -99,9 +154,16 @@ async function route(erzwingen = false) {
         const inhalt = await modul.zeigen(r, app);
         if (letzteRoute !== schluessel) return; // inzwischen weiternavigiert
         if (inhalt) hauptEl.replaceChildren(inhalt);
-        if (!gleicheSeite) window.scrollTo(0, 0);
         document.title = (modul.titel?.(r) || 'Bluewave');
+        // Position setzen; nachgeladene Inhalte (Bilder, Vorschläge) können die Seite noch wachsen lassen
+        const setzen = () => window.scrollTo(0, Math.min(ziel, document.documentElement.scrollHeight - window.innerHeight));
+        setzen();
+        if (ziel > 0) {
+            for (const ms of [80, 250, 600]) setTimeout(() => { if (letzteRoute === schluessel && Math.abs(window.scrollY - ziel) > 4) setzen(); }, ms);
+        }
+        setTimeout(() => { if (letzteRoute === schluessel) positionSperre = false; }, ziel > 0 ? 650 : 0);
     } catch (e) {
+        positionSperre = false;
         if (e.status === 401) return;
         hauptEl.replaceChildren(el('div.leer', el('h2', 'Das hat nicht geklappt'), el('p', e.message)));
     }

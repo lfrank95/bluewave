@@ -8,7 +8,7 @@ let letzterTitel = 'Film';
 export const titel = () => letzterTitel + ' – Bluewave';
 
 export function hero(d, knoepfe, extra = [], vor = []) {
-    return el('section.hero',
+    return el('section.hero.detail',
         el('div.hg', { style: d.hintergrund ? { backgroundImage: `url("${d.hintergrund}")` } : {} }),
         el('div.inhalt', vor,
             d.logo ? el('img.logo', { src: d.logo, alt: d.titel || d.name }) : el('h1.gross', d.titel || d.name),
@@ -17,15 +17,21 @@ export function hero(d, knoepfe, extra = [], vor = []) {
 
 export function besetzung(liste) {
     if (!liste?.length) return null;
-    return el('section.abschnitt', el('h2', 'Besetzung'),
-        el('div.besetzung-raster', liste.slice(0, 16).map((p) => {
-            const foto = el('div.foto', initialen(p.name));
-            if (p.bild_url) {
-                const i = el('img', { src: p.bild_url, alt: p.name, loading: 'lazy' });
-                i.addEventListener('load', () => foto.replaceChildren(i), { once: true });
-            }
-            return el('div.person', foto, el('b', p.name), el('div.rolle', p.rolle));
-        })));
+    const spur = el('div.besetzung-spur', liste.slice(0, 20).map((p) => {
+        const foto = el('div.foto', initialen(p.name));
+        if (p.bild_url) {
+            const i = el('img', { src: p.bild_url, alt: p.name, loading: 'lazy' });
+            i.addEventListener('load', () => foto.replaceChildren(i), { once: true });
+        }
+        // Klick sucht alles mit dieser Person
+        return el('a.person-gross', { href: '#/suche?q=' + encodeURIComponent(p.name) + '&fokus=0', title: `Alles mit ${p.name}` }, foto, el('b', p.name), el('div.rolle', p.rolle));
+    }));
+    const blaettern = (r) => spur.scrollBy({ left: r * spur.clientWidth * 0.8, behavior: 'smooth' });
+    return el('section.abschnitt',
+        el('div.abschnitt-zeile', el('h2', 'Besetzung'),
+            el('div.blaetter', el('button.mini-knopf', { 'aria-label': 'Zurück', onclick: () => blaettern(-1) }, icon('links')),
+                el('button.mini-knopf', { 'aria-label': 'Weiter', onclick: () => blaettern(1) }, icon('rechts')))),
+        spur);
 }
 
 export function technikChips(liste) {

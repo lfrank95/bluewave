@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Ende-zu-Ende-Test gegen einen laufenden Bluewave-Stack (Ersatz-TMDB, Testmedien).
    python3 tests/e2e.py http://127.0.0.1:19960 <medienordner>"""
-import json, sys, time, os, http.cookiejar, urllib.request, urllib.error
+import json, sys, time, os, http.cookiejar, urllib.request, urllib.error, urllib.parse
 
 BASIS = sys.argv[1].rstrip('/')
 MEDIEN = sys.argv[2]
@@ -153,6 +153,16 @@ pruefe(not admin.api('GET', f'film/{test["id"]}')['fortschritt'], 'Mehrfach als 
 admin.api('DELETE', f'universum/{uid2}')
 st = admin.api('GET', 'start')
 pruefe(st['universum_band'] and st['universum_band']['id'] == uid, 'Universums-Band auf der Startseite')
+
+schritt('Suche: tolerant (Tippfehler, Satzzeichen, Wortreihenfolge), Bester Treffer, Editor-Auswahl')
+for q, erwartet in [('avengers', "Marvel's The Avengers"), ('avengrs ultron', 'Avengers: Age of Ultron'), ('ultron age', 'Avengers: Age of Ultron'), ('marvels avengers', "Marvel's The Avengers")]:
+    d = admin.api('GET', 'suche?q=' + urllib.parse.quote(q))
+    titel = [f['titel'] for f in d['filme']]
+    pruefe(erwartet in titel, f'Suche „{q}“: {titel}')
+d = admin.api('GET', 'suche?q=' + urllib.parse.quote('Age of Ultron'))
+pruefe(d['beste'] and d['beste']['titel'] == 'Avengers: Age of Ultron', f'Bester Treffer: {d["beste"]}')
+pruefe(admin.api('GET', 'suche?q=x')['filme'] == [], 'zu kurz → leer')
+pruefe(any(t['art'] == 'reihe' for t in admin.api('GET', 'auswahl?q=Avengers')['treffer']), 'Editor-Auswahl findet die Reihe')
 
 FAEHIG = {'video': {'h264': True, 'hevc': False, 'av1': False, 'vp9': False}, 'audio': {'aac': True, 'mp3': True},
           'container': {'mp4': True, 'webm': False, 'mkv': False}, 'hdr': False, 'hls': 'mse', 'max_hoehe': 1080}

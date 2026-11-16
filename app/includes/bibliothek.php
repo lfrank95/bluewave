@@ -105,8 +105,8 @@ function filme_liste(int $konto, string $sort = 'titel', ?int $genre = null, str
         $p['g'] = $genre;
     }
     if (trim($suche) !== '') {
-        $wo[] = '(f.titel LIKE :q OR f.originaltitel LIKE :q)';
-        $p['q'] = '%' . str_replace(['%', '_'], ['\%', '\_'], trim($suche)) . '%';
+        $wo[] = '(f.titel LIKE :q1 OR f.originaltitel LIKE :q2)';
+        $p['q1'] = $p['q2'] = '%' . str_replace(['%', '_'], ['\%', '\_'], trim($suche)) . '%';
     }
     $ordnung = match ($sort) {
         'neu' => 'f.hinzugefuegt_am DESC', 'jahr' => 'f.jahr DESC, f.sortiertitel', 'bewertung' => 'f.bewertung DESC, f.sortiertitel', default => 'f.sortiertitel',
@@ -198,8 +198,8 @@ function serien_liste(int $konto, string $sort = 'titel', ?int $genre = null, st
         $p['g'] = $genre;
     }
     if (trim($suche) !== '') {
-        $wo[] = '(s.titel LIKE :q OR s.originaltitel LIKE :q)';
-        $p['q'] = '%' . str_replace(['%', '_'], ['\%', '\_'], trim($suche)) . '%';
+        $wo[] = '(s.titel LIKE :q1 OR s.originaltitel LIKE :q2)';
+        $p['q1'] = $p['q2'] = '%' . str_replace(['%', '_'], ['\%', '\_'], trim($suche)) . '%';
     }
     $ordnung = match ($sort) { 'neu' => 'neueste DESC', 'jahr' => 's.jahr_von DESC, s.sortiertitel', default => 's.sortiertitel' };
     return serie_kacheln(db_alle(SERIE_KACHEL_SQL . ($wo ? ' WHERE ' . implode(' AND ', $wo) : '') . ' GROUP BY s.id ORDER BY ' . $ordnung, $p), $konto);
@@ -407,17 +407,8 @@ function startseite(int $konto): array
 
 function suche(string $q, int $konto): array
 {
-    if (mb_strlen(trim($q)) < 2) {
-        return ['filme' => [], 'serien' => [], 'universen' => [], 'reihen' => []];
-    }
-    $like = '%' . str_replace(['%', '_'], ['\%', '\_'], trim($q)) . '%';
-    return [
-        'filme' => array_slice(filme_liste($konto, 'titel', null, $q), 0, 30),
-        'serien' => array_slice(serien_liste($konto, 'titel', null, $q), 0, 30),
-        'universen' => array_values(array_filter(universen_liste($konto), static fn($u) => mb_stripos($u['name'], trim($q)) !== false)),
-        'reihen' => array_map(static fn($r) => ['art' => 'reihe', 'id' => (int) $r['id'], 'titel' => $r['name'], 'poster' => bild_url($r['poster'])],
-            db_alle('SELECT id, name, poster FROM reihen WHERE name LIKE :q ORDER BY sortname LIMIT 20', ['q' => $like])),
-    ];
+    require_once __DIR__ . '/suche.php';
+    return suche_alles($q, $konto);
 }
 
 /** Abzeichen für die Technikzeile: Auflösung, HDR, Ton (aus der besten Datei der Standardfassung) */

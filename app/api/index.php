@@ -400,13 +400,13 @@ try {
                 }
             }
             if ($nur === '' || $nur === 'film') {
-                foreach (db_alle('SELECT id, titel, jahr, poster FROM filme WHERE titel LIKE :q OR originaltitel LIKE :q ORDER BY sortiertitel LIMIT 25', ['q' => $q]) as $r) {
+                foreach (db_alle('SELECT id, titel, jahr, poster FROM filme WHERE titel LIKE :q1 OR originaltitel LIKE :q2 ORDER BY sortiertitel LIMIT 25', ['q1' => $q, 'q2' => $q]) as $r) {
                     $aus[] = ['art' => 'film', 'id' => (int) $r['id'], 'titel' => $r['titel'], 'poster' => bild_url($r['poster']), 'drin' => isset($drinF[(int) $r['id']]),
                         'zusatz' => 'Film' . ($r['jahr'] ? ' · ' . $r['jahr'] : '')];
                 }
             }
             if ($nur === '' || $nur === 'serie') {
-                foreach (db_alle('SELECT id, titel, jahr_von, poster FROM serien WHERE titel LIKE :q OR originaltitel LIKE :q ORDER BY sortiertitel LIMIT 15', ['q' => $q]) as $r) {
+                foreach (db_alle('SELECT id, titel, jahr_von, poster FROM serien WHERE titel LIKE :q1 OR originaltitel LIKE :q2 ORDER BY sortiertitel LIMIT 15', ['q1' => $q, 'q2' => $q]) as $r) {
                     $aus[] = ['art' => 'serie', 'id' => (int) $r['id'], 'titel' => $r['titel'], 'poster' => bild_url($r['poster']), 'drin' => isset($drinS[(int) $r['id']]),
                         'zusatz' => 'Serie' . ($r['jahr_von'] ? ' · ' . $r['jahr_von'] : '')];
                 }

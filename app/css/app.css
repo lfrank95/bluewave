@@ -719,3 +719,98 @@ a.chip:hover { border-color: var(--accent-a); color: var(--text-primary); }
     .eintrag { gap: 8px; padding: 8px 10px; }
     .eintrag .griff, .eintrag .art-marke { display: none; }
 }
+
+/* ---------- Zurück-Knopf im Kopf ---------- */
+.zurueck-knopf { display: none; width: 40px; height: 40px; flex: none; border-radius: 50%; place-items: center; border: 1px solid var(--glass-border); background: var(--glass-bg); color: var(--text-primary); cursor: pointer; margin-right: -10px; }
+.zurueck-knopf:hover { border-color: var(--accent-a); }
+.zurueck-knopf svg.ic { width: 20px; height: 20px; }
+.kopf.mit-zurueck .zurueck-knopf { display: grid; }
+.kopf.auf-suche .suche-feld { visibility: hidden; }
+@media (max-width: 767px) { .kopf.mit-zurueck .marke span { display: none; } }
+
+/* ---------- Detailseiten kompakter ---------- */
+.hero.detail { min-height: clamp(400px, 58vh, 660px); }
+.hero.detail .inhalt { padding-bottom: 30px; }
+.hero.detail .logo { max-height: 150px; }
+.hero.detail h1.gross { font-size: clamp(2.3rem, 1.2rem + 4vw, 5rem); }
+.detail-raster { padding-top: 6px; gap: 36px; grid-template-columns: minmax(0, 1fr) 340px; }
+.detail-raster .abschnitt { margin-bottom: 26px; }
+.detail-raster .abschnitt > h2, .abschnitt-zeile h2 { font-size: 1.2rem; margin: 0 0 12px; }
+.fassung-karte { padding: 14px 16px; }
+.info-box { padding: 20px; }
+.info-box dl { gap: 9px 16px; margin-top: 14px; }
+.reihe-band { margin-top: 28px; padding: 22px; }
+.universum-bereich { margin-top: 20px; }
+.serie-hero-inhalt { gap: 28px; }
+
+/* ---------- Besetzung: größere Porträts als Spur ---------- */
+.abschnitt-zeile { display: flex; align-items: center; gap: 12px; }
+.abschnitt-zeile .blaetter { margin-left: auto; display: flex; gap: 6px; margin-bottom: 12px; }
+.besetzung-spur { display: grid; grid-auto-flow: column; grid-auto-columns: clamp(124px, 11vw, 168px); gap: 16px; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x proximity; scrollbar-width: none; }
+.besetzung-spur::-webkit-scrollbar { display: none; }
+.person-gross { display: block; color: var(--text-primary); scroll-snap-align: start; min-width: 0; }
+.person-gross:hover { color: var(--text-primary); }
+.person-gross .foto { aspect-ratio: 2 / 3; border-radius: 14px; overflow: hidden; background: linear-gradient(160deg, #1a2740, #0d1524); display: grid; place-items: center;
+    color: var(--text-leise); font-family: var(--font-display); font-weight: 700; font-size: 2rem; box-shadow: 0 12px 26px rgba(0, 0, 0, 0.4); transition: transform 0.2s, box-shadow 0.2s; }
+.person-gross:hover .foto { transform: translateY(-3px); box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(92, 200, 255, 0.5); }
+.person-gross .foto img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.person-gross b { display: block; margin-top: 10px; font-size: 0.95rem; line-height: 1.2; }
+.person-gross .rolle { color: var(--text-leise); font-size: 0.82rem; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---------- Suche ---------- */
+.such-seite { padding-top: 18px; }
+.such-box { display: flex; align-items: center; gap: 14px; padding: 6px 10px 6px 22px; border-radius: 22px; background: rgba(226, 238, 255, 0.06); border: 1px solid rgba(214, 230, 255, 0.14);
+    box-shadow: inset 0 1px 0 rgba(222, 236, 255, 0.1); position: sticky; top: calc(var(--kopf-hoehe) + 8px); z-index: 30; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.such-box:focus-within { border-color: rgba(92, 200, 255, 0.6); box-shadow: 0 0 0 4px rgba(92, 200, 255, 0.12); }
+.such-box > svg.ic { width: 24px; height: 24px; color: var(--text-leise); flex: none; }
+.such-gross { flex: 1; min-width: 0; background: none; border: 0; outline: 0; color: var(--text-primary); font-family: var(--font-display); font-size: clamp(1.2rem, 1rem + 1vw, 1.7rem); padding: 14px 0; }
+.such-gross::-webkit-search-cancel-button { display: none; }
+.such-gross::placeholder { color: var(--text-leise); }
+.such-leeren { width: 40px; height: 40px; border-radius: 50%; border: 0; background: none; color: var(--text-leise); cursor: pointer; display: grid; place-items: center; }
+.such-box:has(.such-gross:placeholder-shown) .such-leeren { visibility: hidden; }
+.such-ergebnis { transition: opacity 0.15s; }
+.such-ergebnis.laedt { opacity: 0.55; }
+.such-kopf { display: flex; align-items: center; gap: 12px; margin: 22px 0 6px; min-height: 40px; }
+.such-kopf .knopf { margin-left: auto; }
+.zahl-klein { color: var(--text-leise); font-size: 0.9rem; font-weight: 600; margin-left: 10px; font-family: var(--font-body); }
+.bester-treffer { position: relative; display: flex; gap: 26px; align-items: flex-end; margin-top: 24px; padding: 26px; min-height: 280px; border-radius: 24px; overflow: hidden;
+    background: #0b1220; box-shadow: 0 24px 50px rgba(0, 0, 0, 0.45), inset 0 0 0 1px rgba(214, 230, 255, 0.08); }
+.bester-treffer > img.hg { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.bester-treffer::before { content: ""; position: absolute; inset: 0; z-index: 1; background: linear-gradient(90deg, rgba(5, 8, 14, 0.94) 0%, rgba(5, 8, 14, 0.7) 45%, rgba(5, 8, 14, 0.2) 100%), linear-gradient(0deg, rgba(5, 8, 14, 0.6), transparent 50%); }
+.bester-treffer .poster { position: relative; z-index: 2; width: 150px; flex: none; aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; background: #15233b; box-shadow: 0 16px 34px rgba(0, 0, 0, 0.6); }
+.bester-treffer .poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.bester-treffer .text { position: relative; z-index: 2; min-width: 0; max-width: 680px; }
+.bester-treffer .augenbraue { margin-bottom: 10px; }
+.bester-treffer h2 { font-size: clamp(1.8rem, 1.2rem + 2vw, 3rem); line-height: 1; letter-spacing: -0.02em; color: var(--text-primary); }
+.bester-treffer .logo { max-height: 96px; max-width: min(380px, 70vw); object-fit: contain; object-position: left bottom; display: block; }
+.bester-treffer .meta { margin-top: 12px; }
+.bester-treffer p { color: #c9d5e5; margin: 12px 0 0; line-height: 1.55; }
+.bester-treffer .knoepfe { margin-top: 18px; }
+.personen-spur { display: grid; grid-auto-flow: column; grid-auto-columns: 132px; gap: 16px; overflow-x: auto; padding-bottom: 6px; scrollbar-width: none; }
+.person-karte { border: 0; background: none; padding: 0; color: var(--text-primary); cursor: pointer; text-align: center; font: inherit; }
+.person-karte .foto { width: 112px; height: 112px; margin: 0 auto; border-radius: 50%; overflow: hidden; display: grid; place-items: center; background: linear-gradient(160deg, #1a2740, #0d1524);
+    color: var(--text-leise); font-family: var(--font-display); font-weight: 700; font-size: 1.6rem; box-shadow: 0 10px 24px rgba(0, 0, 0, 0.4); transition: box-shadow 0.2s; }
+.person-karte:hover .foto { box-shadow: 0 0 0 2px var(--accent-a), 0 10px 24px rgba(0, 0, 0, 0.4); }
+.person-karte .foto img { width: 100%; height: 100%; object-fit: cover; }
+.person-karte b { display: block; margin-top: 10px; font-size: 0.92rem; line-height: 1.2; }
+.person-karte span { color: var(--text-leise); font-size: 0.8rem; }
+.folgen-treffer { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
+.folge-treffer { display: flex; gap: 14px; align-items: center; padding: 10px; border-radius: 14px; border: 1px solid rgba(214, 230, 255, 0.08); background: rgba(226, 238, 255, 0.04);
+    color: var(--text-primary); cursor: pointer; text-align: left; font: inherit; }
+.folge-treffer:hover { border-color: rgba(92, 200, 255, 0.45); }
+.folge-treffer .bild { position: relative; width: 132px; flex: none; aspect-ratio: 16 / 9; border-radius: 9px; overflow: hidden; background: #15233b; }
+.folge-treffer .bild img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.folge-treffer .play-klein { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, 0.3); opacity: 0; transition: opacity 0.15s; }
+.folge-treffer:hover .play-klein { opacity: 1; }
+.folge-treffer b { display: block; font-size: 0.95rem; }
+.folge-treffer span { color: var(--text-leise); font-size: 0.82rem; }
+@media (max-width: 767px) {
+    .bester-treffer { padding: 16px; gap: 14px; min-height: 0; }
+    .bester-treffer .poster { width: 92px; }
+    .bester-treffer p { display: none; }
+    .such-box { padding-left: 14px; border-radius: 16px; }
+    .person-gross .foto { font-size: 1.4rem; }
+    .besetzung-spur { grid-auto-columns: 112px; gap: 12px; }
+    .abschnitt-zeile .blaetter { display: none; }
+    .hero.detail { min-height: 0; }
+}
