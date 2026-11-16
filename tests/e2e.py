@@ -230,6 +230,26 @@ w4 = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': ultron['id'], '
 pruefe(w4['modus'] == 'hls', 'Umwandeln erzwingen schlägt Direct Stream')
 admin.api('DELETE', 'stream/' + w4['sitzung'])
 
+schritt('Fernseher ohne DTS: passende Tonspur, E-AC3 statt AAC, volle Auflösung')
+td = admin.api('GET', f'film/{test["id"]}')
+ext = next(f for f in td['fassungen'] if f['name'] == 'Extended Edition')
+TV = {**FAEHIG, 'remux': True, 'audio': {'aac': True, 'mp3': True, 'ac3': True, 'eac3': True}}
+w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'fassung_id': ext['id'], 'faehigkeiten': TV})
+pruefe(w['modus'] == 'remux' and w['ton'] == 1 and w['remux']['audio'] == 'copy', f'deutsche E-AC3-Spur statt DTS, unverändert: {w.get("modus")} ton={w.get("ton")} {w.get("remux")}')
+w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'fassung_id': ext['id'], 'faehigkeiten': TV, 'ton': 0})
+pruefe(w['modus'] == 'remux' and w['remux']['audio'] == 'eac3' and w['remux']['kanaele'] == 6, f'DTS gewählt → Dolby Digital Plus 5.1: {w.get("remux")}')
+code, body, _ = admin.roh('GET', f'/api/v1/remux/{w["datei_id"]}/strom?start=0&ton=0&audio=eac3&kanaele=6')
+pruefe(code == 200 and body[4:8] == b'ftyp' and b'ec-3' in body[:4000], f'Strom mit E-AC3: {code} {len(body)}')
+w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'fassung_id': ext['id'], 'faehigkeiten': {**FAEHIG, 'remux': True}})
+pruefe(w['remux']['audio'] == 'aac', f'ohne E-AC3 → AAC: {w.get("remux")}')
+klein = {**FAEHIG, 'remux': True, 'max_hoehe': 400}
+w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'faehigkeiten': klein})
+w2 = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'faehigkeiten': {**klein, 'fernseher': True}})
+pruefe(w['quelle']['hoehe'] < 400 and w2['quelle']['hoehe'] == 720, f'Fernseher nicht auf gemeldete Höhe begrenzt: {w["quelle"]["hoehe"]} / {w2["quelle"]["hoehe"]}')
+for x in (w, w2):
+    if x.get('sitzung'):
+        admin.api('DELETE', 'stream/' + x['sitzung'])
+
 schritt('Transkodieren (HLS) mit Spulen')
 # kleine Bildschirmhöhe → die 270p-Datei (die mit dem externen Untertitel) wird gewählt
 w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'faehigkeiten': {**FAEHIG, 'max_hoehe': 400}, 'start_ms': 0})

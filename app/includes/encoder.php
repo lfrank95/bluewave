@@ -47,7 +47,7 @@ function encoder_zielmasse(int $qb, int $qh, int $maxH): array
  *   'eingabe' => Datei | ['lavfi' => 'testsrc2=…'],  'start_s' => float, 'dauer_s' => ?float,
  *   'quelle' => ['breite' => int, 'hoehe' => int, 'hdr' => bool, 'hw_dekodieren' => bool],
  *   'video' => ['codec' => h264|hevc|av1, 'hoehe' => int, 'bitrate_k' => int, 'tonemap' => bool],
- *   'audio' => null | ['strom' => int, 'codec' => aac|opus|copy, 'kanaele' => int, 'bitrate_k' => int],
+ *   'audio' => null | ['strom' => int, 'codec' => aac|eac3|opus|copy, 'kanaele' => int, 'bitrate_k' => int],
  *   'ziel' => ['format' => hls|null|mp4, 'ordner' => …],
  * ]
  * $hw = Ergebnis der Hardware-Erkennung (für Gerät und verfügbare Filter)
@@ -148,7 +148,7 @@ function encoder_befehl(string $profil, array $a, array $hw): array
         } else {
             // Neutral umwandeln: keine Kompression, keine Normalisierung (Nachtmodus & Co. rechnet später das Gerät, nur wenn eingeschaltet)
             $cmd = array_merge($cmd, [
-                '-c:a', ($au['codec'] ?? 'aac') === 'opus' ? 'libopus' : 'aac',
+                '-c:a', match ($au['codec'] ?? 'aac') { 'opus' => 'libopus', 'eac3' => 'eac3', default => 'aac' },
                 '-ac', (string) (int) ($au['kanaele'] ?? 2), '-b:a', (int) ($au['bitrate_k'] ?? 192) . 'k',
             ]);
         }

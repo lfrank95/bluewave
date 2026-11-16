@@ -30,6 +30,8 @@ function faehigkeiten() {
         max_hoehe: Math.round(Math.max(screen.width, screen.height) * dpr * 9 / 16),
         // Direct Stream (Video unverändert, fortlaufendes fragmentiertes MP4) kann jeder Browser
         remux: true,
+        // Fernseher melden dem Browser oft nur 1920×1080, auch bei 4K → der Server begrenzt dann nicht auf die Bildschirmhöhe
+        fernseher: /web0s|webos|tizen|smart-?tv|smarttv|hbbtv|netcast|bravia|aft[a-z]|android tv|googletv|crkey|vidaa|viera|philipstv|roku/i.test(navigator.userAgent),
     };
 }
 
@@ -506,7 +508,7 @@ class Player {
             const quelleText = [q.hoehe ? `${q.hoehe}p` : null, q.video_codec, q.hdr ? 'HDR' : null, q.bitrate_k ? `${(q.bitrate_k / 1000).toFixed(1).replace('.', ',')} Mbit/s` : null,
                 q.container ? q.container.toUpperCase() : null].filter(Boolean).join(' · ');
             const info = d.modus === 'direkt' ? 'Direct Play – die Datei läuft unverändert.'
-                : d.modus === 'remux' ? `Direct Stream – Bild unverändert, ${d.remux.audio === 'copy' ? 'Ton unverändert' : 'Ton nach AAC'}, nur der Container wird angepasst${d.grund ? ` (${d.grund})` : ''}.`
+                : d.modus === 'remux' ? `Direct Stream – Bild unverändert, ${{ copy: 'Ton unverändert', eac3: 'Ton nach Dolby Digital Plus', aac: 'Ton nach AAC' }[d.remux.audio] || 'Ton umgewandelt'}, nur der Container wird angepasst${d.grund ? ` (${d.grund})` : ''}.`
                 : `Umgewandelt: ${d.transkodierung.hoehe}p · ${(d.transkodierung.bitrate_k / 1000).toString().replace('.', ',')} Mbit/s · ${d.transkodierung.profil}`
                     + (d.transkodierung.tonemap ? ' · HDR→SDR' : '') + (d.grund ? ` (Grund: ${d.grund})` : '');
             const QT = { original: ['Original', 'Direct Play/Stream, wenn möglich'], 2160: ['4K', '30 Mbit/s'], 1080: ['1080p', '10 Mbit/s'], 720: ['720p', '4 Mbit/s'], 480: ['480p', '1,5 Mbit/s'] };

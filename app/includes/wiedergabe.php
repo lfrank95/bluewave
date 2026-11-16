@@ -89,16 +89,39 @@ function direkt_moeglich(array $d, array $ton, array $faehig, array $grenze, ?ar
     return [true, ''];
 }
 
+/**
+ * Zielformat, wenn der Ton umgewandelt werden muss: Dolby Digital Plus (E-AC3) bis 5.1, wenn das Gerät es kann
+ * (Fernseher, AV-Receiver per eARC) – klingt besser und bleibt mehrkanalig; sonst AAC (Stereo bzw. 5.1)
+ */
+function ton_ziel(array $ton, int $tonIndex, array $faehig): array
+{
+    $kan = 2;
+    foreach ($ton as $t) {
+        if ((int) $t['strom_index'] === $tonIndex) {
+            $kan = max(1, (int) $t['kanaele']);
+        }
+    }
+    if (!empty($faehig['audio']['eac3'])) {
+        $k = min(6, $kan);
+        return ['codec' => 'eac3', 'kanaele' => $k, 'bitrate_k' => $k > 2 ? 640 : 256];
+    }
+    $k = min(6, $kan);
+    return ['codec' => 'aac', 'kanaele' => $k, 'bitrate_k' => $k > 2 ? 384 : 192];
+}
+
 /** Tonspur nach Wunsch des Nutzers: Sprache passt (keine Kommentarspur), sonst Standard, sonst erste */
-function tonspur_waehlen(array $ton, string $sprache, ?int $wunsch): int
+function tonspur_waehlen(array $ton, string $sprache, ?int $wunsch, array $faehig = []): int
 {
     if ($wunsch !== null && in_array($wunsch, array_map('intval', array_column($ton, 'strom_index')), true)) {
         return $wunsch;
     }
-    foreach ($ton as $t) {
-        if ($t['sprache'] === $sprache && !$t['kommentar']) {
-            return (int) $t['strom_index'];
-        }
+    // Spuren in der gewünschten Sprache (ohne Kommentar); gibt es mehrere, gewinnt die, die das Gerät unverändert
+    // abspielen kann (z. B. deutsche E-AC3 statt deutscher DTS-HD auf einem Fernseher ohne DTS), dann mehr Kanäle, dann Standard
+    $passend = array_values(array_filter($ton, static fn($t) => $t['sprache'] === $sprache && !$t['kommentar']));
+    if ($passend) {
+        $kann = static fn($t) => !empty($faehig['audio'][strtolower((string) $t['codec'])]);
+        usort($passend, static fn($a, $b) => [(int) $kann($b), (int) $b['kanaele'], (int) $b['standard']] <=> [(int) $kann($a), (int) $a['kanaele'], (int) $a['standard']]);
+        return (int) $passend[0]['strom_index'];
     }
     foreach ($ton as $t) {
         if ($t['standard']) {
@@ -156,7 +179,9 @@ function wiedergabe_starten(array $konto, array $w): array
     $wahl = in_array((string) ($w['qualitaet'] ?? ''), ['original', '2160', '1080', '720', '480'], true) ? (string) $w['qualitaet'] : null;
     $grenze = qualitaet_grenze($wahl ?? ($heim ? $e['qualitaet_heim'] : $e['qualitaet_unterwegs']));
     $hoehe = (int) ($w['faehigkeiten']['max_hoehe'] ?? 0);
-    if ($hoehe > 0 && $wahl === null) {
+    // Fernseher melden ihrem Browser oft nur 1920×1080, auch bei 4K-Panel → dort (und auf Wunsch) nicht begrenzen
+    $ignorieren = ($e['aufloesung'] ?? 'geraet') === 'egal' || !empty($w['faehigkeiten']['fernseher']) || ($konto['art'] ?? '') === 'geraet';
+    if ($hoehe > 0 && $wahl === null && !$ignorieren) {
         $grenze['hoehe'] = min($grenze['hoehe'], max(480, $hoehe));
     }
     $d = wiedergabe_datei($art, $id, isset($w['fassung_id']) ? (int) $w['fassung_id'] : null, isset($w['datei_id']) ? (int) $w['datei_id'] : null, $grenze);
@@ -164,7 +189,7 @@ function wiedergabe_starten(array $konto, array $w): array
         throw new RuntimeException('Keine abspielbare Datei gefunden.');
     }
     $ton = db_alle('SELECT * FROM tonspuren WHERE datei_id = :d ORDER BY strom_index', ['d' => $d['id']]);
-    $tonIndex = tonspur_waehlen($ton, $e['tonsprache'], isset($w['ton']) && $w['ton'] !== null ? (int) $w['ton'] : null);
+    $tonIndex = tonspur_waehlen($ton, $e['tonsprache'], isset($w['ton']) && $w['ton'] !== null ? (int) $w['ton'] : null, (array) ($w['faehigkeiten'] ?? []));
     $tonSprache = null;
     foreach ($ton as $t) {
         if ((int) $t['strom_index'] === $tonIndex) {
@@ -258,7 +283,7 @@ function wiedergabe_starten(array $konto, array $w): array
         'eingabe' => $d['pfad'],
         'quelle' => ['breite' => (int) $d['breite'], 'hoehe' => (int) $d['hoehe'], 'hdr' => $d['hdr'] !== 'sdr' && empty($w['faehigkeiten']['hdr']), 'hw_dekodieren' => $hwDek],
         'video' => ['codec' => 'h264', 'hoehe' => $zh, 'bitrate_k' => $bitrate, 'tonemap' => true],
-        'audio' => $ton ? ['strom' => $tonIndex, 'codec' => 'aac', 'kanaele' => 2, 'bitrate_k' => 192] : null,
+        'audio' => $ton ? ton_ziel($ton, $tonIndex, (array) ($w['faehigkeiten'] ?? [])) + ['strom' => $tonIndex] : null,
         'einbrennen' => $einbrennen,
     ];
     $sitzung = hls_sitzung_anlegen($konto, $d, $auftrag, (string) $hw['aktiv'], (string) ($w['sitzung_alt'] ?? ''));

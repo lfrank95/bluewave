@@ -15,7 +15,11 @@ film() { # ziel breite hoehe dauer
 film "$F/Avengers (2012)/The Avengers (2012).mp4" 320 180 30
 film "$F/Avengers - Age of Ultron (2015)/Avengers.Age.of.Ultron.2015.1080p.mkv" 320 180 30
 film "$F/Testfilm (2024)/Testfilm (2024).mkv" 480 270 40
-film "$F/Testfilm (2024)/Testfilm (2024) {edition-Extended}.mkv" 480 270 45
+# Extended: zwei deutsche Tonspuren – erst DTS 5.1, dann E-AC3 5.1 (Gerät ohne DTS soll die E-AC3-Spur bekommen)
+q -f lavfi -i "testsrc2=size=480x270:rate=24" -f lavfi -i "sine=frequency=330:sample_rate=48000" -t 45 \
+  -filter_complex "[1:a]pan=5.1|c0=c0|c1=c0|c2=c0|c3=c0|c4=c0|c5=c0,asplit=2[a1][a2]" -map 0:v -map "[a1]" -map "[a2]" \
+  -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a:0 dca -strict -2 -b:a:0 768k -c:a:1 eac3 -b:a:1 384k \
+  -metadata:s:a:0 language=ger -metadata:s:a:1 language=ger "$F/Testfilm (2024)/Testfilm (2024) {edition-Extended}.mkv"
 film "$F/Testfilm (2024) 720p/Testfilm (2024).mkv" 1280 720 40
 printf '1\n00:00:01,000 --> 00:00:04,000\nHallo Welt – äöü\n\n2\n00:00:05,000 --> 00:00:08,000\nZweiter Untertitel\n' > "$F/Testfilm (2024)/Testfilm (2024).de.srt"
 # ein Trailer, der übergangen werden muss

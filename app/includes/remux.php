@@ -12,7 +12,7 @@ const REMUX_TON_KOPIE = ['aac', 'mp3', 'opus', 'ac3', 'eac3', 'flac'];
 /**
  * Geht Direct Stream? Video muss das Gerät können (Codec, HDR, Bittiefe), keine Bild-Untertitel zum Einbrennen,
  * Auflösung/Bitrate innerhalb der Grenze. Container, Tonformat und Tonspur sind egal – genau dafür ist es da.
- * @return array{0: bool, 1: string, 2: string} [geht, Grund, Tonmodus copy|aac]
+ * @return array{0: bool, 1: string, 2: string} [geht, Grund, Tonmodus copy|eac3|aac]
  */
 function remux_moeglich(array $d, array $ton, array $faehig, array $grenze, ?array $untertitel, int $tonIndex): array
 {
@@ -46,7 +46,7 @@ function remux_moeglich(array $d, array $ton, array $faehig, array $grenze, ?arr
         }
     }
     $kopie = $ac !== '' && in_array($ac, REMUX_TON_KOPIE, true) && !empty($faehig['audio'][$ac]);
-    return [true, '', $kopie ? 'copy' : 'aac'];
+    return [true, '', $kopie ? 'copy' : (!empty($faehig['audio']['eac3']) ? 'eac3' : 'aac')];
 }
 
 /** Schlüsselbild an oder vor $start (Sekunden ab Dateianfang) – dort beginnt der Strom, das ist der Versatz der Zeitleiste */
@@ -84,6 +84,10 @@ function remux_befehl(string $pfad, float $start, int $tonIndex, string $tonModu
     }
     if ($tonModus === 'copy') {
         $cmd = array_merge($cmd, ['-c:a', 'copy']);
+    } elseif ($tonModus === 'eac3') {
+        // Dolby Digital Plus bis 5.1 (z. B. DTS-HD auf einem Fernseher ohne DTS)
+        $ac = max(1, min(6, $kanaele ?: 2));
+        $cmd = array_merge($cmd, ['-c:a', 'eac3', '-ac', (string) $ac, '-b:a', ($ac > 2 ? 640 : 256) . 'k']);
     } else {
         // Raumklang bleibt erhalten (bis 5.1), das Gerät mischt bei Bedarf selbst herunter
         $ac = max(1, min(6, $kanaele ?: 2));
