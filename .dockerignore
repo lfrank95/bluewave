@@ -1,0 +1,13 @@
+# Nur app/ gehört ins Image
+.git
+.github
+.env
+docs
+tests
+templates
+cache
+db
+backups
+transkodieren
+filme
+serien

@@ -1,0 +1,41 @@
+# Allgemeine Härtung
+AddType font/woff2 .woff2
+Options -Indexes -MultiViews
+ServerSignature Off
+
+# Dotfiles, Datenbank-/Backup-/Log-Dateien nie ausliefern
+<FilesMatch "^\.|\.(env|sql|gz|log|bak|md|zip|sh|lock|json)$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTP:Authorization} .
+    RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+
+    RewriteRule ^api/v1/(.*)$ api/index.php?pfad=$1 [QSA,L]
+
+    # Interne Ordner nie direkt aufrufbar
+    RewriteRule ^(includes|migrations|scripts)(/|$) - [F,L]
+
+    RewriteCond %{REQUEST_FILENAME} !-f
+    RewriteCond %{REQUEST_FILENAME} !-d
+    RewriteRule ^ index.php [L]
+</IfModule>
+
+<IfModule mod_brotli.c>
+    AddOutputFilterByType BROTLI_COMPRESS text/html text/css text/plain application/javascript application/json image/svg+xml
+</IfModule>
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/css text/plain application/javascript application/json image/svg+xml
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "same-origin"
+    Header always set X-Frame-Options "DENY"
+    Header always set Content-Security-Policy "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; frame-ancestors 'none'"
+    <FilesMatch "\.(css|js)$">
+        Header set Cache-Control "no-cache"
+    </FilesMatch>
+</IfModule>

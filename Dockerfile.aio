@@ -1,0 +1,21 @@
+# Bluewave All-in-One (ghcr.io/lfrank95/bluewave-aio): das normale Bluewave-Image plus MariaDB in einem Container –
+# für die Unraid-Vorlage (templates/bluewave.xml) und alle, die keinen Compose-Stack wollen.
+# Ein Ordner für alles, was bleiben soll: /appdata (Unraid: /mnt/user/appdata/bluewave) mit db/, cache/, backups/.
+ARG BASIS=ghcr.io/lfrank95/bluewave:beta
+FROM ${BASIS}
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends mariadb-server mariadb-client \
+    && rm -rf /var/lib/apt/lists/* /var/lib/mysql/* \
+    && mariadbd --version
+
+ENV BLUEWAVE_AIO=1 \
+    DB_HOST=127.0.0.1 \
+    AIO_DB_PFAD=/appdata/db \
+    PFAD_CACHE=/appdata/cache \
+    PFAD_BACKUPS=/appdata/backups \
+    PFAD_TRANSKODIEREN=/appdata/transkodieren
+
+LABEL org.opencontainers.image.title="Bluewave (All-in-One)" \
+      org.opencontainers.image.description="Self-hosted movie and TV server – app and MariaDB in one container"
+
+STOPSIGNAL SIGTERM

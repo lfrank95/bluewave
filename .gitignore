@@ -1,0 +1,10 @@
+.env
+*.log
+cache/
+db/
+backups/
+transkodieren/
+filme/
+serien/
+__pycache__/
+node_modules/

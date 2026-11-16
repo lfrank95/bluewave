@@ -1,0 +1,4 @@
+# Nur für den Test im GitHub-Workflow: Runner haben keine Intel-Grafik → /dev/dri weglassen
+services:
+  app:
+    devices: !reset []

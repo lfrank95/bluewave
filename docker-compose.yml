@@ -1,0 +1,44 @@
+# Bluewave – fertiges Image. Start: docker compose up -d · Update: docker compose pull && docker compose up -d
+# Einstellungen: .env neben dieser Datei (Vorlage .env.example). Selbst bauen statt Image: docker-compose.build.yml
+services:
+  db:
+    image: mariadb:11
+    container_name: ${STACK_NAME:-bluewave}_db
+    restart: unless-stopped
+    environment:
+      # Nichts eintragen: Die Datenbank startet nur mit Root-Zugang (ohne Passwort, nur im internen Stack-Netz – der Port ist
+      # nicht freigegeben). Bluewave legt beim ersten Start Datenbank, Benutzer und Passwort selbst an
+      # (<APPDATA_PFAD>/cache/geheimnisse/datenbank.json) und gibt Root danach ein zufälliges Passwort.
+      MARIADB_ALLOW_EMPTY_ROOT_PASSWORD: "1"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--innodb-buffer-pool-size=${DB_PUFFER:-512M}"]
+    volumes:
+      - ${DB_DATA_PFAD:-${APPDATA_PFAD:-.}/db}:/var/lib/mysql
+
+  app:
+    image: ${BLUEWAVE_IMAGE:-ghcr.io/lfrank95/bluewave:beta}
+    container_name: ${STACK_NAME:-bluewave}_app
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - db
+    env_file:
+      - .env
+    environment:
+      DB_HOST: db
+      HWACCEL: ${HWACCEL:-auto}
+    # Intel QuickSync: die Grafik des Servers in den Container reichen. Bluewave erkennt die Gruppe des Geräts selbst
+    # (render/video) – kein group_add nötig. Server ohne Grafik: die beiden Zeilen auskommentieren (dann Software).
+    devices:
+      - /dev/dri:/dev/dri
+    volumes:
+      # Filme und Serien – solange Plex parallel läuft, nur lesend (MEDIEN_MOUNT_MODUS=rw erst fürs Aufräumen)
+      - ${FILME_PFAD:-./filme}:/filme:${MEDIEN_MOUNT_MODUS:-ro}
+      - ${SERIEN_PFAD:-./serien}:/serien:${MEDIEN_MOUNT_MODUS:-ro}
+      # Poster, Hintergründe, Schlüssel (SSD)
+      - ${CACHE_PFAD:-${APPDATA_PFAD:-.}/cache}:/cache
+      - ${BACKUP_PFAD:-${APPDATA_PFAD:-.}/backups}:/backups
+      # Zwischendateien beim Transkodieren (SSD oder RAM, z. B. /tmp/bluewave)
+      - ${TRANSKODIER_PFAD:-${APPDATA_PFAD:-.}/transkodieren}:/transkodieren
+    ports:
+      - "${APP_BIND:-0.0.0.0}:${APP_PORT:-9960}:80"

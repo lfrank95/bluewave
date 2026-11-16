@@ -1,0 +1,16 @@
+# Bluewave – selbst bauen statt fertiges Image: docker compose -f docker-compose.build.yml up -d --build
+# Gleicher Aufbau wie docker-compose.yml, nur wird das Image aus diesem Ordner gebaut.
+services:
+  db:
+    extends:
+      file: docker-compose.yml
+      service: db
+
+  app:
+    extends:
+      file: docker-compose.yml
+      service: app
+    image: bluewave:lokal
+    build:
+      context: .
+      dockerfile: Dockerfile

@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Bluewave</Name>
+  <Repository>ghcr.io/lfrank95/bluewave-aio:beta</Repository>
+  <Registry>https://github.com/lfrank95/bluewave/pkgs/container/bluewave-aio</Registry>
+  <Network>bridge</Network>
+  <Shell>bash</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/lfrank95/bluewave/issues</Support>
+  <Project>https://github.com/lfrank95/bluewave</Project>
+  <Overview>Bluewave – eigener Film- und Serienserver aus der Amberwave-Familie. Universen, Reihen, Fassungen, mehrere Episodenreihenfolgen, Transkodierung mit Intel QuickSync.[br][br]
+All-in-One: MariaDB ist enthalten, kein zweiter Container nötig. Filme- und Serienordner wählen, starten, WebUI öffnen.</Overview>
+  <Category>MediaServer:Video MediaApp:Video</Category>
+  <WebUI>http://[IP]:[PORT:80]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/lfrank95/bluewave/main/templates/bluewave.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/lfrank95/bluewave/main/templates/bluewave.png</Icon>
+  <ExtraParams>--stop-timeout=60 --security-opt no-new-privileges:true</ExtraParams>
+  <PostArgs/>
+  <Config Name="Web UI port" Target="80" Default="9960" Mode="tcp" Description="Port der Web-App und der Apps." Type="Port" Display="always" Required="true" Mask="false">9960</Config>
+  <Config Name="Filme" Target="/filme" Default="/mnt/user/media/filme" Mode="ro" Description="Deine Filme. Nur lesend, solange Plex parallel läuft – fürs Aufräumen später auf rw stellen." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/media/filme</Config>
+  <Config Name="Serien" Target="/serien" Default="/mnt/user/media/serien" Mode="ro" Description="Deine Serien. Nur lesend, solange Plex parallel läuft." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/media/serien</Config>
+  <Config Name="Appdata" Target="/appdata" Default="/mnt/user/appdata/bluewave" Mode="rw" Description="Datenbank, Poster, Schlüssel, Sicherungen und Transkodier-Zwischendateien. Am besten auf der Cache-SSD." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/bluewave</Config>
+  <Config Name="Hardware-Beschleunigung" Target="HWACCEL" Default="auto|quicksync|software" Mode="" Description="auto = QuickSync, wenn eine Intel-Grafik gefunden wird, sonst Software. In Bluewave unter System siehst du, was tatsächlich läuft." Type="Variable" Display="always" Required="true" Mask="false">auto</Config>
+  <Config Name="Intel-Grafik" Target="/dev/dri" Default="/dev/dri" Mode="" Description="Grafikgerät für QuickSync. Server ohne Intel-Grafik: Eintrag entfernen." Type="Device" Display="always" Required="false" Mask="false">/dev/dri</Config>
+  <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="Benutzer-ID, als die Bluewave und die Datenbank laufen (Unraid: 99 = nobody)." Type="Variable" Display="advanced" Required="false" Mask="false">99</Config>
+  <Config Name="PGID" Target="PGID" Default="100" Mode="" Description="Gruppen-ID (Unraid: 100 = users)." Type="Variable" Display="advanced" Required="false" Mask="false">100</Config>
+  <Config Name="Datenbank-Speicher" Target="DB_PUFFER" Default="512M" Mode="" Description="Arbeitsspeicher für Daten und Indizes der Datenbank." Type="Variable" Display="advanced" Required="false" Mask="false">512M</Config>
+</Container>

@@ -1,0 +1,91 @@
+# Baut die Docker-Images, testet den Stack und schiebt sie in die GitHub Container Registry:
+#   ghcr.io/<owner>/bluewave      – die App (Compose-Stack mit eigenem MariaDB-Container)
+#   ghcr.io/<owner>/bluewave-aio  – All-in-One mit eingebauter MariaDB (Unraid-Vorlage)
+# Auslöser: jeder Push auf main (Tag „beta“), Versions-Tags v* und manuell (Actions → Docker image → Run workflow).
+# Erst wenn der Stack-Test grün ist, wird gepusht. Vorerst nur amd64 (QuickSync gibt es nur dort).
+name: Docker image
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP: ghcr.io/${{ github.repository_owner }}/bluewave
+  AIO: ghcr.io/${{ github.repository_owner }}/bluewave-aio
+
+jobs:
+  bauen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PHP- und Shell-Prüfung
+        run: |
+          for f in $(find app -name '*.php'); do php -l "$f" >/dev/null || exit 1; done
+          sh -n app/scripts/start.sh && sh -n app/scripts/aio.sh
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: App-Image bauen (für den Test)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: bluewave:test
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,mode=max,scope=app
+
+      # Mit dem eingebauten Builder („default“), denn nur der sieht das gerade lokal geladene App-Image als Basis
+      - name: All-in-One bauen (für den Test)
+        run: docker buildx build --builder default --load -f Dockerfile.aio --build-arg BASIS=bluewave:test -t bluewave-aio:test .
+
+      - name: Stack testen
+        run: bash tests/stack_test.sh bluewave:test bluewave-aio:test
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.APP }}
+          tags: |
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/main' || contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+            type=sha,prefix=sha-
+
+      - id: meta_aio
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.AIO }}
+          tags: |
+            type=raw,value=beta,enable=${{ github.ref == 'refs/heads/main' || contains(github.ref_name, '-') }}
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') }}
+            type=sha,prefix=sha-
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: App-Image pushen
+        run: |
+          for t in ${{ join(fromJSON(steps.meta.outputs.json).tags, ' ') }}; do
+            docker tag bluewave:test "$t" && docker push "$t"
+          done
+
+      - name: All-in-One pushen
+        run: |
+          for t in ${{ join(fromJSON(steps.meta_aio.outputs.json).tags, ' ') }}; do
+            docker tag bluewave-aio:test "$t" && docker push "$t"
+          done

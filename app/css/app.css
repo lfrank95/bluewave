@@ -1,0 +1,113 @@
+/* =====================================================================
+   Bluewave – Designsprache der Amberwave-Familie (Liquid-Glass-Dark), Akzent Blau statt Bernstein.
+   Schriften: Space Grotesk und Manrope (SIL Open Font License, /fonts/OFL-*.txt), vom eigenen Server.
+   ===================================================================== */
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 300 700; font-display: swap; src: url('/fonts/spacegrotesk-latin-v1.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2190-2199, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 300 700; font-display: swap; src: url('/fonts/spacegrotesk-latin-ext-v1.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0300-036F, U+1E00-1E9F, U+20A0-20AB, U+20AD-20C0, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 200 800; font-display: swap; src: url('/fonts/manrope-latin-v1.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2190-2199, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 200 800; font-display: swap; src: url('/fonts/manrope-latin-ext-v1.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0300-036F, U+1E00-1E9F, U+20A0-20AB, U+20AD-20C0, U+2C60-2C7F, U+A720-A7FF; }
+
+:root {
+    --bg-deep: #070b12;
+    --bg-gradient: radial-gradient(circle at 18% -12%, #12284a 0%, #070b12 46%),
+                   radial-gradient(circle at 92% 8%, #14204a 0%, transparent 42%);
+    --glass-bg: rgba(226, 238, 255, 0.055);
+    --glass-bg-stark: rgba(226, 238, 255, 0.09);
+    --glass-border: rgba(214, 230, 255, 0.14);
+    --glass-highlight: rgba(222, 236, 255, 0.16);
+    --text-primary: #eaf1fb;
+    --text-muted: #a3b3c9;
+    --text-leise: #8495ad;
+    --accent-a: #5cc8ff;
+    --accent-b: #3d63ff;
+    --accent-gradient: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+    --accent-text: #8fd6ff;
+    --auf-akzent: #050b18;
+    --danger: #ff6b6b;
+    --warnung: #ffc061;
+    --success: #5fdca4;
+    --radius-lg: 20px;
+    --radius-md: 14px;
+    --radius-sm: 10px;
+    --font-display: 'Space Grotesk', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --font-body: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    --seite-rand: clamp(14px, 1.8vw, 44px);
+}
+
+* { box-sizing: border-box; }
+html { color-scheme: dark; -webkit-text-size-adjust: 100%; }
+body {
+    margin: 0; min-height: 100dvh;
+    background: var(--bg-gradient), var(--bg-deep); background-attachment: fixed;
+    color: var(--text-primary); font-family: var(--font-body); line-height: 1.5; -webkit-font-smoothing: antialiased;
+}
+h1, h2, h3 { font-family: var(--font-display); line-height: 1.15; margin: 0; }
+button { font: inherit; }
+:focus-visible { outline: 2px solid var(--accent-a); outline-offset: 2px; border-radius: 6px; }
+
+.kopf { display: flex; align-items: center; gap: 12px; padding: 18px var(--seite-rand); }
+.kopf h1 { font-size: 1.5rem; letter-spacing: -0.01em; }
+.version { color: var(--text-leise); font-size: 0.85rem; margin-left: auto; }
+
+.seite { display: grid; gap: 18px; padding: 0 var(--seite-rand) 40px; max-width: 1100px; margin: 0 auto;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); align-items: start; }
+#transkodieren { grid-column: 1 / -1; }
+
+.glass-panel {
+    background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
+    padding: 20px 22px; backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
+    box-shadow: inset 0 1px 0 var(--glass-highlight), 0 18px 40px rgba(0, 0, 0, 0.35);
+}
+.glass-panel h2 { font-size: 1.1rem; margin-bottom: 12px; }
+.zeile-kopf { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+.zeile-kopf h2 { margin: 0; }
+.leise { color: var(--text-muted); margin: 6px 0; }
+.klein { font-size: 0.82rem; color: var(--text-leise); margin-top: 14px; }
+
+.abzeichen { padding: 5px 12px; border-radius: 999px; font-weight: 700; font-size: 0.85rem;
+    background: var(--glass-bg-stark); border: 1px solid var(--glass-border); }
+.abzeichen.hw { background: var(--accent-gradient); color: var(--auf-akzent); border-color: transparent; }
+
+.faehigkeiten { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; margin: 14px 0; }
+.faehigkeit { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-radius: var(--radius-sm);
+    background: var(--glass-bg); border: 1px solid var(--glass-border); font-size: 0.92rem; }
+.faehigkeit .zeichen { font-weight: 800; width: 1.1em; text-align: center; }
+.faehigkeit.ja .zeichen { color: var(--success); }
+.faehigkeit.nein { color: var(--text-leise); }
+.faehigkeit.nein .zeichen { color: var(--text-leise); }
+
+.warnungen { list-style: none; padding: 0; margin: 8px 0; display: grid; gap: 6px; }
+.warnungen li { padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid rgba(255, 192, 97, 0.35);
+    background: rgba(255, 192, 97, 0.08); color: var(--warnung); font-size: 0.92rem; }
+
+.knoepfe { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+.knopf { padding: 10px 18px; border-radius: 999px; border: 1px solid var(--glass-border); cursor: pointer;
+    background: var(--glass-bg-stark); color: var(--text-primary); font-weight: 600; }
+.knopf:hover { border-color: var(--accent-a); }
+.knopf.haupt { background: var(--accent-gradient); color: var(--auf-akzent); border-color: transparent; }
+.knopf:disabled { opacity: 0.55; cursor: progress; }
+
+.test { margin-top: 14px; display: grid; gap: 8px; }
+.test-zeile { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
+    background: var(--glass-bg); border: 1px solid var(--glass-border); }
+.test-zeile strong { font-family: var(--font-display); font-size: 1.05rem; color: var(--accent-text); }
+.test-zeile.fehler strong { color: var(--danger); font-size: 0.85rem; font-family: var(--font-body); font-weight: 500; }
+
+.liste { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+.liste dt { color: var(--text-muted); }
+.liste dd { margin: 0; overflow-wrap: anywhere; }
+.ok { color: var(--success); }
+.schlecht { color: var(--danger); }
+
+.ordner { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.ordner li { display: flex; justify-content: space-between; gap: 12px; }
+.ordner code { color: var(--text-muted); font-size: 0.85rem; }
+
+@media (max-width: 767px) {
+    .seite { grid-template-columns: 1fr; }
+    .glass-panel { padding: 16px; }
+}
