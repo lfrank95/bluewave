@@ -132,30 +132,41 @@ function universum_detail(int $id, int $konto, string $sort = 'eigen'): ?array
     $sort = $sort === 'erscheinung' ? 'erscheinung' : 'eigen';
     $titel = universum_titel($id, $konto, $sort);
     [$poster, $hg] = universum_bild($u, $titel);
-    // Gruppen: bei eigener Reihenfolge nach Abschnitten, sonst eine Liste
+    // Gruppen: bei eigener Reihenfolge nach Abschnitten (verschachtelt, in Baum-Reihenfolge), sonst eine Liste
     $gruppen = [];
     if ($sort === 'eigen') {
+        $abschnitte = universum_abschnitte_baum($id);
+        $gruppen[0] = ['id' => null, 'name' => null, 'eltern_id' => null, 'tiefe' => 0, 'titel' => []];
+        foreach ($abschnitte as $a) {
+            $gruppen[$a['id']] = ['id' => $a['id'], 'name' => $a['name'], 'eltern_id' => $a['eltern_id'], 'tiefe' => $a['tiefe'], 'titel' => []];
+        }
         foreach ($titel as $t) {
-            $k = $t['abschnitt_id'] ?? 0;
-            $gruppen[$k] ??= ['id' => $t['abschnitt_id'], 'name' => $t['abschnitt'], 'titel' => []];
-            $gruppen[$k]['titel'][] = $t;
+            $gruppen[$t['abschnitt_id'] ?? 0]['titel'][] = $t;
         }
-        // leere Abschnitte (für den Editor sichtbar)
-        foreach (db_alle('SELECT id, name FROM universum_abschnitte WHERE universum_id = :u ORDER BY position, id', ['u' => $id]) as $a) {
-            $gruppen[(int) $a['id']] ??= ['id' => (int) $a['id'], 'name' => $a['name'], 'titel' => []];
+        if (!$gruppen[0]['titel'] && count($gruppen) > 1) {
+            unset($gruppen[0]);
         }
-        // Reihenfolge der Abschnitte: ohne Abschnitt zuerst, dann nach Position
-        $pos = array_flip(array_map('intval', array_column(db_alle('SELECT id FROM universum_abschnitte WHERE universum_id = :u ORDER BY position, id', ['u' => $id]), 'id')));
-        uksort($gruppen, static fn($a, $b) => ($a === 0 ? -1 : $pos[$a] ?? 999) <=> ($b === 0 ? -1 : $pos[$b] ?? 999));
     } else {
-        $gruppen[0] = ['id' => null, 'name' => null, 'titel' => $titel];
+        $gruppen[0] = ['id' => null, 'name' => null, 'eltern_id' => null, 'tiefe' => 0, 'titel' => $titel];
     }
-    foreach ($gruppen as &$g) {
-        $f = count(array_filter($g['titel'], static fn($t) => $t['art'] === 'film'));
-        $s = count($g['titel']) - $f;
-        $ges = count(array_filter($g['titel'], static fn($t) => $t['gesehen']));
+    // Infotext je Abschnitt: eigene Titel plus die aller Unterabschnitte
+    $unterbaum = static function (int $gid) use (&$gruppen, &$unterbaum): array {
+        $l = $gruppen[$gid]['titel'];
+        foreach ($gruppen as $k => $g) {
+            if ($k !== 0 && $g['eltern_id'] === $gid) {
+                $l = array_merge($l, $unterbaum($k));
+            }
+        }
+        return $l;
+    };
+    foreach ($gruppen as $k => &$g) {
+        $alle = $k === 0 ? $g['titel'] : $unterbaum($k);
+        $f = count(array_filter($alle, static fn($t) => $t['art'] === 'film'));
+        $s = count($alle) - $f;
+        $ges = count(array_filter($alle, static fn($t) => $t['gesehen']));
         $teile = array_filter([$f ? $f . ' ' . ($f === 1 ? 'Film' : 'Filme') : null, $s ? $s . ' ' . ($s === 1 ? 'Serie' : 'Serien') : null]);
-        $g['info'] = implode(' · ', $teile) . ($g['titel'] ? ($ges === count($g['titel']) ? ' · alle gesehen' : ($ges ? ' · ' . $ges . ' gesehen' : '')) : '');
+        $g['gesamt'] = count($alle);
+        $g['info'] = implode(' · ', $teile) . ($alle ? ($ges === count($alle) ? ' · alle gesehen' : ($ges ? ' · ' . $ges . ' gesehen' : '')) : '');
     }
     unset($g);
     $filme = count(array_filter($titel, static fn($t) => $t['art'] === 'film'));
@@ -240,30 +251,69 @@ function universum_hinzufuegen(int $uid, string $art, int $id, ?int $abschnitt =
  * Ordnung speichern: $daten = ['ohne' => [eid…], 'abschnitte' => [['id' => int|null, 'name' => '…', 'eintraege' => [eid…]], …]]
  * Abschnitte, die fehlen, werden gelöscht (ihre Titel bleiben ohne Abschnitt), neue (id null) angelegt.
  */
+/** Abschnitte eines Universums in Baum-Reihenfolge (vorab sortiert), mit Tiefe */
+function universum_abschnitte_baum(int $uid): array
+{
+    $alle = db_alle('SELECT id, name, eltern_id, position FROM universum_abschnitte WHERE universum_id = :u ORDER BY position, id', ['u' => $uid]);
+    $kinder = [];
+    $ids = array_map('intval', array_column($alle, 'id'));
+    foreach ($alle as $a) {
+        $e = $a['eltern_id'] !== null && in_array((int) $a['eltern_id'], $ids, true) ? (int) $a['eltern_id'] : 0;
+        $kinder[$e][] = ['id' => (int) $a['id'], 'name' => $a['name'], 'eltern_id' => $e ?: null];
+    }
+    $aus = [];
+    $gehen = static function (int $e, int $tiefe) use (&$gehen, &$kinder, &$aus): void {
+        foreach ($kinder[$e] ?? [] as $k) {
+            $aus[] = $k + ['tiefe' => $tiefe];
+            $gehen($k['id'], $tiefe + 1);
+        }
+    };
+    $gehen(0, 0);
+    return $aus;
+}
+
+/**
+ * Reihenfolge und Abschnitte speichern.
+ * {ohne: [eintrag_id…], abschnitte: [{id?, name, eintraege: [eintrag_id…], unter: [ …gleich… ]}, …]}
+ * Positionen werden in Baum-Reihenfolge vergeben (Abschnitt, seine Titel, dann seine Unterabschnitte).
+ */
 function universum_ordnung(int $uid, array $daten): void
 {
     $vorhanden = array_map('intval', array_column(db_alle('SELECT id FROM universum_abschnitte WHERE universum_id = :u', ['u' => $uid]), 'id'));
     $behalten = [];
     $pos = 0;
+    $apos = 0;
     $setzen = static function (array $eids, ?int $abschnitt) use ($uid, &$pos): void {
         foreach ($eids as $eid) {
             db_tun('UPDATE universum_eintraege SET position = :p, abschnitt_id = :a WHERE id = :e AND universum_id = :u', ['p' => ++$pos, 'a' => $abschnitt, 'e' => (int) $eid, 'u' => $uid]);
         }
     };
     $setzen((array) ($daten['ohne'] ?? []), null);
-    foreach (array_values((array) ($daten['abschnitte'] ?? [])) as $i => $a) {
-        $name = mb_substr(trim((string) ($a['name'] ?? '')), 0, 120) ?: 'Abschnitt ' . ($i + 1);
-        $aid = isset($a['id']) && in_array((int) $a['id'], $vorhanden, true) ? (int) $a['id'] : null;
-        if ($aid) {
-            db_tun('UPDATE universum_abschnitte SET name = :n, position = :p WHERE id = :id', ['n' => $name, 'p' => $i, 'id' => $aid]);
-        } else {
-            $aid = db_einfuegen('INSERT INTO universum_abschnitte (universum_id, name, position) VALUES (:u, :n, :p)', ['u' => $uid, 'n' => $name, 'p' => $i]);
+    $ebene = static function (array $liste, ?int $eltern, int $tiefe) use (&$ebene, &$behalten, &$apos, $vorhanden, $uid, $setzen): void {
+        foreach (array_values($liste) as $i => $a) {
+            if (!is_array($a)) {
+                continue;
+            }
+            $name = mb_substr(trim((string) ($a['name'] ?? '')), 0, 120) ?: 'Abschnitt ' . ($i + 1);
+            $aid = isset($a['id']) && in_array((int) $a['id'], $vorhanden, true) ? (int) $a['id'] : null;
+            if ($aid) {
+                db_tun('UPDATE universum_abschnitte SET name = :n, position = :p, eltern_id = :e WHERE id = :id', ['n' => $name, 'p' => $apos++, 'e' => $eltern, 'id' => $aid]);
+            } else {
+                $aid = db_einfuegen('INSERT INTO universum_abschnitte (universum_id, eltern_id, name, position) VALUES (:u, :e, :n, :p)', ['u' => $uid, 'e' => $eltern, 'n' => $name, 'p' => $apos++]);
+            }
+            $behalten[] = $aid;
+            $setzen((array) ($a['eintraege'] ?? []), $aid);
+            if ($tiefe < 5) {
+                $ebene((array) ($a['unter'] ?? []), $aid, $tiefe + 1);
+            }
         }
-        $behalten[] = $aid;
-        $setzen((array) ($a['eintraege'] ?? []), $aid);
-    }
-    foreach (array_diff($vorhanden, $behalten) as $weg) {
-        db_tun('DELETE FROM universum_abschnitte WHERE id = :id', ['id' => $weg]);
+    };
+    $ebene((array) ($daten['abschnitte'] ?? []), null, 0);
+    $weg = array_diff($vorhanden, $behalten);
+    if ($weg) {
+        // erst Verweise lösen, dann löschen (Reihenfolge der Fremdschlüssel egal)
+        db_tun('UPDATE universum_abschnitte SET eltern_id = NULL WHERE id IN (' . implode(',', $weg) . ')');
+        db_tun('DELETE FROM universum_abschnitte WHERE id IN (' . implode(',', $weg) . ')');
     }
 }
 

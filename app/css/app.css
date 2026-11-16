@@ -814,3 +814,17 @@ a.chip:hover { border-color: var(--accent-a); color: var(--text-primary); }
     .abschnitt-zeile .blaetter { display: none; }
     .hero.detail { min-height: 0; }
 }
+
+/* Verschachtelte Abschnitte */
+:root { --einzug: 26px; }
+.abschnitt-kopf.tiefe-1, .abschnitt-kopf.tiefe-2, .abschnitt-kopf.tiefe-3 { margin: 28px 0 14px; }
+.abschnitt-kopf h3 { font-size: clamp(1.05rem, 1rem + 0.35vw, 1.3rem); display: flex; align-items: center; gap: 10px; }
+.abschnitt-kopf h3::before { content: ""; width: 4px; height: 1.1em; border-radius: 2px; background: var(--accent-gradient); }
+.abschnitt-kopf.tiefe-2 h3::before, .abschnitt-kopf.tiefe-3 h3::before { background: rgba(92, 200, 255, 0.45); }
+section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
+.abschnitt-box.unter { border-left: 2px solid rgba(92, 200, 255, 0.35); }
+.editor-auswahl { position: fixed; top: auto; left: 50%; transform: translateX(-50%); bottom: calc(24px + env(safe-area-inset-bottom)); z-index: 70; margin: 0; width: max-content; max-width: calc(100vw - 24px); }
+@media (max-width: 767px) {
+    :root { --einzug: 12px; }
+    .editor-auswahl { left: 10px; right: 10px; transform: none; width: auto; bottom: calc(72px + env(safe-area-inset-bottom)); }
+}

@@ -126,6 +126,14 @@ eids = [t['eintrag_id'] for t in alle]
 admin.api('PUT', f'universum/{uid}/ordnung', {'ohne': [eids[3]], 'abschnitte': [{'id': None, 'name': 'Phase 1', 'eintraege': eids[:2]}, {'id': None, 'name': 'Phase 2', 'eintraege': [eids[2]]}]})
 u = admin.api('GET', f'universum/{uid}')
 pruefe([(a['name'], len(a['titel'])) for a in u['abschnitte']] == [(None, 1), ('Phase 1', 2), ('Phase 2', 1)], f'Abschnitte: {[(a["name"], len(a["titel"])) for a in u["abschnitte"]]}')
+# verschachtelt: Saga › Phase 1 (2 Titel), Saga › Phase 2 (1 Titel); Titel ohne Abschnitt bleibt vorn
+admin.api('PUT', f'universum/{uid}/ordnung', {'ohne': [eids[3]], 'abschnitte': [{'id': None, 'name': 'Saga', 'eintraege': [], 'unter': [
+    {'id': None, 'name': 'Phase 1', 'eintraege': eids[:2]}, {'id': None, 'name': 'Phase 2', 'eintraege': [eids[2]]}]}]})
+u = admin.api('GET', f'universum/{uid}')
+pruefe([(a['name'], a.get('tiefe'), len(a['titel'])) for a in u['abschnitte']] == [(None, 0, 1), ('Saga', 0, 0), ('Phase 1', 1, 2), ('Phase 2', 1, 1)],
+       f'verschachtelt: {[(a["name"], a.get("tiefe"), len(a["titel"])) for a in u["abschnitte"]]}')
+pruefe(next(a for a in u['abschnitte'] if a['name'] == 'Saga')['gesamt'] == 3, 'Saga zählt die Titel der Unterabschnitte')
+pruefe([t['nr'] for a in u['abschnitte'] for t in a['titel']] == [1, 2, 3, 4], 'Nummern in Baum-Reihenfolge')
 ue = admin.api('GET', f'universum/{uid}?sort=erscheinung')
 pruefe([t['titel'] for t in ue['abschnitte'][0]['titel']][:2] == ["Marvel's The Avengers", 'Avengers: Age of Ultron'], 'nach Erscheinung')
 pos = admin.api('GET', f'film/{av["id"]}')['universen']

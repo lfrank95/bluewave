@@ -98,10 +98,26 @@ async function universum(id, r, app) {
     const inhalt = el('div.seite');
     const zeichnen = () => {
         const passt = (t) => filter === 'alle' || (filter === 'film' && t.art === 'film') || (filter === 'serie' && t.art === 'serie') || (filter === 'ungesehen' && !t.gesehen);
-        const gruppen = d.abschnitte.map((g) => ({ ...g, titel: g.titel.filter(passt) })).filter((g) => g.titel.length);
-        inhalt.replaceChildren(...(gruppen.length ? gruppen.map((g) => el('section',
-            g.name ? el('div.abschnitt-kopf', el('h2', g.name), el('span.leise', g.info), el('span.linie')) : el('div', { style: { height: '30px' } }),
-            el('div.raster', g.titel.map((t) => el('a.kachel' + (t.gesehen ? '.gesehen-ab' : ''), { href: zielLink(t), title: t.titel },
+        // Abschnitte bleiben sichtbar, wenn sie selbst oder ein Unterabschnitt passende Titel haben
+        const alle = d.abschnitte.map((g) => ({ ...g, titel: g.titel.filter(passt) }));
+        const sichtbar = alle.map(() => false);
+        for (let i = alle.length - 1; i >= 0; i--) {
+            if (alle[i].titel.length) sichtbar[i] = true;
+            if (sichtbar[i]) {
+                let grenze = alle[i].tiefe || 0;
+                for (let j = i - 1; j >= 0 && grenze > 0; j--) {
+                    if (alle[j].id !== null && alle[j].tiefe < grenze) { sichtbar[j] = true; grenze = alle[j].tiefe; }
+                }
+            }
+        }
+        const gruppen = alle.filter((g, i) => sichtbar[i]);
+        const kopf = (g) => {
+            const t = g.tiefe || 0;
+            return el('div.abschnitt-kopf.tiefe-' + Math.min(t, 3), el(t ? 'h3' : 'h2', g.name), el('span.leise', g.info), el('span.linie'));
+        };
+        inhalt.replaceChildren(...(gruppen.length ? gruppen.map((g) => el('section' + (g.tiefe ? '.unterabschnitt' : ''),
+            g.name ? kopf(g) : el('div', { style: { height: '30px' } }),
+            !g.titel.length ? null : el('div.raster', g.titel.map((t) => el('a.kachel' + (t.gesehen ? '.gesehen-ab' : ''), { href: zielLink(t), title: t.titel },
                 el('div.bild', bild(t.poster, t.titel) || el('div.ersatz', t.titel),
                     el('span.nr-marke', String(t.nr)),
                     el('span.art-marke' + (t.art === 'serie' ? '.serie' : ''), t.art === 'serie' ? 'SERIE' : 'FILM'),
@@ -144,8 +160,8 @@ async function editor(id, app) {
     let gruppen = [];
     const ausDaten = () => {
         const ohne = d.abschnitte.find((g) => g.id === null);
-        gruppen = [{ id: null, name: null, eintraege: ohne ? [...ohne.titel] : [] },
-            ...d.abschnitte.filter((g) => g.id !== null).map((g) => ({ id: g.id, name: g.name, eintraege: [...g.titel] }))];
+        gruppen = [{ id: null, name: null, tiefe: -1, eintraege: ohne ? [...ohne.titel] : [] },
+            ...d.abschnitte.filter((g) => g.id !== null).map((g) => ({ id: g.id, name: g.name, tiefe: g.tiefe || 0, eintraege: [...g.titel] }))];
     };
     ausDaten();
 
@@ -158,13 +174,71 @@ async function editor(id, app) {
     };
     const ordnungSpeichern = async () => {
         try {
-            await api(`universum/${id}/ordnung`, 'PUT', {
-                ohne: gruppen[0].eintraege.map((t) => t.eintrag_id),
-                abschnitte: gruppen.slice(1).map((g) => ({ id: g.id, name: g.name, eintraege: g.eintraege.map((t) => t.eintrag_id) })),
-            });
+            await api(`universum/${id}/ordnung`, 'PUT', { ohne: gruppen[0].eintraege.map((t) => t.eintrag_id), abschnitte: baum() });
             await neuLaden();
         } catch (x) { meldung(x.message, true); }
     };
+    // ---- Gliederung: flache Liste mit Tiefe ⇄ Baum ----
+    const baum = () => {
+        const wurzel = [];
+        const stapel = [{ tiefe: -1, unter: wurzel }];
+        for (const g of gruppen.slice(1)) {
+            while (stapel.length > 1 && stapel[stapel.length - 1].tiefe >= g.tiefe) stapel.pop();
+            const knoten = { id: g.id, name: g.name, eintraege: g.eintraege.map((t) => t.eintrag_id), unter: [] };
+            stapel[stapel.length - 1].unter.push(knoten);
+            stapel.push({ tiefe: g.tiefe, unter: knoten.unter });
+        }
+        return wurzel;
+    };
+    const ende = (gi) => { // Index hinter dem Unterbaum von gi
+        let j = gi + 1;
+        while (j < gruppen.length && gruppen[j].tiefe > gruppen[gi].tiefe) j++;
+        return j;
+    };
+    const elternVon = (gi) => { for (let j = gi - 1; j >= 1; j--) if (gruppen[j].tiefe < gruppen[gi].tiefe) return j; return 0; };
+    const vorigerGeschwister = (gi) => { for (let j = gi - 1; j >= 1; j--) { if (gruppen[j].tiefe === gruppen[gi].tiefe) return j; if (gruppen[j].tiefe < gruppen[gi].tiefe) return -1; } return -1; };
+    const naechsterGeschwister = (gi) => { const j = ende(gi); return j < gruppen.length && gruppen[j].tiefe === gruppen[gi].tiefe ? j : -1; };
+    const abschnittHoch = (gi) => {
+        const v = vorigerGeschwister(gi);
+        if (v < 0) return;
+        const block = gruppen.splice(gi, ende(gi) - gi);
+        gruppen.splice(v, 0, ...block);
+        ordnungSpeichern();
+    };
+    const abschnittRunter = (gi) => {
+        const n = naechsterGeschwister(gi);
+        if (n >= 0) abschnittHoch(n);
+    };
+    const einruecken = (gi) => { // wird Unterabschnitt des vorigen Abschnitts gleicher Ebene
+        if (vorigerGeschwister(gi) < 0 || gruppen[gi].tiefe >= 4) return;
+        for (let j = gi; j < ende(gi); j++) gruppen[j].tiefe++;
+        ordnungSpeichern();
+    };
+    const ausruecken = (gi) => {
+        if (gruppen[gi].tiefe <= 0) return;
+        // folgende Geschwister werden zu Kindern (damit die Reihenfolge erhalten bleibt)
+        const e = ende(gi);
+        let j = e;
+        const t = gruppen[gi].tiefe;
+        while (j < gruppen.length && gruppen[j].tiefe >= t) j++;
+        const block = gruppen.splice(gi, e - gi);
+        block.forEach((g) => { g.tiefe--; });
+        gruppen.splice(j - block.length, 0, ...block);
+        ordnungSpeichern();
+    };
+    const unterabschnitt = (gi) => {
+        gruppen.splice(ende(gi), 0, { id: null, name: 'Neuer Unterabschnitt', tiefe: gruppen[gi].tiefe + 1, eintraege: [] });
+        ordnungSpeichern();
+    };
+    const aufloesen = (gi) => { // Titel wandern in den übergeordneten Abschnitt, Unterabschnitte rücken eine Ebene hoch
+        const e = elternVon(gi);
+        for (let j = gi + 1; j < ende(gi); j++) gruppen[j].tiefe--;
+        const [weg] = gruppen.splice(gi, 1);
+        gruppen[e].eintraege.push(...weg.eintraege);
+        ordnungSpeichern();
+    };
+    const gruppenName = (g, gi) => (gi === 0 ? 'Ohne Abschnitt' : '\u2003'.repeat(g.tiefe) + (g.tiefe ? '└ ' : '') + (g.name || `Abschnitt ${gi}`));
+
     const verschieben = (eid, zielGruppe, vorEid = null) => {
         // ist der gezogene Titel markiert, wandern alle markierten mit (in ihrer Reihenfolge)
         const ids = markiert.has(eid) ? gruppen.flatMap((g) => g.eintraege.map((t) => t.eintrag_id)).filter((m) => markiert.has(m)) : [eid];
@@ -229,9 +303,9 @@ async function editor(id, app) {
                 flach.slice(a, b + 1).forEach((m) => { if (e.target.checked) markiert.add(m); else markiert.delete(m); });
             } else if (e.target.checked) markiert.add(t.eintrag_id); else markiert.delete(t.eintrag_id);
             letzteMarke = t.eintrag_id;
-            zeichnen();
+            markierungZeigen();
         } });
-        const z = el('div.eintrag' + (markiert.has(t.eintrag_id) ? '.markiert' : ''), { draggable: 'true' },
+        const z = el('div.eintrag' + (markiert.has(t.eintrag_id) ? '.markiert' : ''), { draggable: 'true', 'data-eid': t.eintrag_id },
             marke,
             el('span.griff', { title: 'Ziehen zum Verschieben' }, icon('verwaltung')),
             el('span.nr', String(nr)),
@@ -262,7 +336,7 @@ async function editor(id, app) {
         let nr = 0;
         return gruppen.map((g, gi) => {
             if (gi === 0 && !g.eintraege.length && gruppen.length > 1) return null;
-            const box = el('div.abschnitt-box',
+            const box = el('div.abschnitt-box' + (gi > 0 && g.tiefe > 0 ? '.unter' : ''), { style: { marginLeft: gi > 0 ? `calc(${g.tiefe} * var(--einzug))` : 0 } },
                 el('div.kopf-a',
                     g.id === null && gi === 0
                         ? el('b', { style: { padding: '6px 8px', fontFamily: 'var(--font-display)' } }, gruppen.length > 1 ? 'Ohne Abschnitt' : 'Titel')
@@ -271,17 +345,17 @@ async function editor(id, app) {
                     g.eintraege.length ? el('button.mini-knopf', { title: 'Alle in diesem Abschnitt auswählen', onclick: () => {
                         const alle = g.eintraege.every((t) => markiert.has(t.eintrag_id));
                         g.eintraege.forEach((t) => (alle ? markiert.delete(t.eintrag_id) : markiert.add(t.eintrag_id)));
-                        zeichnen();
+                        markierungZeigen();
                     } }, icon('haken')) : null,
-                    gi > 1 ? el('button.mini-knopf', { title: 'Abschnitt nach oben', onclick: () => { [gruppen[gi - 1], gruppen[gi]] = [gruppen[gi], gruppen[gi - 1]]; ordnungSpeichern(); } }, icon('hoch')) : null,
-                    gi > 0 && gi < gruppen.length - 1 ? el('button.mini-knopf', { title: 'Abschnitt nach unten', onclick: () => { [gruppen[gi + 1], gruppen[gi]] = [gruppen[gi], gruppen[gi + 1]]; ordnungSpeichern(); } }, icon('runter')) : null,
-                    gi > 0 ? el('button.mini-knopf', { title: 'Abschnitt auflösen (Titel bleiben erhalten)', onclick: () => {
-                        const [weg] = gruppen.splice(gi, 1);
-                        gruppen[gi - 1].eintraege.push(...weg.eintraege);
-                        ordnungSpeichern();
-                    } }, icon('loeschen')) : null),
+                    gi > 0 && vorigerGeschwister(gi) >= 0 ? el('button.mini-knopf', { title: 'Abschnitt nach oben (samt Unterabschnitten)', onclick: () => abschnittHoch(gi) }, icon('hoch')) : null,
+                    gi > 0 && naechsterGeschwister(gi) >= 0 ? el('button.mini-knopf', { title: 'Abschnitt nach unten (samt Unterabschnitten)', onclick: () => abschnittRunter(gi) }, icon('runter')) : null,
+                    gi > 0 && g.tiefe > 0 ? el('button.mini-knopf', { title: 'Eine Ebene höher', onclick: () => ausruecken(gi) }, icon('links')) : null,
+                    gi > 0 && vorigerGeschwister(gi) >= 0 && g.tiefe < 4 ? el('button.mini-knopf', { title: 'Einrücken (wird Unterabschnitt des Abschnitts darüber)', onclick: () => einruecken(gi) }, icon('rechts')) : null,
+                    gi > 0 && g.tiefe < 4 ? el('button.mini-knopf', { title: 'Unterabschnitt anlegen', onclick: () => unterabschnitt(gi) }, icon('plus')) : null,
+                    gi > 0 ? el('button.mini-knopf', { title: 'Abschnitt auflösen (Titel wandern eine Ebene höher)', onclick: () => aufloesen(gi) }, icon('loeschen')) : null),
                 g.eintraege.length ? g.eintraege.map((t, i) => eintragZeile(t, gi, i, ++nr))
-                    : el('div.leer-hinweis', 'Leer – zieh Titel hierher oder füge sie rechts hinzu.'));
+                    : gi > 0 && gruppen[gi + 1]?.tiefe > g.tiefe ? el('div.leer-hinweis', { style: { padding: '8px 16px' } }, 'Titel stehen in den Unterabschnitten – oder zieh welche direkt hierher.')
+                        : el('div.leer-hinweis', 'Leer – zieh Titel hierher oder füge sie rechts hinzu.'));
             box.addEventListener('dragover', (e) => { if (ziehen) { e.preventDefault(); box.classList.add('ziel'); } });
             box.addEventListener('dragleave', (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove('ziel'); });
             box.addEventListener('drop', (e) => {
@@ -365,7 +439,7 @@ async function editor(id, app) {
     const auswahlLeiste = () => {
         if (!markiert.size) return null;
         const ziel = el('select', { 'aria-label': 'Ziel-Abschnitt' },
-            gruppen.map((g, gi) => el('option', { value: gi }, gi === 0 ? 'Ohne Abschnitt' : g.name || `Abschnitt ${gi}`)),
+            gruppen.map((g, gi) => el('option', { value: gi }, gruppenName(g, gi))),
             el('option', { value: 'neu' }, '+ Neuer Abschnitt'));
         ziel.value = String(gruppen.length > 1 ? gruppen.length - 1 : 0);
         return el('div.editor-auswahl.glass-panel',
@@ -376,7 +450,7 @@ async function editor(id, app) {
                 if (gi === 'neu') {
                     const name = prompt('Name des neuen Abschnitts', `Abschnitt ${gruppen.length}`);
                     if (!name) return;
-                    gruppen.push({ id: null, name, eintraege: [] });
+                    gruppen.push({ id: null, name, tiefe: 0, eintraege: [] });
                     gi = gruppen.length - 1;
                 }
                 verschieben([...markiert][0], Number(gi), null);
@@ -389,11 +463,24 @@ async function editor(id, app) {
                 markiert.clear();
                 neuLaden();
             } }, icon('loeschen'), 'Entfernen'),
-            el('button.mini-knopf', { title: 'Auswahl aufheben', style: { marginLeft: 'auto' }, onclick: () => { markiert.clear(); zeichnen(); } }, icon('schliessen')));
+            el('button.mini-knopf', { title: 'Auswahl aufheben', style: { marginLeft: 'auto' }, onclick: () => { markiert.clear(); markierungZeigen(); } }, icon('schliessen')));
+    };
+    // Häkchen ändern nur Klassen und die Leiste – kein Neuzeichnen, kein Springen
+    const leisteHalter = el('div');
+    const markierungZeigen = () => {
+        seite.querySelectorAll('.eintrag[data-eid]').forEach((z) => {
+            const an = markiert.has(Number(z.dataset.eid));
+            z.classList.toggle('markiert', an);
+            const c = z.querySelector('input.marke');
+            if (c) c.checked = an;
+        });
+        leisteHalter.replaceChildren(...[auswahlLeiste()].filter(Boolean));
     };
 
     const zeichnen = () => {
         const gesamt = gruppen.reduce((s, g) => s + g.eintraege.length, 0);
+        const y = window.scrollY;
+        leisteHalter.replaceChildren(...[auswahlLeiste()].filter(Boolean));
         seite.replaceChildren(
             el('div.bib-kopf',
                 el('div', el('div.augenbraue', 'Universum bearbeiten'), el('h1', d.name), el('p', `${anzahl(gesamt, 'Titel', 'Titel')} · Reihen kommen als einzelne Filme hinein`)),
@@ -404,11 +491,11 @@ async function editor(id, app) {
                         neuLaden();
                     } }, 'Nach Erscheinung sortieren'),
                     el('button.knopf', { onclick: () => {
-                        gruppen.push({ id: null, name: `Abschnitt ${gruppen.length}`, eintraege: [] });
+                        gruppen.push({ id: null, name: `Abschnitt ${gruppen.length}`, tiefe: 0, eintraege: [] });
                         ordnungSpeichern();
                     } }, icon('plus'), 'Abschnitt'))),
             el('div.editor',
-                el('div.links', stamm(), el('div', { style: { height: '18px' } }), auswahlLeiste(), abschnitteEl()),
+                el('div.links', stamm(), el('div', { style: { height: '18px' } }), leisteHalter, abschnitteEl()),
                 el('aside',
                     el('div.editor-karte', el('h3', { style: { margin: 0, fontSize: '1rem' } }, 'Hinzufügen'), el('div', { style: { marginTop: '12px' } }, suchFeld), reiterEl, trefferEl),
                     el('div.editor-karte.vorschlag', vorschlagEl),
@@ -418,6 +505,7 @@ async function editor(id, app) {
                         meldung('Universum gelöscht.');
                         location.hash = '#/universen';
                     } }, icon('loeschen'), 'Universum löschen')))));
+        window.scrollTo(0, y);
         vorschlaegeLaden();
     };
     zeichnen();
