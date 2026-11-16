@@ -219,6 +219,14 @@ k = admin.api('GET', f'remux/{w["datei_id"]}/position?start=12.5')['start']
 pruefe(0 <= k <= 12.5, f'Schlüsselbild vor 12,5 s: {k}')
 code, body, h = admin.roh('GET', f'/api/v1/remux/{w["datei_id"]}/strom?start={k}&ton=0&audio=copy&kanaele=2')
 pruefe(code == 200 and body[4:8] == b'ftyp' and b'moof' in body[:400000] and len(body) > 20000, f'fragmentiertes MP4: {code} {body[:16]} {len(body)}')
+# MSE-Player: echte Zeitstempel (Strom ab 12 s beginnt beim Schlüsselbild davor, nicht bei 0)
+import struct
+code, body, _ = admin.roh('GET', f'/api/v1/remux/{w["datei_id"]}/strom?start=12&ton=0&audio=copy&kanaele=2&absolut=1&token=e2etest12345')
+i = body.find(b'tfdt')
+tfdt = struct.unpack('>Q', body[i + 8:i + 16])[0] if body[i + 4] == 1 else struct.unpack('>I', body[i + 8:i + 12])[0]
+mdhd = body.find(b'mdhd')
+skala = struct.unpack('>I', body[mdhd + 24:mdhd + 28] if body[mdhd + 4] == 1 else body[mdhd + 16:mdhd + 20])[0]
+pruefe(code == 200 and 0 < tfdt / skala <= 12.1, f'absolute Zeitstempel: {tfdt}/{skala}')
 w2 = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': FAEHIG})
 pruefe(w2['modus'] == 'hls', 'ohne remux-Fähigkeit (alte App) wie bisher umwandeln')
 admin.api('DELETE', 'stream/' + w2['sitzung'])

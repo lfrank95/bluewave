@@ -3,6 +3,7 @@
 'use strict';
 import { el, icon, zeit, meldung } from './ui.js';
 import { api } from './api.js';
+import { MseStrom, mseVerfuegbar } from './mse_strom.js';
 
 let aktiv = null;
 
@@ -149,7 +150,7 @@ class Player {
         v.addEventListener('ended', () => this.ende());
         // Direct Stream: natives Spulen (Medientasten, Systemsteuerung) außerhalb des Puffers → Strom neu starten
         v.addEventListener('seeking', () => {
-            if (this.daten?.modus !== 'remux' || this.remuxNr === undefined) return;
+            if (this.daten?.modus !== 'remux' || this.remuxNr === undefined || this.mse) return;
             const rel = v.currentTime;
             const drin = (r) => { for (let i = 0; i < r.length; i++) if (rel >= r.start(i) && rel <= r.end(i)) return true; return false; };
             if (drin(v.buffered) && drin(v.seekable)) return;
@@ -268,8 +269,11 @@ class Player {
         if (this.hls) { this.hls.destroy(); this.hls = null; }
         v.querySelectorAll('track').forEach((t) => t.remove());
         this.versatz = 0;
+        this.mse?.beenden();
+        this.mse = null;
         if (d.modus === 'remux') {
-            await this.remuxLaden(start, false);
+            if (mseVerfuegbar() && !this.mseAus) await this.mseStarten(start);
+            else await this.remuxLaden(start, false);
             return;
         }
         if (d.modus === 'hls' && v.canPlayType('application/vnd.apple.mpegurl')) {
@@ -311,6 +315,29 @@ class Player {
         this.untertitelAktivieren(d.untertitel_aktiv);
     }
 
+    /** Direct Stream über MediaSource: durchgehende Zeitleiste, Geladenes bleibt, kein Neustart beim Spulen im Puffer */
+    async mseStarten(start) {
+        const d = this.daten;
+        const v = this.video;
+        const p = new URLSearchParams({ ton: d.remux.ton, audio: d.remux.audio, kanaele: d.remux.kanaele });
+        const strom = new MseStrom(v, `${d.url}/strom?${p}`, this.dauer(), (x) => {
+            // MSE klappt hier nicht (Codec, alter Browser) → einfacher Strom
+            console.warn('Direct Stream über MSE nicht möglich:', x?.message || x);
+            if (this.mse !== strom) return;
+            strom.beenden();
+            this.mse = null;
+            this.mseAus = true;
+            this.remuxLaden(this.pos() || start, false);
+        }, d.quelle?.bitrate_k || 8000);
+        this.mse = strom;
+        try { await strom.oeffnen(); } catch (x) { strom.fehler(x); return; }
+        if (this.mse !== strom) return;
+        this.spurenSetzen();
+        v.currentTime = start;
+        strom.laden(start);
+        try { await v.play(); } catch (x) { this.playKnopf.replaceChildren(icon('play')); this.mitte.hidden = true; }
+    }
+
     /** Direct Stream ab Sekunde $start (wird auf das Schlüsselbild davor gelegt) neu laden */
     async remuxLaden(start, weiterSpielen = true) {
         const d = this.daten;
@@ -341,6 +368,11 @@ class Player {
     /** Springen: im Puffer direkt, bei Direct Stream außerhalb des Puffers Strom neu starten */
     gehe(t) {
         t = Math.max(0, Math.min(this.dauer() - 0.5, t));
+        if (this.mse) {
+            this.mse.gehe(t);
+            this.zeigeZiel(t / (this.dauer() || 1));
+            return;
+        }
         if (this.daten?.modus === 'remux') {
             // nur springen, wo der Browser wirklich kann (gepuffert UND spulbar); sonst Strom an der Stelle neu starten
             const rel = t - this.versatz;
@@ -650,6 +682,7 @@ class Player {
         document.removeEventListener('fullscreenchange', this.vollAenderung);
         if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
         if (this.hls) this.hls.destroy();
+        this.mse?.beenden();
         this.video.pause();
         this.video.removeAttribute('src');
         this.video.load();

@@ -71,12 +71,19 @@ function remux_schluesselbild(string $pfad, float $start): float
     return round($best, 3);
 }
 
-function remux_befehl(string $pfad, float $start, int $tonIndex, string $tonModus, int $kanaele, bool $hevc): array
+/**
+ * $absolut: Zeitstempel der Datei behalten (Strom ab 48 s beginnt auch bei 48 s) – für den MSE-Player, der so
+ * eine durchgehende Zeitleiste hat und schon geladene Stücke behält. Sonst beginnt der Strom bei 0 (einfacher Player).
+ */
+function remux_befehl(string $pfad, float $start, int $tonIndex, string $tonModus, int $kanaele, bool $hevc, bool $absolut = false): array
 {
     $k = konfig()['transkodieren'];
-    $cmd = [$k['ffmpeg'], '-hide_banner', '-nostdin', '-loglevel', 'error'];
+    $cmd = [$k['ffmpeg'], '-hide_banner', '-nostdin', '-loglevel', 'error', '-fflags', '+genpts'];
     if ($start > 0) {
         $cmd = array_merge($cmd, ['-ss', sprintf('%.3f', $start)]);
+    }
+    if ($absolut) {
+        $cmd = array_merge($cmd, ['-copyts', '-start_at_zero']);
     }
     $cmd = array_merge($cmd, ['-i', $pfad, '-map', '0:v:0', '-map', '0:a:' . $tonIndex . '?', '-c:v', 'copy']);
     if ($hevc) {
@@ -93,13 +100,21 @@ function remux_befehl(string $pfad, float $start, int $tonIndex, string $tonModu
         $ac = max(1, min(6, $kanaele ?: 2));
         $cmd = array_merge($cmd, ['-c:a', 'aac', '-ac', (string) $ac, '-b:a', ($ac > 2 ? 384 : 192) . 'k']);
     }
-    return array_merge($cmd, ['-sn', '-dn', '-avoid_negative_ts', 'make_zero', '-max_muxing_queue_size', '4096',
-        '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-frag_duration', '2000000', 'pipe:1']);
+    // kurze Fragmente (1 s): das erste Bild ist schneller da; frag_discont hält die echten Zeitstempel im Fragment
+    return array_merge($cmd, ['-sn', '-dn', '-avoid_negative_ts', $absolut ? 'disabled' : 'make_zero', '-max_muxing_queue_size', '4096',
+        '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof' . ($absolut ? '+frag_discont' : ''), '-frag_duration', '1000000', 'pipe:1']);
 }
 
-/** Strom ausliefern, solange der Browser liest; bricht er ab, wird ffmpeg beendet */
-function remux_senden(array $cmd): never
+/** Strom ausliefern, solange der Browser liest; bricht er ab, wird ffmpeg beendet.
+ *  $token: pro Player – ein neuer Strom desselben Players beendet den alten sofort (wichtig über den Tunnel,
+ *  wo ein Abbruch erst spät ankommt; sonst lesen mehrere ffmpeg gleichzeitig dieselbe große Datei). */
+function remux_senden(array $cmd, string $token = ''): never
 {
+    $pidDatei = preg_match('/^[a-z0-9]{8,40}$/', $token) ? konfig()['pfade']['transkodieren'] . '/remux-' . $token . '.pid' : null;
+    if ($pidDatei && ($alt = (int) @file_get_contents($pidDatei)) > 0 && @posix_kill($alt, 0)
+        && str_contains((string) @file_get_contents("/proc/$alt/cmdline"), 'ffmpeg')) {
+        posix_kill($alt, SIGKILL);
+    }
     @set_time_limit(0);
     ignore_user_abort(true);
     while (ob_get_level() > 0) {
@@ -116,6 +131,11 @@ function remux_senden(array $cmd): never
     if (!is_resource($p)) {
         http_response_code(500);
         exit;
+    }
+    $meinPid = (int) (proc_get_status($p)['pid'] ?? 0);
+    if ($pidDatei && $meinPid) {
+        @mkdir(dirname($pidDatei), 0775, true);
+        @file_put_contents($pidDatei, (string) $meinPid);
     }
     while (!feof($rohre[1])) {
         $stueck = fread($rohre[1], 256 * 1024);
@@ -137,6 +157,9 @@ function remux_senden(array $cmd): never
         posix_kill($st['pid'], SIGKILL);
     }
     proc_close($p);
+    if ($pidDatei && (int) @file_get_contents($pidDatei) === $meinPid) {
+        @unlink($pidDatei);
+    }
     exit;
 }
 

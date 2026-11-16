@@ -536,7 +536,8 @@ try {
             }
             if ($t2 === 'strom' && $methode === 'GET') {
                 remux_senden(remux_befehl($d['pfad'], max(0, (float) ($_GET['start'] ?? 0)), max(0, (int) ($_GET['ton'] ?? 0)),
-                    in_array($_GET['audio'] ?? '', ['copy', 'eac3'], true) ? (string) $_GET['audio'] : 'aac', (int) ($_GET['kanaele'] ?? 2), strtolower((string) $d['video_codec']) === 'hevc'));
+                    in_array($_GET['audio'] ?? '', ['copy', 'eac3'], true) ? (string) $_GET['audio'] : 'aac', (int) ($_GET['kanaele'] ?? 2),
+                    strtolower((string) $d['video_codec']) === 'hevc', ($_GET['absolut'] ?? '') === '1'), (string) ($_GET['token'] ?? ''));
             }
             break;
 
