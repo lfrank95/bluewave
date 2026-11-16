@@ -134,8 +134,16 @@ pruefe([(a['name'], a.get('tiefe'), len(a['titel'])) for a in u['abschnitte']] =
        f'verschachtelt: {[(a["name"], a.get("tiefe"), len(a["titel"])) for a in u["abschnitte"]]}')
 pruefe(next(a for a in u['abschnitte'] if a['name'] == 'Saga')['gesamt'] == 3, 'Saga zählt die Titel der Unterabschnitte')
 pruefe([t['nr'] for a in u['abschnitte'] for t in a['titel']] == [1, 2, 3, 4], 'Nummern in Baum-Reihenfolge')
+# nach Erscheinung: Abschnitte bleiben, sortiert wird innerhalb (Phase 1 dafür kurz verkehrt herum)
+ph1 = next(a for a in u['abschnitte'] if a['name'] == 'Phase 1')
+admin.api('PUT', f'universum/{uid}/ordnung', {'ohne': [eids[3]], 'abschnitte': [{'id': next(a['id'] for a in u['abschnitte'] if a['name'] == 'Saga'), 'name': 'Saga', 'eintraege': [], 'unter': [
+    {'id': ph1['id'], 'name': 'Phase 1', 'eintraege': [eids[1], eids[0]]}, {'id': None, 'name': 'Phase 2', 'eintraege': [eids[2]]}]}]})
 ue = admin.api('GET', f'universum/{uid}?sort=erscheinung')
-pruefe([t['titel'] for t in ue['abschnitte'][0]['titel']][:2] == ["Marvel's The Avengers", 'Avengers: Age of Ultron'], 'nach Erscheinung')
+pruefe([(a['name'], len(a['titel'])) for a in ue['abschnitte']] == [(None, 1), ('Saga', 0), ('Phase 1', 2), ('Phase 2', 1)], f'Abschnitte bleiben: {[(a["name"], len(a["titel"])) for a in ue["abschnitte"]]}')
+pruefe([t['titel'] for t in next(a for a in ue['abschnitte'] if a['name'] == 'Phase 1')['titel']] == ["Marvel's The Avengers", 'Avengers: Age of Ultron'], 'innerhalb nach Erscheinung')
+pruefe([t['nr'] for a in ue['abschnitte'] for t in a['titel']] == [1, 2, 3, 4], 'Nummern in Anzeige-Reihenfolge')
+admin.api('PUT', f'universum/{uid}/ordnung', {'ohne': [eids[3]], 'abschnitte': [{'id': None, 'name': 'Saga', 'eintraege': [], 'unter': [
+    {'id': None, 'name': 'Phase 1', 'eintraege': eids[:2]}, {'id': None, 'name': 'Phase 2', 'eintraege': [eids[2]]}]}]})
 pos = admin.api('GET', f'film/{av["id"]}')['universen']
 pruefe(pos and pos[0]['gesamt'] == 4 and pos[0]['nr'] == 2 and len(pos[0]['nachbarn']) >= 2, f'Position auf der Filmseite: {pos}')
 pruefe(admin.api('GET', f'serie/{serie["id"]}')['universen'][0]['name'] == 'Marvel Cinematic Universe', 'Serienseite kennt das Universum')
@@ -144,6 +152,10 @@ admin.api('PUT', f'film/{av["id"]}/universen', {'ids': [uid, uid2]})
 v = admin.api('GET', f'universum/{uid2}/vorschlaege')['vorschlaege']
 pruefe(any(x['titel'] == 'Avengers: Age of Ultron' for x in v), f'Vorschlag aus Reihe/Stichwort: {v}')
 pruefe(len(admin.api('GET', 'universen')['universen']) == 2, 'zwei Universen')
+uid3 = admin.api('POST', 'universen', {'name': '„Die Zebras“'})['id']
+namen = [x['name'] for x in admin.api('GET', 'universen')['universen']]
+pruefe(namen == ['Marvel Cinematic Universe', 'Nur Avengers', '„Die Zebras“'], f'Sortierung ohne Artikel und Anführungszeichen: {namen}')
+admin.api('DELETE', f'universum/{uid3}')
 # Mehrfachauswahl: mehrere auf einmal in einen Abschnitt, mehrere entfernen, mehrere als gesehen
 e0 = [t['eintrag_id'] for a in admin.api('GET', f'universum/{uid2}')['abschnitte'] for t in a['titel']]
 admin.api('PUT', f'universum/{uid2}/ordnung', {'ohne': e0, 'abschnitte': [{'id': None, 'name': 'Sammlung', 'eintraege': []}]})

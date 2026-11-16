@@ -30,11 +30,21 @@ function sprache3(?string $s): ?string
 }
 
 /** Sortiertitel: Artikel nach hinten („Der Herr der Ringe“ → „Herr der Ringe“) */
+/**
+ * Sortierschlüssel: führende Artikel (Der/Die/Das/The/A/Ein …, auch L'), Anführungszeichen und Satzzeichen
+ * werden übergangen, Umlaute wie ihr Grundbuchstabe einsortiert, Zahlen natürlich (2 vor 10).
+ */
 function sortiertitel(string $t): string
 {
     $t = trim($t);
-    $s = preg_replace('/^(der|die|das|the|a|an|ein|eine|le|la|les|el|il)\s+/iu', '', $t) ?? $t;
-    return mb_strtolower(trim($s) !== '' ? $s : $t);
+    $roh = (string) preg_replace('/^[\s\p{P}\p{S}]+/u', '', $t);              // „…“, '…', (…), ¡…, ...
+    $s = (string) preg_replace("/^(der|die|das|den|dem|des|the|a|an|ein|eine|einer|le|la|les|los|las|el|il|lo|gli|un|una|une)\\s+|^(l|d)['’]\\s*/iu", '', $roh);
+    $s = trim($s) !== '' ? $s : ($roh !== '' ? $roh : $t);
+    $s = mb_strtolower($s);
+    $s = strtr($s, ['ä' => 'a', 'ö' => 'o', 'ü' => 'u', 'ß' => 'ss', 'é' => 'e', 'è' => 'e', 'ê' => 'e', 'á' => 'a', 'à' => 'a', 'â' => 'a', 'ó' => 'o', 'ò' => 'o', 'ô' => 'o',
+        'í' => 'i', 'ì' => 'i', 'ú' => 'u', 'ù' => 'u', 'ñ' => 'n', 'ç' => 'c', 'ø' => 'o', 'å' => 'a', 'æ' => 'ae', 'œ' => 'oe']);
+    $s = (string) preg_replace_callback('/\d+/', static fn($m) => str_pad(ltrim($m[0], '0') ?: '0', 6, '0', STR_PAD_LEFT), $s);
+    return mb_substr($s, 0, 255);
 }
 
 /** Vergleichsschlüssel für Titel (Groß/klein, Satzzeichen, Umlaute egal) */

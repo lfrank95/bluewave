@@ -106,7 +106,12 @@ function universum_titel(int $uid, int $konto, string $sort = 'eigen'): array
         }
     }
     if ($sort === 'erscheinung') {
-        usort($aus, static fn($a, $b) => [$a['datum'], $a['titel']] <=> [$b['datum'], $b['titel']]);
+        // Abschnitte (Saga, Phase …) bleiben, sortiert wird innerhalb jedes Abschnitts nach Datum
+        $rang = [];
+        foreach ($aus as $t) {
+            $rang[$t['abschnitt_id'] ?? 0] ??= count($rang);
+        }
+        usort($aus, static fn($a, $b) => [$rang[$a['abschnitt_id'] ?? 0], $a['datum'], $a['titel']] <=> [$rang[$b['abschnitt_id'] ?? 0], $b['datum'], $b['titel']]);
     }
     foreach ($aus as $i => &$t) {
         $t['nr'] = $i + 1;
@@ -207,22 +212,18 @@ function universum_detail(int $id, int $konto, string $sort = 'eigen'): ?array
     $sort = $sort === 'erscheinung' ? 'erscheinung' : 'eigen';
     $titel = universum_titel($id, $konto, $sort);
     [$poster, $hg] = universum_bild($u, $titel);
-    // Gruppen: bei eigener Reihenfolge nach Abschnitten (verschachtelt, in Baum-Reihenfolge), sonst eine Liste
+    // Gruppen nach Abschnitten (verschachtelt, in Baum-Reihenfolge) – bei beiden Sortierungen
     $gruppen = [];
-    if ($sort === 'eigen') {
-        $abschnitte = universum_abschnitte_baum($id);
-        $gruppen[0] = ['id' => null, 'name' => null, 'eltern_id' => null, 'tiefe' => 0, 'titel' => []];
-        foreach ($abschnitte as $a) {
-            $gruppen[$a['id']] = ['id' => $a['id'], 'name' => $a['name'], 'eltern_id' => $a['eltern_id'], 'tiefe' => $a['tiefe'], 'titel' => []];
-        }
-        foreach ($titel as $t) {
-            $gruppen[$t['abschnitt_id'] ?? 0]['titel'][] = $t;
-        }
-        if (!$gruppen[0]['titel'] && count($gruppen) > 1) {
-            unset($gruppen[0]);
-        }
-    } else {
-        $gruppen[0] = ['id' => null, 'name' => null, 'eltern_id' => null, 'tiefe' => 0, 'titel' => $titel];
+    $abschnitte = universum_abschnitte_baum($id);
+    $gruppen[0] = ['id' => null, 'name' => null, 'eltern_id' => null, 'tiefe' => 0, 'titel' => []];
+    foreach ($abschnitte as $a) {
+        $gruppen[$a['id']] = ['id' => $a['id'], 'name' => $a['name'], 'eltern_id' => $a['eltern_id'], 'tiefe' => $a['tiefe'], 'titel' => []];
+    }
+    foreach ($titel as $t) {
+        $gruppen[$t['abschnitt_id'] ?? 0]['titel'][] = $t;
+    }
+    if (!$gruppen[0]['titel'] && count($gruppen) > 1) {
+        unset($gruppen[0]);
     }
     // Infotext je Abschnitt: eigene Titel plus die aller Unterabschnitte
     $unterbaum = static function (int $gid) use (&$gruppen, &$unterbaum): array {
