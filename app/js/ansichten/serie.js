@@ -1,6 +1,6 @@
 // Serienseite: Titelbild, Weiterschauen, Episodenreihenfolge, Staffeln, Folgen
 'use strict';
-import { el, icon, bild, meldung, auswahl } from '../ui.js';
+import { el, icon, bild, fsk, meldung, auswahl } from '../ui.js';
 import { api } from '../api.js';
 import { besetzung, tmdbZuordnen } from './film.js';
 import { universumBereich, universenDialog } from './universum_teile.js';
@@ -34,7 +34,7 @@ export async function zeigen(r, app) {
     const meta = el('div.meta', d.zeitraum ? el('span', d.zeitraum) : null, STATUS[d.status] ? [el('span.trenn'), el('span', STATUS[d.status])] : null,
         d.sender ? [el('span.trenn'), el('span', d.sender)] : null,
         alleFolgen.length ? [el('span.trenn'), el('span', `${alleFolgen.length} ${alleFolgen.length === 1 ? 'Folge' : 'Folgen'}`)] : null,
-        d.freigabe ? el('span.freigabe', 'FSK ' + d.freigabe) : null,
+        fsk(d.freigabe),
         d.bewertung ? el('span.stern', '★ ' + String(d.bewertung).replace('.', ',')) : null);
     const u0 = d.universen[0];
     const vor = u0 ? el('a.universum-chip', { href: `#/universum/${u0.id}` }, icon('universum'), `${u0.name} · Nr. ${u0.nr} von ${u0.gesamt}`) : el('div.augenbraue', 'Serie');

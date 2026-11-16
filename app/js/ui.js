@@ -206,3 +206,12 @@ export function feld(label, eingabe, hilfe) {
 export function auswahl(werte, aktuell, attrs = {}) {
     return el('select', attrs, Object.entries(werte).map(([w, t]) => el('option', { value: w, selected: String(w) === String(aktuell) }, t)));
 }
+
+/** FSK-Abzeichen in den offiziellen Farben (0 weiß, 6 gelb, 12 grün, 16 blau, 18 rot) */
+export function fsk(wert) {
+    if (wert === null || wert === undefined || wert === '') return null;
+    const n = parseInt(String(wert).replace(/\D/g, ''), 10);
+    const stufe = [0, 6, 12, 16, 18].includes(n) ? n : null;
+    return el('span.fsk' + (stufe !== null ? '.fsk-' + stufe : ''), { title: stufe !== null ? `FSK ab ${stufe} freigegeben` : `Freigabe ${wert}` },
+        el('small', 'FSK'), el('b', stufe !== null ? String(stufe) : String(wert)));
+}

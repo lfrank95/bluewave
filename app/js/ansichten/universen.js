@@ -137,6 +137,8 @@ async function editor(id, app) {
     letzterTitel = d.name + ' bearbeiten';
     const seite = el('div.seite');
     let ziehen = null; // eintrag_id, der gerade gezogen wird
+    const markiert = new Set(); // Mehrfachauswahl (eintrag_id)
+    let letzteMarke = null;
 
     // Gruppen in bearbeitbare Form: [{id, name, eintraege: [titel…]}], erste Gruppe = ohne Abschnitt
     let gruppen = [];
@@ -150,6 +152,8 @@ async function editor(id, app) {
     const neuLaden = async () => {
         d = await api(`universum/${id}?sort=eigen`);
         ausDaten();
+        const da = new Set(gruppen.flatMap((g) => g.eintraege.map((t) => t.eintrag_id)));
+        [...markiert].forEach((m) => { if (!da.has(m)) markiert.delete(m); });
         zeichnen();
     };
     const ordnungSpeichern = async () => {
@@ -162,15 +166,20 @@ async function editor(id, app) {
         } catch (x) { meldung(x.message, true); }
     };
     const verschieben = (eid, zielGruppe, vorEid = null) => {
-        let titel = null;
+        // ist der gezogene Titel markiert, wandern alle markierten mit (in ihrer Reihenfolge)
+        const ids = markiert.has(eid) ? gruppen.flatMap((g) => g.eintraege.map((t) => t.eintrag_id)).filter((m) => markiert.has(m)) : [eid];
+        if (vorEid !== null && ids.includes(vorEid)) return;
+        const titel = [];
         for (const g of gruppen) {
-            const i = g.eintraege.findIndex((t) => t.eintrag_id === eid);
-            if (i >= 0) [titel] = g.eintraege.splice(i, 1);
+            for (let i = g.eintraege.length - 1; i >= 0; i--) {
+                if (ids.includes(g.eintraege[i].eintrag_id)) titel.unshift(...g.eintraege.splice(i, 1));
+            }
         }
-        if (!titel) return;
+        titel.sort((a, b) => ids.indexOf(a.eintrag_id) - ids.indexOf(b.eintrag_id));
+        if (!titel.length) return;
         const ziel = gruppen[zielGruppe];
         const j = vorEid === null ? -1 : ziel.eintraege.findIndex((t) => t.eintrag_id === vorEid);
-        if (j >= 0) ziel.eintraege.splice(j, 0, titel); else ziel.eintraege.push(titel);
+        if (j >= 0) ziel.eintraege.splice(j, 0, ...titel); else ziel.eintraege.push(...titel);
         ordnungSpeichern();
     };
     const schritt = (gi, i, rich) => {
@@ -213,7 +222,17 @@ async function editor(id, app) {
     };
 
     const eintragZeile = (t, gi, i, nr) => {
-        const z = el('div.eintrag', { draggable: 'true' },
+        const marke = el('input.marke', { type: 'checkbox', checked: markiert.has(t.eintrag_id), 'aria-label': 'Auswählen', onclick: (e) => {
+            const flach = gruppen.flatMap((g) => g.eintraege.map((x) => x.eintrag_id));
+            if (e.shiftKey && letzteMarke !== null) {
+                const [a, b] = [flach.indexOf(letzteMarke), flach.indexOf(t.eintrag_id)].sort((x, y) => x - y);
+                flach.slice(a, b + 1).forEach((m) => { if (e.target.checked) markiert.add(m); else markiert.delete(m); });
+            } else if (e.target.checked) markiert.add(t.eintrag_id); else markiert.delete(t.eintrag_id);
+            letzteMarke = t.eintrag_id;
+            zeichnen();
+        } });
+        const z = el('div.eintrag' + (markiert.has(t.eintrag_id) ? '.markiert' : ''), { draggable: 'true' },
+            marke,
             el('span.griff', { title: 'Ziehen zum Verschieben' }, icon('verwaltung')),
             el('span.nr', String(nr)),
             t.poster ? el('img', { src: t.poster, alt: '', loading: 'lazy' }) : el('span.p'),
@@ -249,6 +268,11 @@ async function editor(id, app) {
                         ? el('b', { style: { padding: '6px 8px', fontFamily: 'var(--font-display)' } }, gruppen.length > 1 ? 'Ohne Abschnitt' : 'Titel')
                         : el('input', { value: g.name || '', 'aria-label': 'Name des Abschnitts', onchange: (e) => { g.name = e.target.value; ordnungSpeichern(); } }),
                     el('span.leise', { style: { fontSize: '0.82rem', whiteSpace: 'nowrap' } }, anzahl(g.eintraege.length, 'Titel', 'Titel')),
+                    g.eintraege.length ? el('button.mini-knopf', { title: 'Alle in diesem Abschnitt auswählen', onclick: () => {
+                        const alle = g.eintraege.every((t) => markiert.has(t.eintrag_id));
+                        g.eintraege.forEach((t) => (alle ? markiert.delete(t.eintrag_id) : markiert.add(t.eintrag_id)));
+                        zeichnen();
+                    } }, icon('haken')) : null,
                     gi > 1 ? el('button.mini-knopf', { title: 'Abschnitt nach oben', onclick: () => { [gruppen[gi - 1], gruppen[gi]] = [gruppen[gi], gruppen[gi - 1]]; ordnungSpeichern(); } }, icon('hoch')) : null,
                     gi > 0 && gi < gruppen.length - 1 ? el('button.mini-knopf', { title: 'Abschnitt nach unten', onclick: () => { [gruppen[gi + 1], gruppen[gi]] = [gruppen[gi], gruppen[gi + 1]]; ordnungSpeichern(); } }, icon('runter')) : null,
                     gi > 0 ? el('button.mini-knopf', { title: 'Abschnitt auflösen (Titel bleiben erhalten)', onclick: () => {
@@ -278,7 +302,16 @@ async function editor(id, app) {
         if (reiter) p.set('art', reiter);
         try {
             const t = await api('auswahl?' + p);
-            trefferEl.replaceChildren(...(t.treffer.length ? t.treffer.map((x) => el('div.treffer',
+            const offen = t.treffer.filter((x) => !x.drin);
+            const alleKnopf = offen.length > 1 ? el('div', { style: { display: 'flex', justifyContent: 'flex-end', marginBottom: '6px' } },
+                el('button.knopf.klein', { onclick: async () => {
+                    const letzter = gruppen.length > 1 ? gruppen[gruppen.length - 1].id : null;
+                    const r = await api(`universum/${id}/liste`, 'POST', { titel: offen.map((x) => ({ art: x.art, id: x.id })), abschnitt_id: letzter });
+                    meldung(`${anzahl(r.hinzugefuegt, 'Titel', 'Titel')} hinzugefügt.`);
+                    await neuLaden();
+                    suchen();
+                } }, icon('plus'), `Alle ${offen.length} Treffer hinzufügen`)) : null;
+            trefferEl.replaceChildren(...(alleKnopf ? [alleKnopf] : []), ...(t.treffer.length ? t.treffer.map((x) => el('div.treffer',
                 x.poster ? el('img', { src: x.poster, alt: '', loading: 'lazy' }) : el('span.p'),
                 el('div.mitte', el('b', x.titel), el('span', x.zusatz)),
                 el('button.knopf-dazu', { disabled: x.drin, onclick: async (e) => {
@@ -287,6 +320,7 @@ async function editor(id, app) {
                     const r = await api(`universum/${id}/eintraege`, 'POST', { art: x.art, id: x.id, abschnitt_id: letzter });
                     meldung(x.art === 'reihe' ? `${anzahl(r.hinzugefuegt, 'Film', 'Filme')} aus „${x.titel}“ einzeln hinzugefügt.` : `„${x.titel}“ hinzugefügt.`);
                     await neuLaden();
+                    suchen();
                 } }, x.drin ? 'Drin' : '+ Dazu'))) : [el('p.leise', 'Keine Treffer.')]));
         } catch (x) { trefferEl.replaceChildren(el('p.schlecht', x.message)); }
     };
@@ -328,6 +362,36 @@ async function editor(id, app) {
         } catch { vorschlagEl.replaceChildren(); }
     };
 
+    const auswahlLeiste = () => {
+        if (!markiert.size) return null;
+        const ziel = el('select', { 'aria-label': 'Ziel-Abschnitt' },
+            gruppen.map((g, gi) => el('option', { value: gi }, gi === 0 ? 'Ohne Abschnitt' : g.name || `Abschnitt ${gi}`)),
+            el('option', { value: 'neu' }, '+ Neuer Abschnitt'));
+        ziel.value = String(gruppen.length > 1 ? gruppen.length - 1 : 0);
+        return el('div.editor-auswahl.glass-panel',
+            el('b', markiert.size === 1 ? '1 ausgewählt' : `${markiert.size} ausgewählt`),
+            el('span.leise', { style: { fontSize: '0.85rem' } }, 'verschieben nach'), ziel,
+            el('button.knopf.klein.haupt', { onclick: () => {
+                let gi = ziel.value;
+                if (gi === 'neu') {
+                    const name = prompt('Name des neuen Abschnitts', `Abschnitt ${gruppen.length}`);
+                    if (!name) return;
+                    gruppen.push({ id: null, name, eintraege: [] });
+                    gi = gruppen.length - 1;
+                }
+                verschieben([...markiert][0], Number(gi), null);
+                markiert.clear();
+            } }, 'Verschieben'),
+            el('button.knopf.klein.gefahr', { onclick: async () => {
+                if (!await bestaetigen('Aus dem Universum entfernen', `${anzahl(markiert.size, 'Titel', 'Titel')} aus „${d.name}“ entfernen? Die Filme und Serien selbst bleiben erhalten.`, 'Entfernen', true)) return;
+                const r = await api(`universum/${id}/eintraege`, 'DELETE', { ids: [...markiert] });
+                meldung(`${anzahl(r.entfernt, 'Titel', 'Titel')} entfernt.`);
+                markiert.clear();
+                neuLaden();
+            } }, icon('loeschen'), 'Entfernen'),
+            el('button.mini-knopf', { title: 'Auswahl aufheben', style: { marginLeft: 'auto' }, onclick: () => { markiert.clear(); zeichnen(); } }, icon('schliessen')));
+    };
+
     const zeichnen = () => {
         const gesamt = gruppen.reduce((s, g) => s + g.eintraege.length, 0);
         seite.replaceChildren(
@@ -344,7 +408,7 @@ async function editor(id, app) {
                         ordnungSpeichern();
                     } }, icon('plus'), 'Abschnitt'))),
             el('div.editor',
-                el('div.links', stamm(), el('div', { style: { height: '18px' } }), abschnitteEl()),
+                el('div.links', stamm(), el('div', { style: { height: '18px' } }), auswahlLeiste(), abschnitteEl()),
                 el('aside',
                     el('div.editor-karte', el('h3', { style: { margin: 0, fontSize: '1rem' } }, 'Hinzufügen'), el('div', { style: { marginTop: '12px' } }, suchFeld), reiterEl, trefferEl),
                     el('div.editor-karte.vorschlag', vorschlagEl),

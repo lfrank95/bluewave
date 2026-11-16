@@ -1,6 +1,6 @@
 // Filmseite: Titelbild, Abspielen/Weiterschauen, Fassungen, Technik, Besetzung, Reihe, Universen
 'use strict';
-import { el, icon, bild, dauer, zeit, bytes, initialen, meldung, dialog, auswahl } from '../ui.js';
+import { el, icon, bild, fsk, dauer, zeit, bytes, initialen, meldung, dialog, auswahl } from '../ui.js';
 import { api } from '../api.js';
 import { universumBereich } from './universum_teile.js';
 
@@ -120,7 +120,7 @@ export async function zeigen(r, app) {
 
     const metaTeile = [d.jahr, d.laufzeit_min ? dauer(d.laufzeit_min) : null, d.genres.slice(0, 2).map((g) => g.name).join(', ') || null].filter(Boolean);
     const meta = el('div.meta', metaTeile.flatMap((m, i) => (i ? [el('span.trenn'), el('span', String(m))] : [el('span', String(m))])),
-        d.freigabe ? el('span.freigabe', 'FSK ' + d.freigabe) : null,
+        fsk(d.freigabe),
         d.bewertung ? el('span.stern', '★ ' + String(d.bewertung).replace('.', ',')) : null,
         technikChips(d.technik));
 

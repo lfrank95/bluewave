@@ -672,3 +672,50 @@ a.chip:hover { border-color: var(--accent-a); color: var(--text-primary); }
     .serie-hero-inhalt .knoepfe .knopf:not(.weiss) { flex: 1 1 0; }
 }
 @media (max-width: 767px) { .bild-wahl { grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); gap: 8px; } }
+
+/* FSK-Abzeichen in den offiziellen Farben */
+.fsk { display: inline-flex; align-items: center; gap: 4px; height: 24px; padding: 0 7px 0 6px; border-radius: 6px; background: #e8ecf2; color: #10151d; font-family: var(--font-display); line-height: 1; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3); }
+.fsk small { font-size: 0.56rem; font-weight: 700; letter-spacing: 0.04em; opacity: 0.8; }
+.fsk b { font-size: 0.95rem; font-weight: 700; }
+.fsk.fsk-0 { background: #ffffff; color: #111; }
+.fsk.fsk-6 { background: #ffd500; color: #111; }
+.fsk.fsk-12 { background: #00a651; color: #fff; }
+.fsk.fsk-16 { background: #0091d4; color: #fff; }
+.fsk.fsk-18 { background: #e2001a; color: #fff; }
+
+/* Mehrfachauswahl */
+.kachel { position: relative; }
+.kachel .wahl-kreis { display: none; position: absolute; z-index: 4; left: 9px; top: 9px; width: 28px; height: 28px; border-radius: 50%; place-items: center;
+    border: 2px solid rgba(255, 255, 255, 0.85); background: rgba(5, 11, 24, 0.55); color: transparent; }
+.kachel .wahl-kreis svg.ic { width: 16px; height: 16px; }
+.auswahl-an .kachel .wahl-kreis { display: grid; }
+.auswahl-an .kachel { cursor: pointer; }
+.auswahl-an .kachel .marken, .auswahl-an .kachel .nr-marke { visibility: hidden; }
+.auswahl-an .kachel .bild { transition: transform 0.15s, outline-color 0.15s; }
+.kachel.gewaehlt .bild { outline: 3px solid var(--accent-a); outline-offset: 2px; transform: scale(0.96); }
+.kachel.gewaehlt .wahl-kreis { background: var(--accent-gradient); border-color: transparent; color: var(--auf-akzent); }
+.knopf.an { background: rgba(92, 200, 255, 0.16); border-color: var(--accent-a); color: var(--accent-text); }
+.auswahl-leiste { position: fixed; z-index: 70; left: 50%; bottom: calc(24px + env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    justify-content: center; padding: 10px 12px 10px 18px; border-radius: 20px; max-width: calc(100vw - 24px); box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6); background: rgba(14, 20, 32, 0.92); }
+.auswahl-leiste b { font-family: var(--font-display); margin-right: 6px; white-space: nowrap; }
+.auswahl-leiste .trenner, .editor-auswahl .trenner { width: 1px; height: 24px; background: rgba(214, 230, 255, 0.14); }
+.editor-auswahl { position: sticky; top: calc(var(--kopf-hoehe) + 10px); z-index: 20; display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding: 12px 14px; margin-bottom: 16px;
+    border-radius: 16px; background: rgba(14, 20, 32, 0.94); border: 1px solid rgba(92, 200, 255, 0.4); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); }
+.editor-auswahl b { font-family: var(--font-display); }
+.eintrag input.marke { width: 18px; height: 18px; accent-color: #5cc8ff; flex: none; cursor: pointer; }
+.eintrag.markiert { background: rgba(92, 200, 255, 0.08); }
+@media (max-width: 767px) {
+    .auswahl-leiste { bottom: calc(72px + env(safe-area-inset-bottom)); gap: 6px; padding: 10px; }
+    .auswahl-leiste .trenner { display: none; }
+    .eintrag .mini-knopf[title^="Nach"] { display: none; }
+}
+@media (min-width: 768px) { .auswahl-leiste { flex-wrap: nowrap; white-space: nowrap; } }
+.fsk { height: 26px; }
+.fsk small { font-size: 0.6rem; }
+.dialog select, .dialog .eingabe { max-width: 100%; width: 100%; box-sizing: border-box; }
+@media (max-width: 767px) {
+    .auswahl-leiste { left: 10px; right: 10px; transform: none; max-width: none; justify-content: flex-start; }
+    .auswahl-leiste b { flex: 1 1 100%; }
+    .eintrag { gap: 8px; padding: 8px 10px; }
+    .eintrag .griff, .eintrag .art-marke { display: none; }
+}

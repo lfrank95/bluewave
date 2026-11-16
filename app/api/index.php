@@ -336,12 +336,22 @@ try {
             if ($t2 === 'liste' && $methode === 'POST') {
                 // mehrere auf einmal (Vorschläge): {titel: [{art, id}, …]}
                 $n = 0;
-                foreach ((array) (eingabe()['titel'] ?? []) as $x) {
-                    if (in_array($x['art'] ?? '', ['film', 'serie'], true)) {
-                        $n += universum_hinzufuegen($uid, $x['art'], (int) ($x['id'] ?? 0));
+                $e = eingabe();
+                $ab = isset($e['abschnitt_id']) && $e['abschnitt_id'] !== null ? (int) $e['abschnitt_id'] : null;
+                foreach ((array) ($e['titel'] ?? []) as $x) {
+                    if (in_array($x['art'] ?? '', ['film', 'serie', 'reihe'], true)) {
+                        $n += universum_hinzufuegen($uid, $x['art'], (int) ($x['id'] ?? 0), $ab);
                     }
                 }
                 bw_json(['ok' => true, 'hinzugefuegt' => $n]);
+            }
+            if ($t2 === 'eintraege' && $methode === 'DELETE') {
+                // mehrere auf einmal entfernen: {ids: [eintrag_id, …]}
+                $n = 0;
+                foreach (array_map('intval', (array) (eingabe()['ids'] ?? [])) as $eid) {
+                    $n += db_tun('DELETE FROM universum_eintraege WHERE id = :e AND universum_id = :u', ['e' => $eid, 'u' => $uid]);
+                }
+                bw_json(['ok' => true, 'entfernt' => $n]);
             }
             if ($t2 === 'ordnung' && $methode === 'PUT') {
                 universum_ordnung($uid, eingabe());
@@ -417,6 +427,25 @@ try {
                 }
                 bw_json(fortschritt_speichern($kid, (string) ($e['art'] ?? ''), (int) ($e['id'] ?? 0), isset($e['datei_id']) ? (int) $e['datei_id'] : null,
                     (int) ($e['position_ms'] ?? 0), (int) ($e['dauer_ms'] ?? 0)));
+            }
+            if ($t1 === 'gesehen_mehrere' && $methode === 'POST') {
+                // Mehrfachauswahl: {titel: [{art: film|serie|folge, id}], gesehen: bool}
+                $e = eingabe();
+                foreach ((array) ($e['titel'] ?? []) as $x) {
+                    $zid = (int) ($x['id'] ?? 0);
+                    if (($x['art'] ?? '') === 'serie') {
+                        foreach (db_alle('SELECT id FROM folgen WHERE serie_id = :s', ['s' => $zid]) as $f) {
+                            gesehen_setzen($kid, 'folge', (int) $f['id'], !empty($e['gesehen']));
+                        }
+                    } elseif (($x['art'] ?? '') === 'reihe') {
+                        foreach (db_alle('SELECT id FROM filme WHERE reihe_id = :r', ['r' => $zid]) as $f) {
+                            gesehen_setzen($kid, 'film', (int) $f['id'], !empty($e['gesehen']));
+                        }
+                    } elseif (in_array($x['art'] ?? '', ['film', 'folge'], true)) {
+                        gesehen_setzen($kid, $x['art'], $zid, !empty($e['gesehen']));
+                    }
+                }
+                bw_json(['ok' => true]);
             }
             if ($t1 === 'gesehen' && $methode === 'POST') {
                 $e = eingabe();

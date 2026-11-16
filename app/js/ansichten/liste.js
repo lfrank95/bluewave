@@ -2,6 +2,7 @@
 'use strict';
 import { el, kachel, auswahl, bild } from '../ui.js';
 import { api } from '../api.js';
+import { mehrfachAuswahl } from './mehrfach.js';
 
 export const titel = (r) => (r.name === 'serien' ? 'Serien' : 'Filme') + ' – Bluewave';
 
@@ -16,7 +17,7 @@ function highlight(f) {
             f.technik?.length ? el('div.chips', f.technik.map((t) => el('span.tech' + (t.art === 'hdr' ? '.hdr' : ''), t.text))) : null));
 }
 
-export async function zeigen(r) {
+export async function zeigen(r, app) {
     const serien = r.name === 'serien';
     const sort = r.query.get('sort') || 'titel';
     const genre = r.query.get('genre') || '';
@@ -48,12 +49,13 @@ export async function zeigen(r) {
         ? `${liste.length} ${liste.length === 1 ? 'Serie' : 'Serien'}`
         : z ? [`${z.gesamt} Filme`, z.uhd ? `${z.uhd} in 4K` : null, z.reihen ? `${z.reihen} Reihen` : null].filter(Boolean).join(' · ') : `${liste.length} Filme`;
     const zeigeHighlights = !serien && !genre && !filter && d.highlights?.length;
+    const raster = liste.length ? el('div.raster', liste.map(kachel)) : null;
+    const wahl = raster ? mehrfachAuswahl(raster, liste, app) : null;
     return el('div.seite',
         el('div.bib-kopf',
             el('div', el('h1', serien ? 'Serien' : 'Filme'), el('p', unterzeile)),
-            el('div.werkzeuge', { style: { marginLeft: 'auto' } }, sortWahl)),
+            el('div.werkzeuge', { style: { marginLeft: 'auto' } }, wahl?.knopf, sortWahl)),
         pillen,
         zeigeHighlights ? el('div.highlight-raster', d.highlights.map(highlight)) : null,
-        liste.length ? el('div.raster', liste.map(kachel))
-            : el('div.leer', el('h2', 'Nichts gefunden'), el('p', genre || filter ? 'Mit diesem Filter gibt es noch nichts.' : 'Die Bibliothek ist noch leer.')));
+        raster || el('div.leer', el('h2', 'Nichts gefunden'), el('p', genre || filter ? 'Mit diesem Filter gibt es noch nichts.' : 'Die Bibliothek ist noch leer.')));
 }
