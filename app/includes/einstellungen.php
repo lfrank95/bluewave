@@ -10,6 +10,7 @@ const SERVER_STANDARD = [
     'metadaten_sprache' => 'de-DE',
     'scan_minuten' => 15,
     'untertitel_auto' => true,
+    'lokale_bilder' => true,
     'untertitel_sprachen' => 'deu',
     'opensubtitles_schluessel' => '',
     'opensubtitles_benutzer' => '',

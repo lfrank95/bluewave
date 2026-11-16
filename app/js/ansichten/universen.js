@@ -7,7 +7,7 @@ import { hero } from './film.js';
 let letzterTitel = 'Universen';
 export const titel = () => letzterTitel + ' – Bluewave';
 
-const zielLink = (t) => (t.art === 'serie' ? `#/serie/${t.id}` : `#/film/${t.id}`);
+const zielLink = (t) => (t.art === 'serie' ? `#/serie/${t.id}${t.staffel ? '?staffel=' + t.staffel : ''}` : `#/film/${t.id}`);
 const anzahl = (n, eins, mehr) => `${n} ${n === 1 ? eins : mehr}`;
 
 export async function zeigen(r, app) {
@@ -120,7 +120,7 @@ async function universum(id, r, app) {
             !g.titel.length ? null : el('div.raster', g.titel.map((t) => el('a.kachel' + (t.gesehen ? '.gesehen-ab' : ''), { href: zielLink(t), title: t.titel },
                 el('div.bild', bild(t.poster, t.titel) || el('div.ersatz', t.titel),
                     el('span.nr-marke', String(t.nr)),
-                    el('span.art-marke' + (t.art === 'serie' ? '.serie' : ''), t.art === 'serie' ? 'SERIE' : 'FILM'),
+                    el('span.art-marke' + (t.art === 'serie' ? '.serie' : ''), t.art === 'serie' ? (t.staffel ? 'STAFFEL ' + t.staffel : 'SERIE') : 'FILM'),
                     t.gesehen ? el('span.gesehen-haken.unten', icon('haken')) : null,
                     !t.gesehen && t.prozent > 1 ? el('div.fortschritt', el('span', { style: { width: t.prozent + '%' } })) : null),
                 el('div.titel', t.titel),
@@ -311,7 +311,16 @@ async function editor(id, app) {
             el('span.nr', String(nr)),
             t.poster ? el('img', { src: t.poster, alt: '', loading: 'lazy' }) : el('span.p'),
             el('div.mitte', el('b', t.titel), el('span', [t.jahr, t.vorhanden ? null : 'nicht vorhanden'].filter(Boolean).join(' · '))),
-            el('span.art-marke' + (t.art === 'serie' ? '.serie' : ''), t.art === 'serie' ? 'SERIE' : 'FILM'),
+            el('span.art-marke' + (t.art === 'serie' ? '.serie' : ''), t.art === 'serie' ? (t.staffel ? 'STAFFEL' : 'SERIE') : 'FILM'),
+            t.art === 'serie' && (t.staffel || t.staffeln > 1) ? el('button.chip-klein', {
+                title: t.staffel ? 'Alle Staffeln wieder zu einem Eintrag zusammenführen' : 'Für die Watch-Order in einzelne Staffeln aufteilen (lassen sich dann einzeln verschieben)',
+                onclick: async () => {
+                    try {
+                        const r = await api(`universum/${id}/eintrag/${t.eintrag_id}/staffeln`, 'POST', { teilen: !t.staffel });
+                        meldung(t.staffel ? `„${t.serie_titel}“ wieder als ganze Serie.` : `„${t.serie_titel}“ in ${r.eintraege} Staffeln aufgeteilt.`);
+                        neuLaden();
+                    } catch (x) { meldung(x.message, true); }
+                } }, t.staffel ? 'Zusammenführen' : 'In Staffeln') : null,
             el('button.mini-knopf', { title: 'Nach oben', onclick: () => schritt(gi, i, -1) }, icon('hoch')),
             el('button.mini-knopf', { title: 'Nach unten', onclick: () => schritt(gi, i, 1) }, icon('runter')),
             el('button.mini-knopf', { title: 'Aus dem Universum entfernen', onclick: async () => {
@@ -341,7 +350,10 @@ async function editor(id, app) {
                     g.id === null && gi === 0
                         ? el('b', { style: { padding: '6px 8px', fontFamily: 'var(--font-display)' } }, gruppen.length > 1 ? 'Ohne Abschnitt' : 'Titel')
                         : el('input', { value: g.name || '', 'aria-label': 'Name des Abschnitts', onchange: (e) => { g.name = e.target.value; ordnungSpeichern(); } }),
-                    el('span.leise', { style: { fontSize: '0.82rem', whiteSpace: 'nowrap' } }, anzahl(g.eintraege.length, 'Titel', 'Titel')),
+                    el('span.leise', { style: { fontSize: '0.82rem', whiteSpace: 'nowrap' } }, (() => {
+                        const unter = gi > 0 ? gruppen.slice(gi + 1, ende(gi)).reduce((n, x) => n + x.eintraege.length, 0) : 0;
+                        return anzahl(g.eintraege.length + unter, 'Titel', 'Titel') + (unter && !g.eintraege.length ? ' darunter' : '');
+                    })()),
                     g.eintraege.length ? el('button.mini-knopf', { title: 'Alle in diesem Abschnitt auswählen', onclick: () => {
                         const alle = g.eintraege.every((t) => markiert.has(t.eintrag_id));
                         g.eintraege.forEach((t) => (alle ? markiert.delete(t.eintrag_id) : markiert.add(t.eintrag_id)));

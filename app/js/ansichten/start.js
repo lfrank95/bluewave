@@ -21,7 +21,7 @@ function weiterKarte(x, app) {
 
 function universumBand(b, app) {
     const n = b.naechstes;
-    const poster = b.titel_liste.map((t, i) => el('a.kachel' + (t.gesehen ? '.gesehen-ab' : ''), { href: t.art === 'serie' ? `#/serie/${t.id}` : `#/film/${t.id}`, title: t.titel },
+    const poster = b.titel_liste.map((t, i) => el('a.kachel' + (t.gesehen ? '.gesehen-ab' : ''), { href: t.art === 'serie' ? `#/serie/${t.id}${t.staffel ? '?staffel=' + t.staffel : ''}` : `#/film/${t.id}`, title: t.titel },
         el('div.bild', bild(t.poster, t.titel) || el('div.ersatz', t.titel), el('span.nr-marke', String(i + 1)),
             t.gesehen ? el('span.gesehen-haken.unten', icon('haken')) : null)));
     return el('section.universum-band',

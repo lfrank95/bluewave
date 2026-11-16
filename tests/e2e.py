@@ -158,9 +158,20 @@ admin.api('POST', 'wiedergabe/gesehen_mehrere', {'titel': [{'art': 'film', 'id':
 pruefe(admin.api('GET', f'film/{test["id"]}')['fortschritt']['gesehen'], 'Mehrfach als gesehen')
 admin.api('POST', 'wiedergabe/gesehen_mehrere', {'titel': [{'art': 'film', 'id': test['id']}, {'art': 'film', 'id': av['id']}], 'gesehen': False})
 pruefe(not admin.api('GET', f'film/{test["id"]}')['fortschritt'], 'Mehrfach als ungesehen')
+se = next(t for a in admin.api('GET', f'universum/{uid}')['abschnitte'] for t in a['titel'] if t['art'] == 'serie')
+r = admin.api('POST', f'universum/{uid}/eintrag/{se["eintrag_id"]}/staffeln', {'teilen': True}, erwartet=400)
+pruefe('nur eine Staffel' in r.get('fehler', ''), f'Staffeln teilen bei einer Staffel: {r}')
 admin.api('DELETE', f'universum/{uid2}')
 st = admin.api('GET', 'start')
 pruefe(st['universum_band'] and st['universum_band']['id'] == uid, 'Universums-Band auf der Startseite')
+
+schritt('Lokale Bilder aus den Medienordnern haben Vorrang')
+avf = admin.api('GET', f'film/{av["id"]}')
+pruefe('/bild/lokal/' in (avf['poster'] or '') and '/bild/lokal/' in (avf['hintergrund'] or ''), f'Film-Poster/Hintergrund lokal: {avf["poster"]} {avf["hintergrund"]}')
+code, body, _ = admin.roh('GET', avf['poster'])
+pruefe(code == 200 and body[:2] == b'\xff\xd8', f'lokales Poster wird ausgeliefert: {code}')
+pruefe('/bild/lokal/' in (admin.api('GET', f'serie/{serie["id"]}')['poster'] or ''), 'Serien-Poster lokal')
+pruefe(admin.api('PUT', 'einstellungen', {'lokale_bilder': True}) is not None, 'Einstellung lokale_bilder')
 
 schritt('Suche: tolerant (Tippfehler, Satzzeichen, Wortreihenfolge), Bester Treffer, Editor-Auswahl')
 for q, erwartet in [('avengers', "Marvel's The Avengers"), ('avengrs ultron', 'Avengers: Age of Ultron'), ('ultron age', 'Avengers: Age of Ultron'), ('marvels avengers', "Marvel's The Avengers")]:

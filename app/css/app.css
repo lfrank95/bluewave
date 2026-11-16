@@ -828,3 +828,6 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
     :root { --einzug: 12px; }
     .editor-auswahl { left: 10px; right: 10px; transform: none; width: auto; bottom: calc(72px + env(safe-area-inset-bottom)); }
 }
+.chip-klein { padding: 5px 10px; border-radius: 999px; border: 1px solid rgba(92, 200, 255, 0.4); background: rgba(92, 200, 255, 0.08); color: var(--accent-text); font-size: 0.74rem; font-weight: 800; cursor: pointer; white-space: nowrap; flex: none; }
+.chip-klein:hover { background: rgba(92, 200, 255, 0.18); }
+@media (max-width: 767px) { .eintrag .chip-klein { padding: 4px 8px; font-size: 0.68rem; } }

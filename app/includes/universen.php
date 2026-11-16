@@ -11,7 +11,7 @@ require_once __DIR__ . '/scanner.php';
  */
 function universum_titel(int $uid, int $konto, string $sort = 'eigen'): array
 {
-    $zeilen = db_alle('SELECT e.id AS eid, e.art, e.film_id, e.serie_id, e.position, e.abschnitt_id, a.name AS abschnitt, a.position AS apos
+    $zeilen = db_alle('SELECT e.id AS eid, e.art, e.film_id, e.serie_id, e.staffel, e.position, e.abschnitt_id, a.name AS abschnitt, a.position AS apos
         FROM universum_eintraege e LEFT JOIN universum_abschnitte a ON a.id = e.abschnitt_id
         WHERE e.universum_id = :u AND e.art IN (\'film\', \'serie\')
         ORDER BY a.id IS NOT NULL, a.position, a.id, e.position IS NULL, e.position, e.id', ['u' => $uid]);
@@ -35,13 +35,26 @@ function universum_titel(int $uid, int $konto, string $sort = 'eigen'): array
         }
     }
     $fsFilme = fortschritt_map($konto, 'film', $filmIds);
-    $gesehenFolgen = [];
-    $angefangenFolgen = [];
+    // je Serie und Staffel: vorhandene Folgen, gesehen, angefangen, Start, Name und Poster der Staffel
+    $je = [];
     if ($serieIds) {
-        foreach (db_alle("SELECT fo.serie_id, SUM(w.gesehen) AS g, COUNT(*) AS n FROM wiedergabe w JOIN folgen fo ON fo.id = w.ziel_id
-            WHERE w.konto_id = :k AND w.art = 'folge' AND fo.serie_id IN (" . implode(',', $serieIds) . ') AND fo.staffel_nr > 0 GROUP BY fo.serie_id', ['k' => $konto]) as $z) {
-            $gesehenFolgen[(int) $z['serie_id']] = (int) $z['g'];
-            $angefangenFolgen[(int) $z['serie_id']] = (int) $z['n'];
+        $liste = implode(',', array_unique($serieIds));
+        foreach (db_alle("SELECT fo.serie_id, fo.staffel_nr, COUNT(DISTINCT fo.id) AS n, MIN(fo.erstausstrahlung) AS start FROM folgen fo
+            JOIN dateien d ON d.folge_id = fo.id AND d.fehlt_seit IS NULL WHERE fo.serie_id IN ($liste) AND fo.staffel_nr > 0 GROUP BY fo.serie_id, fo.staffel_nr") as $z) {
+            $je[(int) $z['serie_id']][(int) $z['staffel_nr']] = ['n' => (int) $z['n'], 'g' => 0, 'a' => 0, 'start' => $z['start'], 'name' => null, 'poster' => null];
+        }
+        foreach (db_alle("SELECT fo.serie_id, fo.staffel_nr, SUM(w.gesehen) AS g, COUNT(*) AS a FROM wiedergabe w JOIN folgen fo ON fo.id = w.ziel_id
+            WHERE w.konto_id = :k AND w.art = 'folge' AND fo.serie_id IN ($liste) AND fo.staffel_nr > 0 GROUP BY fo.serie_id, fo.staffel_nr", ['k' => $konto]) as $z) {
+            if (isset($je[(int) $z['serie_id']][(int) $z['staffel_nr']])) {
+                $je[(int) $z['serie_id']][(int) $z['staffel_nr']]['g'] = (int) $z['g'];
+                $je[(int) $z['serie_id']][(int) $z['staffel_nr']]['a'] = (int) $z['a'];
+            }
+        }
+        foreach (db_alle("SELECT serie_id, nummer, name, poster FROM serien_staffeln WHERE serie_id IN ($liste)") as $z) {
+            if (isset($je[(int) $z['serie_id']][(int) $z['nummer']])) {
+                $je[(int) $z['serie_id']][(int) $z['nummer']]['name'] = $z['name'];
+                $je[(int) $z['serie_id']][(int) $z['nummer']]['poster'] = $z['poster'];
+            }
         }
     }
     $aus = [];
@@ -56,13 +69,33 @@ function universum_titel(int $uid, int $konto, string $sort = 'eigen'): array
                 'abschnitt_id' => $z['abschnitt_id'] ? (int) $z['abschnitt_id'] : null, 'abschnitt' => $z['abschnitt']];
         } elseif ($z['art'] === 'serie' && isset($serien[(int) $z['serie_id']])) {
             $s = $serien[(int) $z['serie_id']];
-            $folgen = (int) $s['folgen'];
-            $g = $gesehenFolgen[(int) $s['id']] ?? 0;
-            $aus[] = ['eintrag_id' => (int) $z['eid'], 'art' => 'serie', 'id' => (int) $s['id'], 'titel' => $s['titel'], 'jahr' => $s['jahr_von'] ? (int) $s['jahr_von'] : null,
-                'datum' => $s['start'] ?: ($s['jahr_von'] ? $s['jahr_von'] . '-07-01' : '9999'), 'poster' => bild_url($s['poster']), 'hintergrund' => bild_url($s['hintergrund']),
-                'zusatz' => 'Serie' . ($s['jahr_von'] ? ' · ' . $s['jahr_von'] : '') . ($folgen ? ' · ' . $folgen . ' ' . ($folgen === 1 ? 'Folge' : 'Folgen') : ''),
+            $st = (int) $z['staffel'];
+            $teile = $je[(int) $s['id']] ?? [];
+            if ($st > 0) {
+                $d = $teile[$st] ?? ['n' => 0, 'g' => 0, 'a' => 0, 'start' => null, 'name' => null, 'poster' => null];
+                $folgen = $d['n'];
+                $g = $d['g'];
+                $angefangen = $d['a'] > 0;
+                $start = $d['start'];
+                $sname = $d['name'] && !preg_match('/^(staffel|season)\s*\d+$/i', (string) $d['name']) ? $d['name'] : 'Staffel ' . $st;
+                $titel = $s['titel'] . ' · ' . $sname;
+                $poster = $d['poster'] ?: $s['poster'];
+                $jahr = $start ? (int) substr((string) $start, 0, 4) : ($s['jahr_von'] ? (int) $s['jahr_von'] : null);
+            } else {
+                $folgen = array_sum(array_column($teile, 'n'));
+                $g = array_sum(array_column($teile, 'g'));
+                $angefangen = array_sum(array_column($teile, 'a')) > 0;
+                $start = $s['start'];
+                $titel = $s['titel'];
+                $poster = $s['poster'];
+                $jahr = $s['jahr_von'] ? (int) $s['jahr_von'] : null;
+            }
+            $aus[] = ['eintrag_id' => (int) $z['eid'], 'art' => 'serie', 'id' => (int) $s['id'], 'staffel' => $st, 'serie_titel' => $s['titel'],
+                'staffeln' => count($teile), 'titel' => $titel, 'jahr' => $jahr,
+                'datum' => $start ?: ($jahr ? $jahr . '-07-01' : '9999'), 'poster' => bild_url($poster), 'hintergrund' => bild_url($s['hintergrund']),
+                'zusatz' => ($st ? 'Staffel' : 'Serie') . ($jahr ? ' · ' . $jahr : '') . ($folgen ? ' · ' . $folgen . ' ' . ($folgen === 1 ? 'Folge' : 'Folgen') : ''),
                 'vorhanden' => $folgen > 0, 'gesehen' => $folgen > 0 && $g >= $folgen, 'prozent' => $folgen > 0 && $g < $folgen ? (int) round($g * 100 / $folgen) : 0,
-                'angefangen' => ($angefangenFolgen[(int) $s['id']] ?? 0) > 0,
+                'angefangen' => $angefangen,
                 'abschnitt_id' => $z['abschnitt_id'] ? (int) $z['abschnitt_id'] : null, 'abschnitt' => $z['abschnitt']];
         }
     }
@@ -95,13 +128,49 @@ function universen_liste(int $konto = 0): array
         $filme = count(array_filter($titel, static fn($t) => $t['art'] === 'film'));
         $jahre = array_filter(array_column($titel, 'jahr'));
         $aus[] = ['art' => 'universum', 'id' => (int) $u['id'], 'name' => $u['name'], 'titel' => $u['name'], 'beschreibung' => $u['beschreibung'],
-            'poster' => $poster, 'hintergrund' => $hg, 'eintraege' => count($titel), 'filme' => $filme, 'serien' => count($titel) - $filme,
+            'poster' => $poster, 'hintergrund' => $hg, 'eintraege' => count($titel), 'filme' => $filme, 'serien' => count(array_unique(array_column(array_filter($titel, static fn($t) => $t['art'] === 'serie'), 'id'))),
             'von' => $jahre ? min($jahre) : null, 'bis' => $jahre ? max($jahre) : null,
             'gesehen' => count(array_filter($titel, static fn($t) => $t['gesehen'])),
             'collage' => array_slice(array_values(array_filter(array_column($titel, 'poster'))), 0, 6),
             'zusatz' => count($titel) . ' Titel'];
     }
     return $aus;
+}
+
+/** Nächste Folge innerhalb einer Staffel (für aufgeteilte Serien): angefangene, sonst erste ungesehene */
+function naechste_folge_in_staffel(int $serieId, int $staffel, int $konto): ?array
+{
+    $folgen = db_alle('SELECT fo.id, fo.folge_nr, fo.titel, fo.standbild, w.gesehen, w.position_ms, w.dauer_ms FROM folgen fo
+        LEFT JOIN wiedergabe w ON w.ziel_id = fo.id AND w.art = \'folge\' AND w.konto_id = :k
+        WHERE fo.serie_id = :s AND fo.staffel_nr = :st AND EXISTS (SELECT 1 FROM dateien d WHERE d.folge_id = fo.id AND d.fehlt_seit IS NULL)
+        ORDER BY fo.folge_nr', ['k' => $konto, 's' => $serieId, 'st' => $staffel]);
+    $ziel = null;
+    $modus = 'start';
+    foreach ($folgen as $f) {
+        if (!$f['gesehen'] && (int) $f['position_ms'] > 0) {
+            $ziel = $f;
+            $modus = 'weiter';
+            break;
+        }
+    }
+    if (!$ziel) {
+        $gesehen = false;
+        foreach ($folgen as $f) {
+            if ($f['gesehen']) {
+                $gesehen = true;
+            } elseif (!$ziel) {
+                $ziel = $f;
+            }
+        }
+        $modus = $gesehen ? 'naechste' : 'start';
+    }
+    if (!$ziel) {
+        return null;
+    }
+    return ['id' => (int) $ziel['id'], 'modus' => $modus, 'titel' => $ziel['titel'] ?: 'Folge ' . $ziel['folge_nr'],
+        'kennung' => sprintf('S%02dE%02d', $staffel, (int) $ziel['folge_nr']), 'standbild' => bild_url($ziel['standbild']),
+        'fortschritt' => $ziel['dauer_ms'] ? ['position_ms' => (int) $ziel['position_ms'], 'dauer_ms' => (int) $ziel['dauer_ms'], 'gesehen' => (bool) $ziel['gesehen'],
+            'prozent' => min(100, (int) round($ziel['position_ms'] * 100 / max(1, $ziel['dauer_ms'])))] : null];
 }
 
 /** Erster nicht gesehener, vorhandener Titel – bei Serien mit der passenden Folge */
@@ -112,7 +181,7 @@ function universum_naechstes(array $titel, int $konto): ?array
             continue;
         }
         if ($t['art'] === 'serie') {
-            $n = naechste_folge_fuer($t['id'], $konto);
+            $n = !empty($t['staffel']) ? naechste_folge_in_staffel($t['id'], (int) $t['staffel'], $konto) : naechste_folge_fuer($t['id'], $konto);
             if (!$n) {
                 continue;
             }
@@ -174,7 +243,7 @@ function universum_detail(int $id, int $konto, string $sort = 'eigen'): ?array
     return [
         'art' => 'universum', 'id' => $id, 'name' => $u['name'], 'beschreibung' => $u['beschreibung'], 'poster' => $poster, 'hintergrund' => $hg,
         'bild' => $u['bild'] ? bild_url($u['bild']) : null, 'sortierung' => $sort,
-        'zahlen' => ['filme' => $filme, 'serien' => count($titel) - $filme, 'gesamt' => count($titel), 'von' => $jahre ? min($jahre) : null, 'bis' => $jahre ? max($jahre) : null,
+        'zahlen' => ['filme' => $filme, 'serien' => count(array_unique(array_column(array_filter($titel, static fn($t) => $t['art'] === 'serie'), 'id'))), 'gesamt' => count($titel), 'von' => $jahre ? min($jahre) : null, 'bis' => $jahre ? max($jahre) : null,
             'gesehen' => count(array_filter($titel, static fn($t) => $t['gesehen'])), 'ungesehen' => count(array_filter($titel, static fn($t) => !$t['gesehen']))],
         'collage' => array_slice(array_values(array_filter(array_column($titel, 'poster'))), 0, 18),
         'abschnitte' => array_values($gruppen),
@@ -190,10 +259,16 @@ function universum_positionen(string $art, int $id, int $konto): array
     foreach (db_alle("SELECT DISTINCT u.id, u.name FROM universen u JOIN universum_eintraege e ON e.universum_id = u.id WHERE e.$spalte = :id ORDER BY u.sortname", ['id' => $id]) as $u) {
         $titel = universum_titel((int) $u['id'], $konto);
         $idx = null;
-        foreach ($titel as $i => $t) {
-            if ($t['art'] === $art && $t['id'] === $id) {
-                $idx = $i;
-                break;
+        $kand = array_keys(array_filter($titel, static fn($t) => $t['art'] === $art && $t['id'] === $id));
+        if ($kand) {
+            $idx = $kand[0];
+            if (count($kand) > 1 && $art === 'serie' && ($n = naechste_folge_fuer($id, $konto))) {
+                $stNr = (int) db_wert('SELECT staffel_nr FROM folgen WHERE id = :f', ['f' => $n['id']]);
+                foreach ($kand as $k) {
+                    if ($titel[$k]['staffel'] === $stNr) {
+                        $idx = $k;
+                    }
+                }
             }
         }
         if ($idx === null) {
@@ -241,6 +316,9 @@ function universum_hinzufuegen(int $uid, string $art, int $id, ?int $abschnitt =
             ['u' => $uid, 'f' => $f, 'p' => ++$pos, 'a' => $abschnitt]);
     }
     foreach ($serien as $s) {
+        if (db_wert('SELECT id FROM universum_eintraege WHERE universum_id = :u AND serie_id = :s LIMIT 1', ['u' => $uid, 's' => $s])) {
+            continue;
+        }
         $n += db_tun("INSERT IGNORE INTO universum_eintraege (universum_id, art, serie_id, position, abschnitt_id) VALUES (:u, 'serie', :s, :p, :a)",
             ['u' => $uid, 's' => $s, 'p' => ++$pos, 'a' => $abschnitt]);
     }
@@ -315,6 +393,39 @@ function universum_ordnung(int $uid, array $daten): void
         db_tun('UPDATE universum_abschnitte SET eltern_id = NULL WHERE id IN (' . implode(',', $weg) . ')');
         db_tun('DELETE FROM universum_abschnitte WHERE id IN (' . implode(',', $weg) . ')');
     }
+}
+
+/** Serien-Eintrag in Staffeln aufteilen (an derselben Stelle) bzw. Staffeln wieder zu einer Serie zusammenführen */
+function universum_staffeln(int $uid, int $eid, bool $teilen): int
+{
+    $e = db_zeile("SELECT * FROM universum_eintraege WHERE id = :e AND universum_id = :u AND art = 'serie'", ['e' => $eid, 'u' => $uid]);
+    if (!$e) {
+        throw new RuntimeException('Kein Serien-Eintrag.');
+    }
+    if (!$teilen) {
+        db_tun('DELETE FROM universum_eintraege WHERE universum_id = :u AND serie_id = :s AND id <> :e', ['u' => $uid, 's' => $e['serie_id'], 'e' => $eid]);
+        db_tun('UPDATE universum_eintraege SET staffel = 0 WHERE id = :e', ['e' => $eid]);
+        return 1;
+    }
+    $staffeln = array_map('intval', array_column(db_alle('SELECT DISTINCT staffel_nr FROM folgen WHERE serie_id = :s AND staffel_nr > 0 ORDER BY staffel_nr', ['s' => $e['serie_id']]), 'staffel_nr'));
+    if (count($staffeln) < 2) {
+        throw new RuntimeException('Die Serie hat nur eine Staffel.');
+    }
+    // vorhandene Reihenfolge holen, den Eintrag durch die Staffeln ersetzen, neu durchnummerieren
+    $reihe = array_map('intval', array_column(db_alle('SELECT e.id FROM universum_eintraege e LEFT JOIN universum_abschnitte a ON a.id = e.abschnitt_id
+        WHERE e.universum_id = :u ORDER BY a.id IS NOT NULL, a.position, a.id, e.position IS NULL, e.position, e.id', ['u' => $uid]), 'id'));
+    db_tun('UPDATE universum_eintraege SET staffel = :st WHERE id = :e', ['st' => $staffeln[0], 'e' => $eid]);
+    $neu = [$eid];
+    foreach (array_slice($staffeln, 1) as $st) {
+        $neu[] = db_einfuegen("INSERT INTO universum_eintraege (universum_id, art, serie_id, staffel, position, abschnitt_id) VALUES (:u, 'serie', :s, :st, 0, :a)",
+            ['u' => $uid, 's' => $e['serie_id'], 'st' => $st, 'a' => $e['abschnitt_id']]);
+    }
+    $i = array_search($eid, $reihe, true);
+    array_splice($reihe, $i === false ? count($reihe) : $i, 1, $neu);
+    foreach ($reihe as $p => $id) {
+        db_tun('UPDATE universum_eintraege SET position = :p WHERE id = :e', ['p' => $p + 1, 'e' => $id]);
+    }
+    return count($neu);
 }
 
 /** Innerhalb jedes Abschnitts nach Erscheinungsdatum sortieren */

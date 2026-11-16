@@ -3,7 +3,7 @@
 import { el, icon, bild, meldung, dialog } from '../ui.js';
 import { api } from '../api.js';
 
-const link = (t) => (t.art === 'serie' ? `#/serie/${t.id}` : `#/film/${t.id}`);
+const link = (t) => (t.art === 'serie' ? `#/serie/${t.id}${t.staffel ? '?staffel=' + t.staffel : ''}` : `#/film/${t.id}`);
 
 /** Bereich „Teil eines Universums“ – ein Block für das erste Universum, die weiteren als „Auch in“ */
 export function universumBereich(liste, art, id, app) {

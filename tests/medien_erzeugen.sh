@@ -34,4 +34,9 @@ for k in 1 2 3; do
       "$S/Haus des Geldes (2017)/Season 01/Haus des Geldes - S01E0$k.mkv"
 done
 rm -rf "$T"
+# lokale Bilder (Kodi/Plex-Namen): Film-Poster, Serien-Poster und Staffel-Poster
+q -f lavfi -i "color=c=0xaa3355:s=200x300" -frames:v 1 "$F/Avengers (2012)/poster.jpg"
+q -f lavfi -i "color=c=0x33aa55:s=400x225" -frames:v 1 "$F/Avengers (2012)/fanart.jpg"
+q -f lavfi -i "color=c=0x3355aa:s=200x300" -frames:v 1 "$S/Haus des Geldes (2017)/folder.jpg"
+q -f lavfi -i "color=c=0x55aa33:s=200x300" -frames:v 1 "$S/Haus des Geldes (2017)/season01-poster.jpg"
 echo "Testmedien in $ZIEL"

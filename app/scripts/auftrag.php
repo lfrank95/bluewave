@@ -5,6 +5,7 @@ require_once __DIR__ . '/../includes/auftrag.php';
 require_once __DIR__ . '/../includes/tmdb.php';
 require_once __DIR__ . '/../includes/marker.php';
 require_once __DIR__ . '/../includes/untertitel.php';
+require_once __DIR__ . '/../includes/lokale_bilder.php';
 
 $art = $argv[1] ?? 'alles';
 if (!in_array($art, AUFTRAG_ARTEN, true)) {
@@ -25,6 +26,8 @@ try {
     }
     if (in_array($art, ['metadaten', 'metadaten_alle', 'alles', 'scan'], true)) {
         $ergebnis['metadaten'] = metadaten_abgleichen($art === 'metadaten_alle');
+        // Bilder aus den Medienordnern haben Vorrang vor TMDB
+        $ergebnis['lokale_bilder'] = lokale_bilder_alle(static fn($i, $n) => auftrag_stand('Lokale Bilder', $i, $n));
     }
     if ($art === 'marker' || $art === 'alles') {
         $ergebnis['marker'] = marker_erkennen_alle(static fn($i, $n) => auftrag_stand('Intro & Abspann erkennen', $i, $n));

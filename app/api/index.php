@@ -210,6 +210,10 @@ try {
                 admin_noetig();
                 require_once __DIR__ . '/../includes/tmdb.php';
                 $neu = tmdb_film_uebernehmen(zahl($t1), (int) (eingabe()['tmdb_id'] ?? 0), true);
+                require_once __DIR__ . '/../includes/lokale_bilder.php';
+                if (lb_aktiv()) {
+                    lokale_bilder_film($neu ?: zahl($t1));
+                }
                 bw_json(['ok' => true, 'id' => $neu]);
             }
             if (zahl($t1) && $t2 === 'universen' && $methode === 'PUT') {
@@ -262,7 +266,12 @@ try {
                 admin_noetig();
                 require_once __DIR__ . '/../includes/tmdb.php';
                 @set_time_limit(300);
-                bw_json(['ok' => true, 'id' => tmdb_serie_uebernehmen(zahl($t1), (int) (eingabe()['tmdb_id'] ?? 0), true)]);
+                $neu = tmdb_serie_uebernehmen(zahl($t1), (int) (eingabe()['tmdb_id'] ?? 0), true);
+                require_once __DIR__ . '/../includes/lokale_bilder.php';
+                if (lb_aktiv()) {
+                    lokale_bilder_serie($neu ?: zahl($t1));
+                }
+                bw_json(['ok' => true, 'id' => $neu]);
             }
             if (zahl($t1) && $t2 === 'gesehen' && $methode === 'POST') {
                 // ganze Staffel/Serie als gesehen/ungesehen: {staffel?: n, gesehen: bool}
@@ -363,6 +372,14 @@ try {
             }
             if ($t2 === 'vorschlaege' && $methode === 'GET') {
                 bw_json(['vorschlaege' => universum_vorschlaege($uid)]);
+            }
+            if ($t2 === 'eintrag' && zahl($teile[3] ?? '') && ($teile[4] ?? '') === 'staffeln' && $methode === 'POST') {
+                // Serie in Staffeln aufteilen {teilen: true} oder zusammenführen {teilen: false}
+                try {
+                    bw_json(['ok' => true, 'eintraege' => universum_staffeln($uid, zahl($teile[3]), !empty(eingabe()['teilen']))]);
+                } catch (RuntimeException $e) {
+                    fehler($e->getMessage());
+                }
             }
             if ($t2 === 'eintrag' && zahl($teile[3] ?? '') && $methode === 'DELETE') {
                 db_tun('DELETE FROM universum_eintraege WHERE id = :e AND universum_id = :u', ['e' => zahl($teile[3]), 'u' => $uid]);
