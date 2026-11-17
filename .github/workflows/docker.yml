@@ -50,9 +50,6 @@ jobs:
       - name: All-in-One bauen (für den Test)
         run: docker buildx build --builder default --load -f Dockerfile.aio --build-arg BASIS=bluewave:test -t bluewave-aio:test .
 
-      - name: hls.js ins Log (für lokale Browser-Tests)
-        run: docker run --rm --entrypoint cat bluewave:test /var/www/html/js/vendor/hls.min.js | gzip -9 | base64 -w 1000 | sed 's/^/HLSJS:/'
-
       - name: Playwright für den Browser-Test (nutzt das installierte Chrome)
         run: python3 -m pip install --quiet --break-system-packages playwright
 

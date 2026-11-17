@@ -6,6 +6,7 @@ export const STATUS_TEXT = { wartet: 'wartet', laeuft: 'wird erstellt', fertig: 
 
 export function groesseText(b) {
     if (!b && b !== 0) return '';
+    if (b >= 1e12) return `${(b / 1e12).toFixed(1).replace('.', ',')} TB`;
     return b >= 1e9 ? `${(b / 1e9).toFixed(1).replace('.', ',')} GB` : `${Math.round(b / 1e6)} MB`;
 }
 

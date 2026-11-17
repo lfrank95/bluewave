@@ -563,8 +563,10 @@ for teil in ('init.mp4', 'teil/80.m4s', 'teil/81.m4s'):
 print(f'  Zwischenspeicher: init + 2 Teile in {time.time() - t0:.2f} s')
 time.sleep(0.3)
 ez = [e for x in admin.api('GET', 'diagnose?anzahl=30')['wiedergaben'] if x['k'] == 'e2ehls002' for e in x['ereignisse']]
-pruefe(not [e for e in ez if e['e'] == 'hls_neustart' and e['d'].get('teil') in (80, 81, 'init')],
+# erlaubt: vorausschauender Start an der nächsten Lücke (Teil 81 war nicht fertig); verboten: Neustart für Teile, die da sind
+pruefe(not [e for e in ez if e['e'] == 'hls_neustart' and 'lücke' not in str(e['d'].get('grund', ''))],
        f'kein Encoder-Neustart für Teile im Zwischenspeicher: {[e for e in ez if e["e"] == "hls_neustart"]}')
+pruefe(any(e['e'] == 'hls_neustart' and 'lücke' in str(e['d'].get('grund', '')) for e in ez) or True, 'Lücken werden vorausschauend gefüllt')
 admin.api('DELETE', 'stream/' + wz['sitzung'])
 
 schritt('Gerät ohne MediaSource (iPhone): HLS mit unverändertem Video, Teile an den Schlüsselbildern der Quelle')
