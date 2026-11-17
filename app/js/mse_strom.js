@@ -8,6 +8,7 @@
 const VORAUS_MB = 100;
 const HINTER_S = 120;    // so viel hinter der Position behalten
 const MS = window.ManagedMediaSource || window.MediaSource;
+import { diag } from './diagnose.js';
 
 export const mseVerfuegbar = () => !!MS;
 
@@ -152,6 +153,8 @@ export class MseStrom {
             await this.bereit();
         }
         if (nr !== this.nr || this.weg) return;
+        const t0 = performance.now();
+        diag('strom_anfrage', { nr, start: +t.toFixed(2) });
         let antwort;
         try {
             antwort = await fetch(`${this.url}&absolut=1&token=${this.token}&start=${Math.max(0, t).toFixed(3)}`, { signal: ac.signal, credentials: 'same-origin' });
@@ -159,7 +162,12 @@ export class MseStrom {
             if (x.name !== 'AbortError') this.fehler?.(x);
             return;
         }
-        if (!antwort.ok || !antwort.body) { this.fehler?.(new Error('Strom ' + antwort.status)); return; }
+        if (!antwort.ok || !antwort.body) { diag('strom_http_fehler', { status: antwort.status }); this.fehler?.(new Error('Strom ' + antwort.status)); return; }
+        diag('strom_antwort', { nr, kopf_ms: Math.round(performance.now() - t0) });
+        let empfangen = 0;
+        let erstesByte = 0;
+        let letzterBericht = performance.now();
+        let wartenLesen = 0;
         const leser = antwort.body.getReader();
         let kopf = new Uint8Array(0);
         let gesammelt = [];
@@ -168,15 +176,30 @@ export class MseStrom {
             for (;;) {
                 // Vorrat voll? Strom beenden (ffmpeg hört auf) – pruefen() setzt später ab dem Pufferende fort.
                 // So wird nie doppelt geladen, auch wenn der Strom in schon Geladenes hineinläuft.
-                if (this.sb && this.voraus() > this.vorausS) { this.fertig = nr; ac.abort(); return; }
+                if (this.sb && this.voraus() > this.vorausS) {
+                    diag('strom_vorrat_voll', { nr, voraus: +this.voraus().toFixed(1), mb: +(empfangen / 1048576).toFixed(1) });
+                    this.fertig = nr; ac.abort(); return;
+                }
                 if (nr !== this.nr || this.weg) { ac.abort(); return; }
+                const tl = performance.now();
                 const { done, value } = await leser.read();
+                wartenLesen += performance.now() - tl;
                 if (nr !== this.nr || this.weg) return;
-                if (done) break;
+                if (done) { diag('strom_ende', { nr, mb: +(empfangen / 1048576).toFixed(1), ms: Math.round(performance.now() - t0) }); break; }
+                empfangen += value.length;
+                if (!erstesByte) { erstesByte = performance.now(); diag('strom_erste_bytes', { nr, ms: Math.round(erstesByte - t0) }); }
+                if (performance.now() - letzterBericht > 5000) {
+                    const s = (performance.now() - letzterBericht) / 1000;
+                    diag('strom_rate', { nr, mbit: +((empfangen * 8) / 1e6 / ((performance.now() - erstesByte) / 1000)).toFixed(1), mb: +(empfangen / 1048576).toFixed(1),
+                        warten_auf_netz_anteil: +(wartenLesen / 1000 / s).toFixed(2), voraus: +this.voraus().toFixed(1) });
+                    letzterBericht = performance.now();
+                    wartenLesen = 0;
+                }
                 if (!this.sb) {
                     kopf = zusammen(kopf, value);
                     if (moovEnde(kopf) < 0) continue;
                     if (!this.sbAnlegen(kopf)) { ac.abort(); return; }
+                    diag('mse_bereit', { nr, mime: this.mime, kopf_kb: Math.round(kopf.length / 1024), ms: Math.round(performance.now() - t0) });
                     await this.anhaengen(kopf, nr, kopf.length > moovEnde(kopf) + 100); // nur Kopf = noch kein Bild
                     continue;
                 }
@@ -209,7 +232,7 @@ export class MseStrom {
                 try { this.ms.endOfStream(); } catch { /* */ }
             }
         } catch (x) {
-            if (x.name !== 'AbortError' && nr === this.nr) this.fehler?.(x);
+            if (x.name !== 'AbortError' && nr === this.nr) { diag('strom_fehler', { nr, text: x.message }); this.fehler?.(x); }
         }
     }
 
@@ -242,11 +265,13 @@ export class MseStrom {
                 if (this.ms.readyState === 'ended') { /* nach endOfStream wieder öffnen */ }
                 this.sb.appendBuffer(daten);
                 await this.bereit();
+                if (mitBild && this.datenNr !== nr) diag('mse_erstes_bild_angehaengt', { nr, kb: Math.round(daten.length / 1024) });
                 if (mitBild) this.datenNr = nr;
                 this.pruefen();
                 return;
             } catch (x) {
                 if (x.name === 'QuotaExceededError') {
+                    diag('mse_speicher_voll', {});
                     await this.aufraeumen(20);
                     await warten(300);
                     continue;

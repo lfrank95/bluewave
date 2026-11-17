@@ -4,6 +4,7 @@
 import { el, icon, zeit, meldung } from './ui.js';
 import { api } from './api.js';
 import { MseStrom, mseVerfuegbar } from './mse_strom.js';
+import { diag, diagNeu, diagEnde, diagVideo, diagKennung } from './diagnose.js';
 
 let aktiv = null;
 
@@ -52,6 +53,8 @@ function hlsJs() {
 /** Öffentlicher Einstieg: ziel = {art, id, fassung_id?, start_ms?} */
 export async function spielen(ziel, app) {
     if (aktiv) await aktiv.schliessen(false);
+    diagNeu({ art: ziel.art, id: ziel.id, bildschirm: `${screen.width}x${screen.height}@${devicePixelRatio}`, verbindung: navigator.connection?.effectiveType || null,
+        mse: mseVerfuegbar(), faehigkeiten: JSON.stringify(faehigkeiten()).slice(0, 600) });
     aktiv = new Player(ziel, app);
     await aktiv.starten();
 }
@@ -76,6 +79,7 @@ class Player {
         this.versatz = 0;          // Direct Stream: Startpunkt des laufenden Stroms in der Datei (Sekunden)
         this.qualitaetWahl = null; // im Player gewählte Qualität (gilt bis zum Schließen)
         this.aufbauen();
+        this.diagLos = diagVideo(this.video, () => ({ modus: this.daten?.modus || null, versatz: this.versatz || undefined }));
     }
 
     aufbauen() {
@@ -204,6 +208,7 @@ class Player {
             else if (k === 'm') this.video.muted = !this.video.muted;
             else if (k === 'f') this.vollbild();
             else if (k === 'n' && this.daten?.naechste) this.naechste();
+            else if (k === 'i') this.diagLive();
             else if (k === 'Escape') { if (!this.panelEl.hidden) this.panelEl.hidden = true; else if (!document.fullscreenElement) this.schliessen(); }
             else return;
             this.wach();
@@ -240,11 +245,18 @@ class Player {
         this.mitte.hidden = false;
         this.mitte.style.pointerEvents = '';
         this.mitte.replaceChildren(this.kreisel);
+        const t0 = performance.now();
+        diag('api_start_anfrage', { ...extra, qualitaet: this.qualitaetWahl || 'auto' });
         try {
             const d = await api('wiedergabe/start', 'POST', { ...this.ziel, ...(this.qualitaetWahl ? { qualitaet: this.qualitaetWahl } : {}), ...extra,
                 faehigkeiten: faehigkeiten(), sitzung_alt: this.daten?.sitzung || '' });
             this.daten = d;
+            diag('api_start_antwort', { titel: [d.info?.titel, d.info?.untertitel].filter(Boolean).join(' · '), dauer_ms: Math.round(performance.now() - t0), modus: d.modus, grund: d.grund || null, start_ms: d.start_ms,
+                quelle: d.quelle ? `${d.quelle.hoehe}p ${d.quelle.video_codec} ${d.quelle.container} ${d.quelle.bitrate_k} kbit/s${d.quelle.hdr ? ' HDR' : ''}` : null,
+                ton: d.remux ? `${d.remux.audio} ${d.remux.kanaele}ch (Spur ${d.remux.ton})` : null, transkodierung: d.transkodierung ? `${d.transkodierung.hoehe}p ${d.transkodierung.profil}` : null,
+                untertitel_aktiv: d.untertitel_aktiv ?? null });
         } catch (x) {
+            diag('api_start_fehler', { dauer_ms: Math.round(performance.now() - t0), text: x.message, status: x.status });
             this.fehler(x.message);
             return;
         }
@@ -283,8 +295,14 @@ class Player {
             let Hls;
             try { Hls = await hlsJs(); } catch (x) { this.fehler(x.message); return; }
             this.hls = new Hls({ startPosition: start, maxBufferLength: 60, backBufferLength: 90, fragLoadingTimeOut: 60000, manifestLoadingTimeOut: 20000,
-                fragLoadingMaxRetry: 4, xhrSetup: (xhr) => { xhr.withCredentials = true; } });
+                fragLoadingMaxRetry: 4, xhrSetup: (xhr) => { xhr.withCredentials = true; if (diagKennung()) xhr.setRequestHeader('X-Bluewave-Diag', diagKennung()); } });
+            this.hls.on(Hls.Events.FRAG_LOADED, (_, x) => {
+                const st = x.frag.stats || x.stats || {};
+                const dauer = (st.loading?.end || 0) - (st.loading?.start || 0);
+                if (dauer > 1500 || x.frag.sn % 10 === 0) diag('hls_teil', { nr: x.frag.sn, ms: Math.round(dauer), erstes_byte_ms: Math.round((st.loading?.first || 0) - (st.loading?.start || 0)), kb: Math.round((st.total || st.loaded || 0) / 1024) });
+            });
             this.hls.on(Hls.Events.ERROR, (_, info) => {
+                diag('hls_fehler', { typ: info.type, details: info.details, fatal: !!info.fatal });
                 if (!info.fatal) return;
                 if (info.type === Hls.ErrorTypes.NETWORK_ERROR) this.hls.startLoad();
                 else if (info.type === Hls.ErrorTypes.MEDIA_ERROR) this.hls.recoverMediaError();
@@ -293,7 +311,7 @@ class Player {
             this.hls.loadSource(d.url);
             this.hls.attachMedia(v);
         } else {
-            v.src = d.url;
+            v.src = d.url + (diagKennung() ? (d.url.includes('?') ? '&' : '?') + 'diag=' + diagKennung() : '');
             v.addEventListener('loadedmetadata', () => { if (start > 0) v.currentTime = start; }, { once: true });
         }
         this.spurenSetzen();
@@ -333,7 +351,9 @@ class Player {
         const d = this.daten;
         const v = this.video;
         const p = new URLSearchParams({ ton: d.remux.ton, audio: d.remux.audio, kanaele: d.remux.kanaele });
+        if (diagKennung()) p.set('diag', diagKennung());
         const strom = new MseStrom(v, `${d.url}/strom?${p}`, this.dauer(), (x) => {
+            diag('mse_fehler', { text: x?.message || String(x) });
             // MSE klappt hier nicht (Codec, alter Browser) → einfacher Strom
             console.warn('Direct Stream über MSE nicht möglich:', x?.message || x);
             if (this.mse !== strom) return;
@@ -365,6 +385,8 @@ class Player {
         if (nr !== this.remuxNr) return; // schon wieder gespult
         this.versatz = k;
         const p = new URLSearchParams({ start: k.toFixed(3), ton: d.remux.ton, audio: d.remux.audio, kanaele: d.remux.kanaele });
+        if (diagKennung()) p.set('diag', diagKennung());
+        diag('remux_einfach_laden', { start: k });
         v.src = `${d.url}/strom?${p}`;
         this.spurenSetzen();
         this.zeitAktualisieren();
@@ -522,6 +544,44 @@ class Player {
         else this.schliessen();
     }
 
+    /** Live-Anzeige für die Fehlersuche (Taste I oder Einstellungen › Diagnose) */
+    diagLive() {
+        if (this.diagLiveAus) { this.diagLiveAus(); return; }
+        const box = el('pre.diag-live');
+        this.wurzel.append(box);
+        let warten = 0;
+        const zaehlen = () => warten++;
+        this.video.addEventListener('waiting', zaehlen);
+        let letzteBytes = null;
+        const zeigen = () => {
+            const v = this.video;
+            const d = this.daten || {};
+            const b = v.buffered;
+            let voraus = 0;
+            for (let i = 0; i < b.length; i++) if (v.currentTime >= b.start(i) - 0.3 && v.currentTime <= b.end(i)) voraus = b.end(i) - v.currentTime;
+            const q = v.getVideoPlaybackQuality?.();
+            const zustand = ['nichts', 'Metadaten', 'aktuelles Bild', 'etwas voraus', 'genug'][v.readyState];
+            box.textContent = [
+                `Modus      ${{ direkt: 'Direct Play', remux: this.mse ? 'Direct Stream (MSE)' : 'Direct Stream (einfach)', hls: 'Umwandeln (HLS)' }[d.modus] || '–'}`,
+                d.quelle ? `Quelle     ${d.quelle.hoehe}p ${d.quelle.video_codec} ${d.quelle.container} ${(d.quelle.bitrate_k / 1000).toFixed(1)} Mbit/s` : null,
+                d.remux ? `Ton        ${d.remux.audio} ${d.remux.kanaele} Kanäle` : null,
+                d.transkodierung ? `Ziel       ${d.transkodierung.hoehe}p ${d.transkodierung.profil}` : null,
+                d.grund ? `Grund      ${d.grund}` : null,
+                `Bild       ${v.videoWidth}×${v.videoHeight}`,
+                `Position   ${this.pos().toFixed(1)} s  (Versatz ${this.versatz || 0})`,
+                `Puffer     ${voraus.toFixed(1)} s voraus${this.mse ? `, Vorrat bis ${this.mse.vorausS} s` : ''}`,
+                `Zustand    ${zustand}${v.paused ? ', pausiert' : ''}${v.seeking ? ', spult' : ''}`,
+                `Gewartet   ${warten}×`,
+                q ? `Bilder     ${q.totalVideoFrames} (${q.droppedVideoFrames} verworfen)` : null,
+                `Diagnose   ${diagKennung() || '–'}  (Verwaltung › Diagnose)`,
+            ].filter(Boolean).join('\n');
+            letzteBytes = null;
+        };
+        zeigen();
+        const t = setInterval(zeigen, 1000);
+        this.diagLiveAus = () => { clearInterval(t); box.remove(); this.video.removeEventListener('waiting', zaehlen); this.diagLiveAus = null; };
+    }
+
     qualitaetText(d) {
         if (d.modus === 'hls') return `${d.transkodierung.hoehe}p`;
         const h = d.quelle?.hoehe || 0;
@@ -567,6 +627,7 @@ class Player {
                 qualitaet,
                 el('div.info-text', info, quelleText ? el('div', 'Quelle: ' + quelleText) : null),
                 d.modus !== 'hls' ? wahl('Umwandeln erzwingen', false, () => this.neuStarten({ erzwinge_transkodieren: true })) : null,
+                wahl('Diagnose anzeigen', !!this.diagLiveAus, () => { this.panelEl.hidden = true; this.diagLive(); }, 'Taste I'),
                 el('h3', 'Nachtmodus'),
                 ['aus', 'leicht', 'stark'].map((n) => wahl({ aus: 'Aus (Ton unverändert)', leicht: 'Leicht', stark: 'Stark' }[n], this.nacht === n, () => { this.nacht = n; this.tonKette(); this.panel('einstellungen'); this.panel('einstellungen'); })),
                 el('h3', 'Dialog-Anhebung'),
@@ -701,9 +762,11 @@ class Player {
         this.video.load();
         if (this.daten?.sitzung) api('stream/' + this.daten.sitzung, 'DELETE').catch(() => {});
         this.audio?.ctx.close?.();
+        this.diagLos?.();
+        this.diagLiveAus?.();
         this.wurzel.remove();
         document.body.style.overflow = '';
-        if (aktiv === this) aktiv = null;
+        if (aktiv === this) { aktiv = null; diagEnde(); }
         if (neuLaden) this.app.neuLaden();
     }
 }

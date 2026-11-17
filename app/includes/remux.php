@@ -110,10 +110,14 @@ function remux_befehl(string $pfad, float $start, int $tonIndex, string $tonModu
  *  wo ein Abbruch erst spät ankommt; sonst lesen mehrere ffmpeg gleichzeitig dieselbe große Datei). */
 function remux_senden(array $cmd, string $token = ''): never
 {
+    require_once __DIR__ . '/diagnose.php';
+    $t0 = microtime(true);
+    $ms = static fn(float $seit) => (int) round((microtime(true) - $seit) * 1000);
     $pidDatei = preg_match('/^[a-z0-9]{8,40}$/', $token) ? konfig()['pfade']['transkodieren'] . '/remux-' . $token . '.pid' : null;
     if ($pidDatei && ($alt = (int) @file_get_contents($pidDatei)) > 0 && @posix_kill($alt, 0)
         && str_contains((string) @file_get_contents("/proc/$alt/cmdline"), 'ffmpeg')) {
         posix_kill($alt, SIGKILL);
+        diag('remux_alten_beendet', ['pid' => $alt]);
     }
     @set_time_limit(0);
     ignore_user_abort(true);
@@ -127,12 +131,16 @@ function remux_senden(array $cmd, string $token = ''): never
     if (function_exists('apache_setenv')) {
         @apache_setenv('no-gzip', '1');
     }
-    $p = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', '/dev/null', 'w']], $rohre);
+    // Fehlermeldungen von ffmpeg festhalten (für die Diagnose)
+    $fehlerDatei = tempnam(sys_get_temp_dir(), 'bwremux');
+    $p = proc_open($cmd, [0 => ['file', '/dev/null', 'r'], 1 => ['pipe', 'w'], 2 => ['file', $fehlerDatei, 'w']], $rohre);
     if (!is_resource($p)) {
+        diag('remux_start_fehler', []);
         http_response_code(500);
         exit;
     }
     $meinPid = (int) (proc_get_status($p)['pid'] ?? 0);
+    diag('remux_ffmpeg_gestartet', ['ms' => $ms($t0), 'befehl' => mb_substr(implode(' ', array_map(static fn($a) => str_contains($a, ' ') ? "'$a'" : $a, $cmd)), 0, 600)]);
     if ($pidDatei && $meinPid) {
         @mkdir(dirname($pidDatei), 0775, true);
         @file_put_contents($pidDatei, (string) $meinPid);
@@ -140,18 +148,42 @@ function remux_senden(array $cmd, string $token = ''): never
     // große Lesehappen: PHP liest Pipes sonst in 8-KB-Stücken (viele Systemaufrufe und Mini-Pakete bei 50+ Mbit/s)
     stream_set_chunk_size($rohre[1], 1024 * 1024);
     stream_set_read_buffer($rohre[1], 0);
+    $bytes = 0;
+    $wartenFfmpeg = 0.0;   // Zeit, in der auf ffmpeg gewartet wurde (Platte/Datei lesen)
+    $wartenSenden = 0.0;   // Zeit, in der das Senden zum Gerät hing (Netz/Gerät nimmt nicht ab)
+    $bericht = microtime(true);
+    $grund = 'datei_zu_ende';
+    $erstes = false;
     while (!feof($rohre[1])) {
+        $tl = microtime(true);
         $stueck = fread($rohre[1], 1024 * 1024);
+        $wartenFfmpeg += microtime(true) - $tl;
         if ($stueck === false) {
+            $grund = 'lesefehler';
             break;
         }
         if ($stueck === '') {
             continue;
         }
+        if (!$erstes) {
+            $erstes = true;
+            diag('remux_erste_bytes', ['ms' => $ms($t0), 'kb' => (int) (strlen($stueck) / 1024)]);
+        }
+        $ts = microtime(true);
         echo $stueck;
         flush();
+        $wartenSenden += microtime(true) - $ts;
+        $bytes += strlen($stueck);
         if (connection_aborted()) {
+            $grund = 'geraet_hat_abgebrochen';
             break;
+        }
+        if (microtime(true) - $bericht >= 10) {
+            $dauer = microtime(true) - $bericht;
+            diag('remux_stand', ['mb' => round($bytes / 1048576, 1), 'mbit' => round($bytes * 8 / 1e6 / max(0.001, microtime(true) - $t0), 1),
+                'anteil_warten_ffmpeg' => round($wartenFfmpeg / $dauer, 2), 'anteil_warten_senden' => round($wartenSenden / $dauer, 2)]);
+            $bericht = microtime(true);
+            $wartenFfmpeg = $wartenSenden = 0.0;
         }
     }
     fclose($rohre[1]);
@@ -159,7 +191,11 @@ function remux_senden(array $cmd, string $token = ''): never
     if ($st['running']) {
         posix_kill($st['pid'], SIGKILL);
     }
-    proc_close($p);
+    $code = proc_close($p);
+    $fehler = trim((string) @file_get_contents($fehlerDatei, false, null, 0, 4000));
+    @unlink($fehlerDatei);
+    diag('remux_ende', ['grund' => $grund, 'mb' => round($bytes / 1048576, 1), 'sekunden' => round(microtime(true) - $t0, 1), 'ffmpeg_code' => $code,
+        'ffmpeg_meldung' => $fehler !== '' ? mb_substr($fehler, -1500) : null]);
     if ($pidDatei && (int) @file_get_contents($pidDatei) === $meinPid) {
         @unlink($pidDatei);
     }

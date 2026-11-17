@@ -456,7 +456,18 @@ try {
         case 'wiedergabe':
             require_once __DIR__ . '/../includes/wiedergabe.php';
             if ($t1 === 'start' && $methode === 'POST') {
-                bw_json(wiedergabe_starten($k, eingabe()));
+                require_once __DIR__ . '/../includes/diagnose.php';
+                $t0 = microtime(true);
+                try {
+                    $antwort = wiedergabe_starten($k, eingabe());
+                } catch (Throwable $x) {
+                    diag('start_fehler', ['text' => $x->getMessage(), 'ms' => (int) round((microtime(true) - $t0) * 1000)]);
+                    throw $x;
+                }
+                diag('start_entscheidung', ['ms' => (int) round((microtime(true) - $t0) * 1000), 'modus' => $antwort['modus'] ?? null, 'grund' => $antwort['grund'] ?? null,
+                    'datei_id' => $antwort['datei_id'] ?? null, 'quelle' => $antwort['quelle'] ?? null, 'remux' => $antwort['remux'] ?? null,
+                    'transkodierung' => isset($antwort['transkodierung']) ? array_intersect_key((array) $antwort['transkodierung'], array_flip(['hoehe', 'bitrate_k', 'profil', 'tonemap'])) : null]);
+                bw_json($antwort);
             }
             if ($t1 === 'fortschritt' && $methode === 'POST') {
                 $e = eingabe();
@@ -522,7 +533,13 @@ try {
                 fehler('Unbekannt.', 404);
             }
             session_write_close();
+            $tw = microtime(true);
             $datei = hls_teil($sid, $teilNr);
+            $wartezeit = (int) round((microtime(true) - $tw) * 1000);
+            if ($wartezeit > 300 || $teilNr === null || $teilNr % 10 === 0) {
+                require_once __DIR__ . '/../includes/diagnose.php';
+                diag('hls_teil_server', ['teil' => $teilNr ?? 'init', 'warten_auf_encoder_ms' => $wartezeit, 'kb' => (int) (filesize($datei) / 1024)]);
+            }
             header('Content-Type: ' . ($teilNr === null ? 'video/mp4' : 'video/iso.segment'));
             header('Cache-Control: private, max-age=600');
             header('Content-Length: ' . filesize($datei));
@@ -536,6 +553,8 @@ try {
                 if (!$d || !is_file($d['pfad'])) {
                     fehler('Datei nicht gefunden.', 404);
                 }
+                require_once __DIR__ . '/../includes/diagnose.php';
+                diag('direkt_anfrage', ['bereich' => (string) ($_SERVER['HTTP_RANGE'] ?? 'ganz')]);
                 datei_senden($d['pfad'], mime_fuer((string) $d['container']));
             }
             break;
@@ -587,6 +606,22 @@ try {
             }
             break;
 
+        case 'diagnose':
+            require_once __DIR__ . '/../includes/diagnose.php';
+            if ($methode === 'POST') {
+                diag_annehmen(eingabe(), $k);
+                bw_json(['ok' => true]);
+            }
+            admin_noetig();
+            if ($methode === 'GET') {
+                bw_json(['wiedergaben' => diag_lesen(min(100, max(1, (int) ($_GET['anzahl'] ?? 30))))]);
+            }
+            if ($methode === 'DELETE') {
+                @unlink(diag_datei());
+                bw_json(['ok' => true]);
+            }
+            break;
+
         case 'remux':
             // Direct Stream: remux/{datei}/position?start=S → Schlüsselbild; remux/{datei}/strom?start=&ton=&audio=&kanaele=
             require_once __DIR__ . '/../includes/wiedergabe.php';
@@ -612,6 +647,8 @@ try {
                 try {
                     $p = untertitel_vtt((int) $mm[1]);
                 } catch (UntertitelNochNicht $x) {
+                    require_once __DIR__ . '/../includes/diagnose.php';
+                    diag('untertitel_noch_nicht', ['id' => (int) $mm[1]]);
                     // läuft im Hintergrund – der Player fragt gleich nochmal
                     header('Retry-After: 5');
                     fehler($x->getMessage(), 503);

@@ -10,10 +10,14 @@ export class ApiFehler extends Error {
 }
 
 let beiAbmeldung = null;
+let diagKennung = null;
+/** Diagnose-Kennung der laufenden Wiedergabe (wird als Kopfzeile mitgeschickt) */
+export function diagSetzen(k) { diagKennung = k; }
 export function wennAbgemeldet(fn) { beiAbmeldung = fn; }
 
 export async function api(pfad, methode = 'GET', daten = undefined) {
     const opt = { method: methode, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
+    if (diagKennung) opt.headers['X-Bluewave-Diag'] = diagKennung;
     if (methode !== 'GET') {
         opt.headers['X-Bluewave'] = '1';
         if (daten !== undefined) {

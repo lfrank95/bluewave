@@ -6,14 +6,14 @@ import { tmdbZuordnen } from './film.js';
 
 export const titel = () => 'Verwaltung – Bluewave';
 
-const REITER = [['bibliothek', 'Bibliothek'], ['universen', 'Universen'], ['aufraeumen', 'Aufräumen'], ['nutzer', 'Nutzer'], ['einstellungen', 'Einstellungen'], ['system', 'System']];
+const REITER = [['bibliothek', 'Bibliothek'], ['universen', 'Universen'], ['aufraeumen', 'Aufräumen'], ['nutzer', 'Nutzer'], ['einstellungen', 'Einstellungen'], ['diagnose', 'Diagnose'], ['system', 'System']];
 let abfrage = null;
 
 export async function zeigen(r, app) {
     clearInterval(abfrage);
     if (app.konto.rolle !== 'admin') return el('div.leer', el('h2', 'Nur für Admins'));
     const reiter = r.teile[1] || 'bibliothek';
-    const inhalt = await ({ bibliothek, universen, aufraeumen, nutzer, einstellungen, system }[reiter] || bibliothek)(r, app);
+    const inhalt = await ({ bibliothek, universen, aufraeumen, nutzer, einstellungen, diagnose, system }[reiter] || bibliothek)(r, app);
     return el('div.seite',
         el('div.seiten-kopf', el('h1', 'Verwaltung')),
         el('nav.reiter', REITER.map(([k, t]) => el('a', { href: '#/verwaltung/' + k, class: k === reiter ? 'aktiv' : '' }, t))),
@@ -237,4 +237,87 @@ async function system() {
                 el('tr', el('td', 'ffmpeg'), el('td', `${hw.ffmpeg?.version || '?'}${hw.ffmpeg?.jellyfin ? ' (jellyfin-ffmpeg)' : ''}`)),
                 d.ordner.map((o) => el('tr', el('td', o.name), el('td', el('code', o.pfad), ' ', el('span', { class: o.da && o.lesbar ? 'ok' : 'schlecht' },
                     !o.da ? 'fehlt' : !o.lesbar ? 'nicht lesbar' : o.schreibbar ? 'lesen + schreiben' : 'nur lesen')))))));
+}
+
+// ---------- Diagnose: Zeitleisten der letzten Wiedergaben (Player + Server) ----------
+const DIAG_NAMEN = {
+    beginn: 'Abspielen geklickt', api_start_anfrage: 'Wiedergabe anfragen', api_start_antwort: 'Antwort: Wiedergabe', api_start_fehler: 'Fehler beim Start',
+    start_entscheidung: 'Entscheidung', start_fehler: 'Fehler beim Start', strom_anfrage: 'Strom anfordern', strom_antwort: 'Strom: Antwort da',
+    strom_erste_bytes: 'Strom: erste Daten', mse_bereit: 'Player bereit (Codec)', mse_erstes_bild_angehaengt: 'Erstes Bild im Puffer', strom_rate: 'Strom: Durchsatz',
+    strom_vorrat_voll: 'Vorrat voll (Pause)', strom_ende: 'Strom zu Ende', strom_fehler: 'Strom-Fehler', strom_http_fehler: 'Strom: HTTP-Fehler', mse_fehler: 'MSE-Fehler',
+    mse_speicher_voll: 'Browser-Speicher voll', remux_ffmpeg_gestartet: 'ffmpeg gestartet', remux_erste_bytes: 'ffmpeg: erste Daten', remux_stand: 'Server: Durchsatz',
+    remux_ende: 'Server: Strom beendet', remux_alten_beendet: 'alten Strom beendet', remux_einfach_laden: 'einfacher Strom', hls_teil: 'HLS-Teil geladen',
+    hls_teil_server: 'HLS-Teil (Server)', hls_fehler: 'HLS-Fehler', direkt_anfrage: 'Datei-Anfrage', untertitel_noch_nicht: 'Untertitel noch nicht fertig',
+    video_loadstart: 'Video: lädt', video_loadedmetadata: 'Video: Metadaten', video_loadeddata: 'Video: erstes Bild', video_canplay: 'Video: spielbereit',
+    video_playing: 'Video: läuft', video_waiting: 'Video: WARTET', warten_vorbei: 'Warten vorbei', video_pause: 'Pause', video_seeking: 'Spulen',
+    video_seeked: 'Gespult', video_stalled: 'Video: Daten stocken', video_emptied: 'Video geleert', video_ended: 'Ende', video_fehler: 'VIDEO-FEHLER',
+    stand: 'Stand', ende: 'Player geschlossen', seite_verlassen: 'Seite verlassen',
+};
+const DIAG_SCHLECHT = /fehler|waiting|stalled|speicher_voll/i;
+const diagSchlecht = (e) => DIAG_SCHLECHT.test(e.e) || (e.e === 'warten_vorbei' && e.d?.dauer_ms > 500)
+    || (e.e === 'remux_ende' && (e.d?.ffmpeg_meldung || e.d?.grund === 'lesefehler'))
+    || e.d?.anteil_warten_ffmpeg > 0.5 || e.d?.anteil_warten_senden > 0.5 || e.d?.warten_auf_netz_anteil > 0.5
+    || (e.e === 'remux_erste_bytes' && e.d?.ms > 1500) || (e.e === 'api_start_antwort' && e.d?.dauer_ms > 1500);
+
+function diagKurzUA(ua = '') {
+    const b = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Browser';
+    const o = /Web0S|webOS/.test(ua) ? 'LG webOS' : /Tizen/.test(ua) ? 'Samsung Tizen' : /AFT/.test(ua) ? 'Fire TV' : /Android/.test(ua) ? 'Android'
+        : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac OS/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
+    return `${b}${o ? ' · ' + o : ''}`;
+}
+
+function diagDaten(d) {
+    return Object.entries(d || {}).filter(([k, v]) => v !== null && v !== undefined && v !== '' && k !== 'ms')
+        .map(([k, v]) => `${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`).join('  ');
+}
+
+function diagAlsText(w) {
+    const t0 = w.ereignisse[0]?.t || 0;
+    return [`Wiedergabe ${w.k} · ${new Date(t0).toLocaleString('de-DE')} · ${w.info.konto || ''} · ${w.info.ua || ''}`,
+        ...w.ereignisse.map((e) => `${('+' + ((e.t - t0) / 1000).toFixed(2) + 's').padStart(9)}  ${e.q.padEnd(6)}  ${(DIAG_NAMEN[e.e] || e.e).padEnd(26)}  ${diagDaten(e.d)}`)].join('\n');
+}
+
+async function diagnose() {
+    const d = await api('diagnose?anzahl=30');
+    const liste = el('div');
+    const zeigen = (w) => {
+        const t0 = w.ereignisse[0]?.t || 0;
+        const antwort = w.ereignisse.find((e) => e.e === 'api_start_antwort');
+        const ersteWiedergabe = w.ereignisse.find((e) => e.e === 'video_playing');
+        const warten = w.ereignisse.filter((e) => e.e === 'warten_vorbei');
+        const fehler = w.ereignisse.filter((e) => /fehler/i.test(e.e) || (e.e === 'remux_ende' && e.d?.ffmpeg_meldung)).length;
+        const bisBild = ersteWiedergabe ? ((ersteWiedergabe.t - t0) / 1000).toFixed(1) + ' s bis Bild' : 'kein Bild';
+        const modus = { direkt: 'Direct Play', remux: 'Direct Stream', hls: 'Umwandeln' }[antwort?.d.modus] || '–';
+        return el('details.diag-wiedergabe',
+            el('summary',
+                el('b', antwort?.d.titel || `${w.info.art || ''} ${w.info.id || ''}`),
+                el('span.leise', new Date(t0).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'medium' })),
+                el('span.chip', modus),
+                el('span.chip' + (ersteWiedergabe && ersteWiedergabe.t - t0 > 3000 ? '.schlecht-chip' : ''), bisBild),
+                warten.length ? el('span.chip.schlecht-chip', `${warten.length}× gewartet (${(warten.reduce((s, e) => s + (e.d.dauer_ms || 0), 0) / 1000).toFixed(1)} s)`) : null,
+                fehler ? el('span.chip.schlecht-chip', `${fehler} Fehler`) : null,
+                el('span.leise', `${w.info.konto || ''} · ${diagKurzUA(w.info.ua)}`)),
+            el('div.knoepfe', { style: { margin: '10px 0' } },
+                el('button.knopf.klein', { onclick: async () => {
+                    try { await navigator.clipboard.writeText(diagAlsText(w)); meldung('Zeitleiste kopiert – einfach in den Chat einfügen.'); } catch { meldung('Kopieren ging nicht – Text markieren und kopieren.', true); }
+                } }, icon('haken'), 'Als Text kopieren')),
+            el('table.diag-tabelle', w.ereignisse.map((e) => el('tr' + (diagSchlecht(e) ? '.schlecht' : ''),
+                el('td.zeit', '+' + ((e.t - t0) / 1000).toFixed(2) + ' s'),
+                el('td', el('span.quelle.q-' + e.q, e.q === 'player' ? 'Player' : 'Server')),
+                el('td', DIAG_NAMEN[e.e] || e.e),
+                el('td.daten', diagDaten(e.d))))));
+    };
+    liste.append(...(d.wiedergaben.length ? d.wiedergaben.map(zeigen) : [el('p.leise', 'Noch nichts aufgezeichnet – spiel etwas ab, dann erscheint es hier.')]));
+    return el('div',
+        el('div.karte.glass-panel',
+            el('h2', 'Wiedergabe-Diagnose'),
+            el('p.leise', 'Jede Wiedergabe wird mit Zeitstempeln aufgezeichnet – im Player und auf dem Server. So sieht man, worauf gewartet wird: Antwort des Servers, ffmpeg (Platte), Netz oder Browser. Im Player zeigt die Taste I live, was passiert.'),
+            el('div.knoepfe',
+                el('a.knopf', { href: '#/verwaltung/diagnose', onclick: (e) => { e.preventDefault(); window.__bluewave.neuLaden(); } }, 'Aktualisieren'),
+                el('button.knopf', { onclick: async () => {
+                    if (!await bestaetigen('Protokoll leeren', 'Alle aufgezeichneten Wiedergaben löschen?', 'Leeren', true)) return;
+                    await api('diagnose', 'DELETE');
+                    window.__bluewave.neuLaden();
+                } }, icon('loeschen'), 'Protokoll leeren'))),
+        liste);
 }

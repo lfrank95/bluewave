@@ -342,6 +342,23 @@ for x in (w, w2):
     if x.get('sitzung'):
         admin.api('DELETE', 'stream/' + x['sitzung'])
 
+schritt('Wiedergabe-Diagnose (Player und Server in einer Zeitleiste)')
+import time as _zeit
+jetzt = int(_zeit.time() * 1000)
+admin.api('POST', 'diagnose', {'k': 'e2ediag01', 'start': {'art': 'film', 'id': ultron['id']}, 'ereignisse': [{'t': jetzt, 'e': 'beginn', 'd': {}}, {'t': jetzt + 50, 'e': 'video_playing', 'd': {}}]})
+w = admin.api('POST', 'wiedergabe/start?diag=e2ediag01', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': {**FAEHIG, 'remux': True}})
+code, body, _ = admin.roh('GET', f'/api/v1/remux/{w["datei_id"]}/strom?start=0&ton=0&audio=copy&kanaele=2&absolut=1&token=e2ediag12345&diag=e2ediag01')
+pruefe(code == 200, f'Strom mit Diagnose: {code}')
+_zeit.sleep(1)
+d = admin.api('GET', 'diagnose?anzahl=5')
+x = next((x for x in d['wiedergaben'] if x['k'] == 'e2ediag01'), None)
+namen = [e['e'] for e in (x or {}).get('ereignisse', [])]
+pruefe(x and 'beginn' in namen and 'start_entscheidung' in namen and 'remux_erste_bytes' in namen and 'remux_ende' in namen,
+       f'Zeitleiste enthält Player- und Server-Ereignisse: {namen}')
+anna_los = Client()
+code, _, _ = anna_los.roh('GET', '/api/v1/diagnose')
+pruefe(code in (401, 403), f'Diagnose lesen nur mit Anmeldung/Admin: {code}')
+
 schritt('Transkodieren (HLS) mit Spulen')
 # kleine Bildschirmhöhe → die 270p-Datei (die mit dem externen Untertitel) wird gewählt
 w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'faehigkeiten': {**FAEHIG, 'max_hoehe': 400}, 'start_ms': 0})
