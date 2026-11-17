@@ -57,6 +57,7 @@ APPD="$ZIEL/resources/app"
 mkdir -p "$APPD/engine" "$APPD/mpv"
 cp "$HIER/client/"{main.js,preload.js,suche.js,log.js,i18n.js,mpv.js,spieler.js,rife.js,einrichtung.html,package.json} "$APPD/"
 mkdir -p "$APPD/rife" && cp "$HIER/client/rife/bluewave_rife.vpy" "$APPD/rife/"
+cp "$HIER/client/teilupdate.ps1" "$APPD/"
 # 7-Zip (nur .7z) zum Auspacken von vs-mlrt bei der RIFE-Einrichtung
 if [ -n "${SIEBEN_ZR:-}" ] && [ -f "$SIEBEN_ZR" ]; then cp "$SIEBEN_ZR" "$APPD/engine/7zr.exe"; else echo "WARNUNG: 7zr.exe fehlt (SIEBEN_ZR) – RIFE-Einrichtung geht dann nicht" >&2; fi
 cp -r "$HIER/client/bilder" "$APPD/"
@@ -88,6 +89,11 @@ Ton (Engine mit ASIO/WASAPI, mpv, Bitstream zum Receiver), Bild und Updates: Pro
 Eigene mpv-Einstellungen: %APPDATA%\\bluewave-client\\mpv\\mpv.conf. Logs: %APPDATA%\\bluewave-client\\log\\.
 Lizenzen: LIZENZ-Bluewave.txt, Fremdkomponenten: DRITTANBIETER.md, Chromium: LICENSES.chromium.html.
 TXT
+echo "Komponenten (kleine Updates) …"
+# Basis = Electron, Programm-exe, Deinstallation: ändert sie sich, gibt es das volle Paket; sonst nur „app“ und „mpv“
+BASIS_ID="$( { unzip -p "$ELECTRON_ZIP" version; sha256sum "$HIER/build/symbol.ico" "$HIER/werkzeug/pe_symbol.py" "$HIER/sfx/deinstallieren.c" "$HIER/sfx/deinstallieren.rc" | cut -d' ' -f1; echo "${VERSION%%-*}"; } | sha256sum | cut -c1-16)"
+rm -f "$AUS"/bw-*.zip "$AUS/komponenten.json"
+python3 "$HIER/werkzeug/komponenten.py" "$ZIEL" "$AUS" "$VERSION" "$BASIS_ID"
 echo "Deinstallation …"
 rc_bauen "$HIER/sfx/deinstallieren.rc" "$HIER/build/deinst_res.o"
 rm -f "$ZIEL/Bluewave deinstallieren.exe" "$HIER/build/sfx.exe"   # ein fehlgeschlagener Build darf keine alte exe einpacken

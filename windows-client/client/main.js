@@ -823,7 +823,35 @@ async function vonGithub() {
     }
   }
   if (!summe) throw new Error('GitHub: keine Prüfsumme zum Installer');
-  return { version: beste.version, installer: beste.exe.browser_download_url, pruefsumme: summe, groesse: beste.exe.size || 0, quelle: 'github' };
+  const erg = { version: beste.version, installer: beste.exe.browser_download_url, pruefsumme: summe, groesse: beste.exe.size || 0, quelle: 'github' };
+  // Kleines Update: passt die Basis (Electron, Programm-exe), werden nur die geänderten Teile (app, mpv) geladen
+  try {
+    const kj = beste.rel.assets.find((a) => a.name === 'komponenten.json');
+    const lokal = teileLokal();
+    if (kj && lokal) {
+      const neu = await (await fetch(kj.browser_download_url, { headers: { 'User-Agent': UA_ZUSATZ }, signal: AbortSignal.timeout(15000) })).json();
+      const teile = teilePlanen(lokal, neu, beste.rel.assets);
+      if (teile) { erg.teile = teile; erg.komponenten = neu; erg.groesse = teile.reduce((x, t) => x + t.groesse, 0); }
+    }
+  } catch (e) { log.schreiben('INFO', `Kleines Update nicht möglich: ${e.message}`); }
+  return erg;
+}
+
+/** Installierte Teile (komponenten.json im Programmordner, vom Installer bzw. letzten kleinen Update) */
+function teileLokal() {
+  try { return JSON.parse(fs.readFileSync(path.join(path.dirname(process.execPath), 'komponenten.json'), 'utf8')); } catch (e) { return null; }
+}
+/** Welche Teile fehlen? null = volles Paket nötig (andere Basis, unbekannter Stand oder Teil fehlt im Release) */
+function teilePlanen(lokal, neu, assets) {
+  if (!lokal?.basis || lokal.basis !== neu?.basis || !neu.komponenten) return null;
+  const teile = [];
+  for (const [k, t] of Object.entries(neu.komponenten)) {
+    if (!/^[a-z]+$/.test(k) || lokal.komponenten?.[k]?.id === t.id) continue;
+    const a = assets.find((x) => x.name === t.datei);
+    if (!a || !/^[0-9a-f]{64}$/.test(String(t.sha256 || ''))) return null;
+    teile.push({ name: k, url: a.browser_download_url, sha256: t.sha256, groesse: t.groesse || a.size || 0 });
+  }
+  return teile;
 }
 
 /** Neueste Client-Version beim eigenen Server */
@@ -861,15 +889,79 @@ async function aufNeueVersionPruefen(vonHand = false) {
 let updateLaeuft = null;   // { stand: 'laedt'|'startet'|'fehler', prozent, fehler }
 function updateInfo() {
   if (!neueVersion) return null;
-  return { version: neueVersion.version, quelle: neueVersion.quelle, installierbar: true, ...(updateLaeuft || {}) };
+  return { version: neueVersion.version, quelle: neueVersion.quelle, installierbar: true, groesse: neueVersion.groesse || 0, klein: !!neueVersion.teile, ...(updateLaeuft || {}) };
 }
 function updateStand(w) {
   updateLaeuft = { ...(updateLaeuft || {}), ...w };
   senden('update', updateInfo());
 }
+/** Kleines Update: geänderte Teile laden und prüfen, auspacken, dann teilupdate.ps1 (ersetzt nach dem Beenden, startet neu) */
+async function teilUpdate(nv) {
+  const v = nv.version;
+  const stufe = path.join(app.getPath('temp'), `bluewave-update-${v}`);
+  log.schreiben('INFO', `Kleines Update auf ${v}: ${nv.teile.map((t) => `${t.name} (${(t.groesse / 1048576).toFixed(1)} MB)`).join(', ') || 'nur Stand'}`);
+  updateStand({ stand: 'laedt', prozent: 0, fehler: '' });
+  try {
+    fs.rmSync(stufe, { recursive: true, force: true });
+    fs.mkdirSync(stufe, { recursive: true });
+    const gesamt = nv.teile.reduce((x, t) => x + t.groesse, 0) || 1;
+    let vorher = 0;
+    for (const t of nv.teile) {
+      const u = new URL(t.url);
+      if (u.origin !== 'https://github.com' || !u.pathname.startsWith(`/${UPDATE_REPO}/releases/download/client-v`)) throw new Error('Unerwartete Download-Adresse.');
+      const r = await fetch(u, { headers: { 'User-Agent': UA_ZUSATZ }, signal: AbortSignal.timeout(20 * 60 * 1000) });
+      if (!r.ok || !r.body) throw new Error(`Download fehlgeschlagen (HTTP ${r.status}).`);
+      const zip = path.join(stufe, `${t.name}.zip`);
+      const datei = fs.createWriteStream(zip);
+      const hash = require('crypto').createHash('sha256');
+      let geladen = 0, zuletzt = -1;
+      for await (const stueck of r.body) {
+        geladen += stueck.length;
+        hash.update(stueck);
+        if (!datei.write(stueck)) await new Promise((ok) => datei.once('drain', ok));
+        const p = Math.floor(((vorher + geladen) / gesamt) * 100);
+        if (p !== zuletzt) { zuletzt = p; updateStand({ prozent: Math.min(p, 99) }); }
+      }
+      await new Promise((ok, f) => datei.end((e) => (e ? f(e) : ok())));
+      if (hash.digest('hex') !== t.sha256) throw new Error('Die Prüfsumme der geladenen Datei stimmt nicht.');
+      vorher += t.groesse;
+      const q = (x) => `'${String(x).replace(/'/g, "''")}'`;
+      await new Promise((ok, nein) => {
+        const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', `$ProgressPreference='SilentlyContinue'; Expand-Archive -LiteralPath ${q(zip)} -DestinationPath ${q(path.join(stufe, t.name))} -Force`], { windowsHide: true });
+        p.on('error', nein);
+        p.on('exit', (c) => (c === 0 ? ok() : nein(new Error(`Auspacken fehlgeschlagen (${c})`))));
+      });
+      fs.unlinkSync(zip);
+    }
+    fs.writeFileSync(path.join(stufe, 'komponenten.json'), JSON.stringify(nv.komponenten, null, 1));
+  } catch (e) {
+    log.schreiben('WARN', `Kleines Update fehlgeschlagen: ${e.message} – nächster Versuch mit dem vollen Paket`);
+    try { fs.rmSync(stufe, { recursive: true, force: true }); } catch (x) { /* egal */ }
+    delete nv.teile;
+    updateStand({ stand: 'fehler', fehler: `${e.message} – bitte noch einmal versuchen (dann mit dem vollen Paket).` });
+    return false;
+  }
+  updateStand({ stand: 'startet', prozent: 100 });
+  log.schreiben('INFO', `Kleines Update auf ${v}: Teile bereit, Client beendet sich`);
+  try {
+    const skript = path.join(app.getPath('temp'), 'bluewave-teilupdate.ps1');
+    fs.copyFileSync(path.join(__dirname, 'teilupdate.ps1'), skript);
+    const ziel = path.dirname(process.execPath);
+    spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', skript,
+      '-Ziel', ziel, '-Stufe', stufe, '-Version', v, '-Warten', String(process.pid)],
+    { cwd: app.getPath('temp'), detached: true, stdio: 'ignore', windowsHide: true }).unref();
+  } catch (e) {
+    updateStand({ stand: 'fehler', fehler: e.message || String(e) });
+    return false;
+  }
+  setTimeout(() => { beenden = true; app.quit(); }, 600);
+  return true;
+}
+
 async function updateInstallieren() {
   if (!neueVersion?.installer || updateLaeuft?.stand === 'laedt' || updateLaeuft?.stand === 'startet') return false;
   const v = neueVersion.version;
+  if (neueVersion.teile && process.platform === 'win32') return teilUpdate(neueVersion);
   const ziel = path.join(app.getPath('temp'), `Bluewave-Windows-Client-${v}.exe`);
   log.schreiben('INFO', `Update auf ${v}: lade ${neueVersion.installer}`);
   updateStand({ stand: 'laedt', prozent: 0, fehler: '' });
@@ -937,12 +1029,12 @@ const TITEL_FARBE = '#070b12';
 // Eigene Fensterknöpfe in der Kopfzeile der Web-App (statt der Windows-Leiste mit festem Hintergrund)
 const fensterZustand = () => (fenster && !fenster.isDestroyed() ? { max: fenster.isMaximized(), voll: fenster.isFullScreen() } : null);
 ipcMain.on('fenster-aktion', (e, aktion) => {
-  if (!vonSeite(e) || !fenster || fenster.isDestroyed() || e.sender.id !== fenster.webContents.id) return;
+  if (!fenster || fenster.isDestroyed() || e.sender.id !== fenster.webContents.id) return;   // nur das Hauptfenster selbst (auch Einrichtung)
   if (aktion === 'min') fenster.minimize();
   else if (aktion === 'max') { if (fenster.isMaximized()) fenster.unmaximize(); else fenster.maximize(); }
   else if (aktion === 'zu') fenster.close();
 });
-ipcMain.handle('fenster-zustand', (e) => (vonSeite(e) ? fensterZustand() : null));
+ipcMain.handle('fenster-zustand', (e) => (fenster && !fenster.isDestroyed() && e.sender.id === fenster.webContents.id ? fensterZustand() : null));
 
 function fensterSicherstellen() {
   if (fenster && !fenster.isDestroyed()) return;

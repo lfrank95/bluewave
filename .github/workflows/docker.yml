@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 30
     env:
       ELECTRON_VERSION: 44.9.3
+      MPV_DATEI: mpv-x86_64-20261111-git-bcde6b93cc.7z
     steps:
       - uses: actions/checkout@v4
       - name: Werkzeuge (llvm-mingw, Electron, mpv)
@@ -45,7 +46,14 @@ jobs:
           curl -fsSL -o "$W/electron.zip" "https://github.com/electron/electron/releases/download/v$ELECTRON_VERSION/electron-v$ELECTRON_VERSION-win32-x64.zip"
           echo "ELECTRON_ZIP=$W/electron.zip" >> "$GITHUB_ENV"
           # mpv: fertiger Windows-Build von shinchiro (x86_64 ohne v3 – läuft auch auf älteren CPUs)
-          MPV="$(gh api repos/shinchiro/mpv-winbuild-cmake/releases/latest --jq '.assets[] | select(.name | test("^mpv-x86_64-[0-9]{8}-git-[0-9a-f]+\\.7z$")) | .browser_download_url' | head -1)"
+          # fest eingestellter Build (MPV_DATEI), damit sich mpv nicht mit jedem Lauf ändert – sonst bekäme jedes kleine
+          # Update auch ein neues mpv. Für ein neues mpv: MPV_DATEI anpassen (leer = neuester Build)
+          MPV=""
+          if [ -n "$MPV_DATEI" ]; then
+            MPV="$(gh api --paginate "repos/shinchiro/mpv-winbuild-cmake/releases?per_page=100" --jq ".[].assets[] | select(.name == \"$MPV_DATEI\") | .browser_download_url" | head -1 || true)"
+            [ -n "$MPV" ] || echo "::warning title=mpv::$MPV_DATEI nicht gefunden – nehme den neuesten Build"
+          fi
+          [ -n "$MPV" ] || MPV="$(gh api repos/shinchiro/mpv-winbuild-cmake/releases/latest --jq '.assets[] | select(.name | test("^mpv-x86_64-[0-9]{8}-git-[0-9a-f]+\\.7z$")) | .browser_download_url' | head -1)"
           [ -n "$MPV" ] || { echo "::error title=mpv::kein mpv-Build gefunden"; exit 1; }
           curl -fsSL -o "$W/$(basename "$MPV")" "$MPV"
           echo "MPV_7Z=$W/$(basename "$MPV")" >> "$GITHUB_ENV"
@@ -87,12 +95,21 @@ jobs:
           cp "$RUNNER_TEMP/aus/Bluewave-Windows-Client-$V.exe" client-dist/
           SHA="$(sha256sum "client-dist/Bluewave-Windows-Client-$V.exe" | cut -d' ' -f1)"
           printf '{"version":"%s","datei":"%s","sha256":"%s","gebaut":"%s","commit":"%s"}\n' "$V" "Bluewave-Windows-Client-$V.exe" "$SHA" "$(date -u +%FT%TZ)" "${GITHUB_SHA::12}" > client-dist/version.json
+          # Teile für kleine Updates (nur fürs GitHub-Release, nicht ins Server-Image)
+          mkdir -p client-teile && cp "$RUNNER_TEMP/aus/"bw-*.zip "$RUNNER_TEMP/aus/komponenten.json" client-teile/
+          cat client-teile/komponenten.json
           cat client-dist/version.json
           echo "::notice title=Windows-Client::Bluewave-Windows-Client-$V.exe, SHA-256 $SHA"
       - uses: actions/upload-artifact@v4
         with:
           name: client-dist
           path: client-dist/
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-teile
+          path: client-teile/
           retention-days: 7
           compression-level: 0
       - uses: actions/upload-artifact@v4
@@ -137,6 +154,10 @@ jobs:
         with:
           name: client-dist
           path: client-dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-teile
+          path: client-teile
       - name: Release anlegen
         run: |
           set -euo pipefail
@@ -147,9 +168,9 @@ jobs:
           printf 'Bluewave Windows-Client %s\n\nCommit %s. Installer herunterladen und starten; danach aktualisiert sich der Client selbst (Profil › Windows-Client › Updates).\n\nSHA-256: %s\n' \
             "$V" "${GITHUB_SHA::12}" "$(jq -r .sha256 client-dist/version.json)" > notizen.md
           if gh release view "$T" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$T" client-dist/*.exe client-dist/version.json --clobber -R "$GITHUB_REPOSITORY"
+            gh release upload "$T" client-dist/*.exe client-dist/version.json client-teile/* --clobber -R "$GITHUB_REPOSITORY"
           else
-            gh release create "$T" client-dist/*.exe client-dist/version.json $VOR --target "$GITHUB_SHA" \
+            gh release create "$T" client-dist/*.exe client-dist/version.json client-teile/* $VOR --target "$GITHUB_SHA" \
               --title "Windows-Client $V" --notes-file notizen.md -R "$GITHUB_REPOSITORY"
           fi
           echo "::notice title=Release::$T"

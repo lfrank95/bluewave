@@ -169,7 +169,7 @@ async function clientKarten() {
         if (u?.stand === 'startet') { updateText.textContent = 'Installiere – der Client startet gleich neu …'; updateKnopf.disabled = true; return; }
         updateKnopf.disabled = false;
         if (u?.version) {
-            updateText.textContent = u.stand === 'fehler' ? `Update fehlgeschlagen: ${u.fehler}` : `Neue Version ${u.version} verfügbar${u.quelle === 'github' ? ' (GitHub)' : u.quelle === 'server' ? ' (Server)' : ''}.`;
+            updateText.textContent = u.stand === 'fehler' ? `Update fehlgeschlagen: ${u.fehler}` : `Neue Version ${u.version} verfügbar${u.groesse ? ` – ${u.klein ? 'kleines Update, ' : ''}${u.groesse < 1048576 ? '< 1' : Math.round(u.groesse / 1048576)} MB` : ''}${u.quelle === 'github' ? ' (GitHub)' : u.quelle === 'server' ? ' (Server)' : ''}.`;
             updateKnopf.textContent = 'Jetzt aktualisieren';
             updateKnopf.onclick = () => nativ.update.installieren();
         } else {

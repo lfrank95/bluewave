@@ -76,6 +76,32 @@ if ("$zeile" -notmatch 'SELBSTTEST RIFE OK') { Write-Host "::error title=RIFE::$
 Write-Host "::notice title=RIFE::$zeile"
 Get-Process -Name 'bluewave-mpv' -ErrorAction SilentlyContinue | Stop-Process -Force
 
+Write-Host '== Kleines Update (teilupdate.ps1: app ersetzen, mpv bleibt)'
+if (-not (Test-Path (Join-Path $Ordner 'komponenten.json'))) { Write-Host "::error title=Teilupdate::komponenten.json fehlt im Programmordner"; exit 1 }
+$inst = Join-Path $env:RUNNER_TEMP 'bwinst'
+$stufe = Join-Path $env:RUNNER_TEMP 'bwstufe'
+Copy-Item -LiteralPath $Ordner -Destination $inst -Recurse
+New-Item -ItemType Directory -Force (Join-Path $stufe 'app\resources') | Out-Null
+Copy-Item -LiteralPath (Join-Path $inst 'resources\app') -Destination (Join-Path $stufe 'app\resources\app') -Recurse
+Remove-Item -Recurse -Force (Join-Path $stufe 'app\resources\app\mpv')
+Set-Content (Join-Path $stufe 'app\resources\app\neu.txt') 'neu'
+Remove-Item -Force (Join-Path $stufe 'app\resources\app\suche.js')
+Set-Content (Join-Path $stufe 'app\LIESMICH.txt') 'neue Fassung'
+Set-Content (Join-Path $stufe 'komponenten.json') '{"version":"9.9.9","basis":"x","komponenten":{}}'
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $app 'teilupdate.ps1') -Ziel $inst -Stufe $stufe -Version '9.9.9' -OhneStart
+$ia = Join-Path $inst 'resources\app'
+$pruef = @{
+  'neue Datei da' = (Test-Path (Join-Path $ia 'neu.txt'))
+  'alte Datei weg' = -not (Test-Path (Join-Path $ia 'suche.js'))
+  'mpv unverändert' = (Test-Path (Join-Path $ia 'mpv\bluewave-mpv.exe'))
+  'Text ersetzt' = ((Get-Content (Join-Path $inst 'LIESMICH.txt') -Raw) -match 'neue Fassung')
+  'Stand übernommen' = ((Get-Content (Join-Path $inst 'komponenten.json') -Raw) -match '9.9.9')
+  'Stufe aufgeräumt' = -not (Test-Path $stufe)
+}
+$pruef.GetEnumerator() | ForEach-Object { Write-Host "  $($_.Key): $($_.Value)" }
+if ($pruef.Values -contains $false) { Get-Content (Join-Path $env:TEMP 'bluewave-teilupdate.log') -ErrorAction SilentlyContinue | Write-Host; Write-Host "::error title=Teilupdate::nicht alles ersetzt"; exit 1 }
+Remove-Item -Recurse -Force $inst
+
 Write-Host '== Client startet (Einrichtung, ohne Server)'
 Remove-Item -Recurse -Force (Join-Path $daten 'log') -ErrorAction SilentlyContinue
 $p = Start-Process -FilePath (Join-Path $Ordner 'Bluewave Client.exe') -PassThru

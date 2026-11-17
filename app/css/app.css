@@ -1040,14 +1040,6 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
 /* ---------- Windows-Client ---------- */
 /* Hauptfenster: die Kopfzeile ist die Titelleiste (ziehen); rechts eigene Fensterknöpfe im Stil der App */
 html.bw-haupt .kopf { -webkit-app-region: drag; app-region: drag; padding-right: calc(var(--seite-rand) + 128px); }
-.fenster-knoepfe { position: fixed; z-index: 400; top: calc(var(--kopf-hoehe) / 2 - 17px); right: 14px; display: flex; gap: 6px;
-    -webkit-app-region: no-drag; app-region: no-drag; }
-.fenster-knoepfe button { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 999px; border: 1px solid transparent;
-    background: transparent; color: var(--text-secondary, #9fb3cf); cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
-.fenster-knoepfe button:hover { background: rgba(226, 238, 255, 0.1); border-color: rgba(214, 230, 255, 0.14); color: var(--text-primary, #eaf1fb); }
-.fenster-knoepfe button.zu:hover { background: #d9384a; border-color: transparent; color: #fff; }
-.fenster-knoepfe svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
-html.bw-haupt:fullscreen .fenster-knoepfe { display: none; }
 html.bw-haupt .kopf a, html.bw-haupt .kopf button, html.bw-haupt .kopf input, html.bw-haupt .kopf label { -webkit-app-region: no-drag; app-region: no-drag; }
 /* Spielerfenster: durchsichtig über dem Bild von mpv. Ein Hauch Deckkraft, damit Windows Klicks nicht durchreicht */
 html.bw-spieler, html.bw-spieler body { background: rgba(0, 0, 0, 0.004) !important; }

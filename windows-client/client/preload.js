@@ -95,6 +95,40 @@ if (info && info.erlaubt) {
   });
 }
 
+/* Hauptfenster: eigene Fensterknöpfe (Minimieren, Maximieren, Schließen). Sie entstehen hier im Client und nicht in
+   der Web-App, damit sie auch da sind, wenn der Server eine ältere Version der Oberfläche ausliefert. */
+if (info && info.rolle !== 'spieler') {
+  const PFAD = { min: '<path d="M2 7h10"/>', max: '<rect x="2.5" y="2.5" width="9" height="9" rx="1.2"/>',
+    zurueck: '<rect x="2.5" y="4.5" width="7" height="7" rx="1"/><path d="M4.5 4.5V3.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/>', zu: '<path d="M3 3l8 8M11 3l-8 8"/>' };
+  const STIL = `
+.bw-fenster-knoepfe { position: fixed; z-index: 2147483000; top: 15px; right: 14px; display: flex; gap: 6px; -webkit-app-region: no-drag; app-region: no-drag; }
+.bw-fenster-knoepfe button { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 999px; border: 1px solid transparent; padding: 0;
+  background: transparent; color: #9fb3cf; cursor: pointer; transition: background .15s, color .15s, border-color .15s; -webkit-app-region: no-drag; app-region: no-drag; }
+.bw-fenster-knoepfe button:hover { background: rgba(226, 238, 255, .1); border-color: rgba(214, 230, 255, .14); color: #eaf1fb; }
+.bw-fenster-knoepfe button.zu:hover { background: #d9384a; border-color: transparent; color: #fff; }
+.bw-fenster-knoepfe svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+html.bw-haupt .kopf { padding-right: calc(var(--seite-rand, 32px) + 128px) !important; }
+.einrichtung-kopf, body > header:first-child { -webkit-app-region: drag; app-region: drag; }`;
+  const svg = (pfad) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 14 14'); s.innerHTML = pfad; return s; };
+  const bauen = () => {
+    if (document.querySelector('.bw-fenster-knoepfe')) return;
+    const stil = document.createElement('style'); stil.textContent = STIL; document.head.append(stil);
+    const k = (name, titel, cls) => {
+      const b = document.createElement('button'); b.type = 'button'; b.className = cls || ''; b.title = titel; b.setAttribute('aria-label', titel);
+      b.append(svg(PFAD[name])); b.addEventListener('click', () => ipcRenderer.send('fenster-aktion', name)); return b;
+    };
+    const max = k('max', 'Maximieren');
+    const box = document.createElement('div');
+    box.className = 'bw-fenster-knoepfe';
+    box.append(k('min', 'Minimieren'), max, k('zu', 'Schließen', 'zu'));
+    const zeigen = (z) => { if (!z) return; max.replaceChildren(svg(z.max ? PFAD.zurueck : PFAD.max)); max.title = z.max ? 'Wiederherstellen' : 'Maximieren'; box.style.display = z.voll ? 'none' : ''; };
+    document.body.append(box);
+    ipcRenderer.invoke('fenster-zustand').then(zeigen).catch(() => {});
+    ipcRenderer.on('fenster-zustand', (_e, z) => zeigen(z));
+  };
+  if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', bauen); else bauen();
+}
+
 if (info && info.einrichtung) {
   contextBridge.exposeInMainWorld('einrichtung', {
     sprache: 'de',

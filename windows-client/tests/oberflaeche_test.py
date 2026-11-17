@@ -140,16 +140,22 @@ async def main():
             page.on('pageerror', lambda e: seitenfehler.append(str(e)))
             page.on('console', lambda m: seitenfehler.append(m.text) if m.type == 'error' else None)
             await page.add_init_script(HAUPT % json.dumps(ausgaenge))
+            # echtes preload.js mit nachgebautem Electron: baut die Fensterknöpfe selbst (unabhängig von der Web-App)
+            preload = open(os.path.join(HIER, '..', 'client', 'preload.js'), encoding='utf-8').read()
+            await page.add_init_script("""(() => { window.__ipc = []; const require = () => ({ contextBridge: { exposeInMainWorld() {} },
+              ipcRenderer: { sendSync: () => ({ erlaubt: true, rolle: 'haupt', version: 'x' }), send: (k, d) => window.__ipc.push([k, d]), invoke: async () => ({ max: false, voll: false }), on() {} } });
+              """ + preload + """
+            })();""")
             await page.goto(BASIS + '/#/profil')
             await page.wait_for_selector('.client-karte', timeout=10000)
             klassen = await page.evaluate('document.documentElement.className')
             pruefe('bw-nativ' in klassen and 'bw-haupt' in klassen, f'Client-Klassen am Dokument: {klassen}')
             pruefe(await page.evaluate("!!document.querySelector('link[href=\"/css/client.css\"]')"), 'client.css geladen')
-            await page.locator('.fenster-knoepfe button[aria-label="Minimieren"]').click()
-            await page.locator('.fenster-knoepfe button.zu').click()
-            fk = [x[1] for x in await page.evaluate('window.__aufrufe') if x[0] == 'fenster']
-            kb = await page.evaluate("(() => { const k = document.querySelector('.kopf').getBoundingClientRect(), f = document.querySelector('.fenster-knoepfe').getBoundingClientRect(), a = document.querySelector('.kopf .avatar, .kopf button:last-of-type'); return { kopfRechts: Math.round(k.right - parseFloat(getComputedStyle(document.querySelector('.kopf')).paddingRight)), knoepfeLinks: Math.round(f.left) }; })()")
-            pruefe(fk == ['min', 'zu'] and kb['kopfRechts'] <= kb['knoepfeLinks'], f'eigene Fensterknöpfe, Kopfzeile lässt Platz: {fk} {kb}')
+            await page.locator('.bw-fenster-knoepfe button[aria-label="Minimieren"]').click()
+            await page.locator('.bw-fenster-knoepfe button.zu').click()
+            fk = [x[1] for x in await page.evaluate('window.__ipc') if x[0] == 'fenster-aktion']
+            kb = await page.evaluate("(() => { const k = document.querySelector('.kopf'), r = k.getBoundingClientRect(), f = document.querySelector('.bw-fenster-knoepfe').getBoundingClientRect(); return { kopfRechts: Math.round(r.right - parseFloat(getComputedStyle(k).paddingRight)), knoepfeLinks: Math.round(f.left) }; })()")
+            pruefe(fk == ['min', 'zu'] and kb['kopfRechts'] <= kb['knoepfeLinks'], f'Fensterknöpfe aus preload.js, Kopfzeile lässt Platz: {fk} {kb}')
             titel = await page.evaluate("[...document.querySelectorAll('.client-karte h2')].map(h => h.textContent)")
             pruefe(titel == ['Ton im Windows-Client', 'Bild', 'Flüssige Bewegung (Test)', 'Windows-Client'], f'Abschnitte: {titel}')
             await page.wait_for_selector('.aus-buehne .aus-kette', timeout=8000)
