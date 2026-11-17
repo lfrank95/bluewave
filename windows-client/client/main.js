@@ -1168,7 +1168,7 @@ async function selbsttestVideo() {
     spieler.video = video;
     schritt(`${Art}: Bedienung`);
     const over = new BrowserWindow({ ...video.getContentBounds(), parent: video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, show: true, focusable: false });
-    await over.loadURL('data:text/html,<html style="background:rgba(0,0,0,0.004)"><body style="margin:0"></body></html>');
+    await over.loadURL('about:blank').catch((e) => schritt(`${Art}: Bedienung lädt nicht (${e.message})`));
     schritt(`${Art}: mpv`);
     await spieler.mpvStarten();
     const m = spieler.mpv;
