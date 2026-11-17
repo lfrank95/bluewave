@@ -70,6 +70,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 x = p.stdout.read1(65536)
                 if not x: break
                 self.wfile.write(x); self.wfile.flush(); n += len(x)
+                if q.get('langsam'): time.sleep(len(x) / 150000)   # wie ein langsamer Server: das Ende kommt erst viel später
                 if n == len(x) or n > 1 << 20 and n - len(x) <= 1 << 20: log.write('  %.2f s: %d Bytes gesendet\\n' % (time.time() - t0, n)); log.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass
@@ -107,7 +108,8 @@ echo "== 5.1 (AC3) ab 12 s bis zum Ende"
 spielen ac3 "http://127.0.0.1:18765/ton?start=12&ton=0" 5
 pruefen "$ARBEIT/ac3.txt" "AC3 5.1" 6 12 ja
 echo "== Stereo (AAC), zweite Spur"
-spielen aac "http://127.0.0.1:18765/ton?start=0&ton=1" 4
+# langsam geliefert: die Engine darf nicht auf das Ende des Stroms warten (dr_flac fragt beim Öffnen nach der Größe)
+spielen aac "http://127.0.0.1:18765/ton?start=0&ton=1&langsam=1" 4
 pruefen "$ARBEIT/aac.txt" "AAC Stereo" 2 0 nein
 echo "== Nachtmodus + Dialog → Stereo"
 spielen nacht "http://127.0.0.1:18765/ton?start=0&ton=0&nacht=stark&dialog=6" 4

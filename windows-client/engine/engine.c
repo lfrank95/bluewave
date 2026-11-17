@@ -323,8 +323,9 @@ static drflac_bool32 flac_spulen(void *u, int off, drflac_seek_origin herkunft) 
   if (herkunft == DRFLAC_SEEK_SET) ziel = off;
   else if (herkunft == DRFLAC_SEEK_CUR) ziel = (int64_t)t->lesepos + off;
   else {
-    // vom Ende: nur wenn die Länge bekannt ist oder alles da ist
-    while (t->gesamt < 0 && !t->fertig && !t->fehler && !t->abbruch) pthread_cond_wait(&t->c, &t->m);
+    // vom Ende: nur wenn die Länge bekannt ist oder alles da ist. Ein Strom ohne Länge (Tonspur vom Server, live aus
+    // ffmpeg) kann das nicht – nicht bis zum Ende warten: dr_flac fragt beim Öffnen nur nach der Größe und kommt ohne aus
+    if (t->gesamt < 0 && !t->fertig) { pthread_mutex_unlock(&t->m); return DRFLAC_FALSE; }
     int64_t ende = t->gesamt >= 0 ? t->gesamt : (int64_t)t->groesse;
     ziel = ende + off;
   }
