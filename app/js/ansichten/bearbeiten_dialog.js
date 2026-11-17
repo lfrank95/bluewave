@@ -68,6 +68,7 @@ export async function bearbeitenDialog(art, id, extra = {}) {
     genreEingabe.addEventListener('input', () => zurueck.delete('genres'));
 
     const beschreibung = el('textarea.eingabe', { rows: 6 }, d.werte.beschreibung ?? '');
+    const specials = art === 'serie' ? auswahl({ standard: 'Wie in den Profil-Einstellungen', zeigen: 'Immer anzeigen', ausblenden: 'Ausblenden' }, d.specials || 'standard') : null;
     const fsk = auswahl(FSK, d.werte.freigabe ?? '');
     const allgemein = el('div.bearb-raster',
         feld('titel', text('titel'), true),
@@ -89,6 +90,8 @@ export async function bearbeitenDialog(art, id, extra = {}) {
         feld('bewertung', el('input.eingabe', { type: 'number', step: '0.1', min: 0, max: 10, value: d.werte.bewertung ?? '' })),
         genreFeld,
         feld('beschreibung', beschreibung, true),
+        specials ? el('div.bearb-feld.breit', el('label.bearb-label', 'Specials / Extras (Staffel 0)'), specials,
+            el('p.hinweis-leise', 'Ausgeblendete Specials lassen sich auf der Serienseite trotzdem kurz einblenden.')) : null,
         el('p.hinweis-leise.breit', 'Geänderte Felder bekommen ein Schloss: TMDB-Abgleiche überschreiben sie nicht mehr. „TMDB“ daneben holt den ursprünglichen Wert zurück.'));
 
     const sammeln = () => {
@@ -201,10 +204,11 @@ export async function bearbeitenDialog(art, id, extra = {}) {
     const hg = el('div.dialog-hg');
     const speichernKnopf = el('button.knopf.haupt', { type: 'button', onclick: async () => {
         const felder = sammeln();
-        if (!Object.keys(felder).length && !zurueck.size) { schliessen(); return; }
+        const specialsNeu = specials && specials.value !== (d.specials || 'standard') ? specials.value : null;
+        if (!Object.keys(felder).length && !zurueck.size && !specialsNeu) { schliessen(); return; }
         speichernKnopf.disabled = true;
         try {
-            d = await api(`${art}/${id}/bearbeiten`, 'PUT', { felder, zuruecksetzen: [...zurueck] });
+            d = await api(`${art}/${id}/bearbeiten`, 'PUT', { felder, zuruecksetzen: [...zurueck], ...(specialsNeu ? { specials: specialsNeu } : {}) });
             geaendert = true;
             meldung('Gespeichert.');
             schliessen();

@@ -44,6 +44,7 @@ function bearbeiten_daten(string $art, int $id): array
         'bilder' => ['poster' => bild_url($z['poster']), 'hintergrund' => bild_url($z['hintergrund']), 'logo' => bild_url($z['logo']), 'eigen' => $eigeneBilder],
         'alle_genres' => array_column(db_alle('SELECT name FROM genres ORDER BY name'), 'name'),
         'status_werte' => $art === 'serie' ? BEARB_STATUS : null,
+        'specials' => $art === 'serie' ? (($v = db_wert('SELECT specials_ausblenden FROM serien WHERE id = :id', ['id' => $id])) === null ? 'standard' : ((int) $v ? 'ausblenden' : 'zeigen')) : null,
     ];
 }
 
@@ -199,6 +200,9 @@ function bearbeiten_api(string $art, int $id, string $teil, string $methode): vo
         }
         if ($teil === 'bearbeiten' && $methode === 'PUT') {
             $e = eingabe();
+            if ($art === 'serie' && isset($e['specials']) && in_array($e['specials'], ['standard', 'zeigen', 'ausblenden'], true)) {
+                db_tun('UPDATE serien SET specials_ausblenden = :v WHERE id = :id', ['v' => ['standard' => null, 'zeigen' => 0, 'ausblenden' => 1][$e['specials']], 'id' => $id]);
+            }
             bw_json(bearbeiten_speichern($art, $id, (array) ($e['felder'] ?? []), (array) ($e['zuruecksetzen'] ?? [])));
         }
         if ($teil === 'bilder' && $methode === 'GET') {

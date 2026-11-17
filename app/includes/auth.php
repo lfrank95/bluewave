@@ -175,6 +175,7 @@ const NUTZER_STANDARD = [
     'qualitaet_unterwegs' => '1080',// original | 1080 | 720 | 480
     'nachtmodus' => 'aus',          // aus | leicht | stark – Standard aus: Ton bleibt unangetastet
     'dialog_db' => 0,               // 0 … 6 dB, Standard 0 = aus
+    'specials' => 'zeigen',         // zeigen | ausblenden – Specials/Extras (Staffel 0) bei Serien
     'aufloesung' => 'geraet',       // geraet = nicht über die Bildschirmhöhe des Geräts | egal = immer bis zur gewählten Qualität
     'sortierung' => [],             // gemerkte Sortierung je Ansicht, z. B. {"filme": "neu", "universum:3": "erscheinung"}
 ];
@@ -199,7 +200,7 @@ function nutzer_einstellungen_normal(array $e): array
     }
     $erlaubt = [
         'untertitel' => ['aus', 'erzwungen', 'immer'], 'autoplay' => ['countdown', 'sofort', 'aus'], 'intro' => ['knopf', 'automatisch'],
-        'qualitaet_heim' => ['original', '1080', '720'], 'aufloesung' => ['geraet', 'egal'], 'qualitaet_unterwegs' => ['original', '1080', '720', '480'], 'nachtmodus' => ['aus', 'leicht', 'stark'],
+        'qualitaet_heim' => ['original', '1080', '720'], 'aufloesung' => ['geraet', 'egal'], 'specials' => ['zeigen', 'ausblenden'], 'qualitaet_unterwegs' => ['original', '1080', '720', '480'], 'nachtmodus' => ['aus', 'leicht', 'stark'],
     ];
     foreach ($erlaubt as $k => $liste) {
         if (!in_array($n[$k], $liste, true)) {

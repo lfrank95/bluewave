@@ -258,6 +258,18 @@ function serie_detail(int $id, int $konto, ?int $reihenfolgeWunsch = null, bool 
         $aktiv = $standard;
     }
     $naechste = naechste_folge_fuer($id, $konto);
+    // Specials/Extras (Staffel 0) ausblenden – die Seite kann sie mit ?specials=1 trotzdem zeigen
+    $staffeln = serie_staffeln($id, $aktiv, $konto);
+    $versteckt = 0;
+    if (specials_ausblenden($s['specials_ausblenden'] === null ? null : (int) $s['specials_ausblenden']) && ($_GET['specials'] ?? '') !== '1') {
+        foreach ($staffeln as $i => $st) {
+            if ($st['nummer'] === 0) {
+                $versteckt = count($st['folgen']);
+                unset($staffeln[$i]);
+            }
+        }
+        $staffeln = array_values($staffeln);
+    }
     return [
         'art' => 'serie', 'id' => $id, 'titel' => $s['titel'], 'originaltitel' => $s['originaltitel'], 'jahr' => $s['jahr_von'] ? (int) $s['jahr_von'] : null,
         'zeitraum' => $s['jahr_von'] ? $s['jahr_von'] . ($s['status'] === 'laufend' ? '–' : ($s['jahr_bis'] && $s['jahr_bis'] != $s['jahr_von'] ? '–' . $s['jahr_bis'] : '')) : null,
@@ -266,9 +278,19 @@ function serie_detail(int $id, int $konto, ?int $reihenfolgeWunsch = null, bool 
         'besetzung' => array_map(static fn($b) => $b + ['bild_url' => bild_url($b['bild'] ?? null)], json_decode((string) $s['besetzung'], true) ?: []),
         'genres' => db_alle('SELECT g.id, g.name FROM genres g JOIN serie_genres sg ON sg.genre_id = g.id WHERE sg.serie_id = :s ORDER BY g.name', ['s' => $id]),
         'reihenfolgen' => $reihenfolgen, 'reihenfolge_standard' => $standard, 'reihenfolge' => $aktiv,
-        'staffeln' => serie_staffeln($id, $aktiv, $konto), 'naechste' => $naechste, 'universen' => universum_positionen('serie', $id, $konto),
+        'staffeln' => $staffeln, 'specials_versteckt' => $versteckt, 'specials_einstellung' => $s['specials_ausblenden'] === null ? null : (int) $s['specials_ausblenden'],
+        'naechste' => $naechste, 'universen' => universum_positionen('serie', $id, $konto),
         'tmdb_id' => $s['tmdb_id'] ? (int) $s['tmdb_id'] : null, 'metadaten_status' => $s['metadaten_status'],
     ];
+}
+
+/** Specials/Extras dieser Serie ausblenden? Einstellung der Serie, sonst die des Nutzers */
+function specials_ausblenden(?int $serienWert): bool
+{
+    if ($serienWert !== null) {
+        return $serienWert === 1;
+    }
+    return (konto()['einstellungen']['specials'] ?? 'zeigen') === 'ausblenden';
 }
 
 /** Abspielbare Folgen einer Serie in Server-Reihenfolge (ohne Specials) */

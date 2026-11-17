@@ -14,7 +14,10 @@ const STATUS = { laufend: 'Läuft', beendet: 'Beendet', abgesetzt: 'Abgesetzt', 
 
 export async function zeigen(r, app) {
     const id = parseInt(r.teile[1], 10);
-    const q = r.query.has('reihenfolge') ? '?reihenfolge=' + encodeURIComponent(r.query.get('reihenfolge')) : '';
+    const qp = new URLSearchParams();
+    if (r.query.has('reihenfolge')) qp.set('reihenfolge', r.query.get('reihenfolge'));
+    if (r.query.get('specials') === '1') qp.set('specials', '1');
+    const q = qp.toString() ? '?' + qp : '';
     const d = await api('serie/' + id + q);
     letzterTitel = d.titel;
     const admin = app.konto.rolle === 'admin';
@@ -89,7 +92,14 @@ export async function zeigen(r, app) {
         return el('button.staffel-karte', { 'data-nr': s.nummer, title: s.name, onclick: () => {
             staffelNr = s.nummer;
             staffelZeigen();
-            history.replaceState(history.state, '', `#/serie/${id}?` + new URLSearchParams({ ...(d.reihenfolge !== null && d.reihenfolge !== undefined ? { reihenfolge: d.reihenfolge } : {}), staffel: s.nummer }));
+    // ausgeblendete Specials/Extras: kurz einblenden
+    const specialsHinweis = d.specials_versteckt ? el('button.chip-gestrichelt', { style: { marginTop: '4px' }, onclick: () => {
+        const p = new URLSearchParams(r.query);
+        p.set('specials', '1');
+        location.replace(`#/serie/${id}?${p}`);
+    } }, icon('plus'), `Specials einblenden (${d.specials_versteckt})`) : null;
+            history.replaceState(history.state, '', `#/serie/${id}?` + new URLSearchParams({ ...(d.reihenfolge !== null && d.reihenfolge !== undefined ? { reihenfolge: d.reihenfolge } : {}),
+                ...(r.query.get('specials') === '1' ? { specials: '1' } : {}), staffel: s.nummer }));
             window.__bluewave.routeMerken?.();
         } },
             el('div.cover', bild(s.poster || d.poster, s.name) || el('div.ersatz', s.name),
@@ -114,7 +124,7 @@ export async function zeigen(r, app) {
             el('section.abschnitt',
                 el('div', { style: { display: 'flex', gap: '14px', alignItems: 'center', flexWrap: 'wrap' } },
                     el('h2', { style: { margin: 0 } }, 'Folgen'), reihenfolgeWahl, el('div', { style: { marginLeft: 'auto' } }, staffelGesehen)),
-                tabs, el('div', { style: { height: '14px' } }), folgenEl)),
+                tabs, specialsHinweis, el('div', { style: { height: '14px' } }), folgenEl)),
         universumBereich(d.universen, 'serie', id, app),
         el('div.seite', besetzung(d.besetzung)),
         el('div', { style: { height: '40px' } }));

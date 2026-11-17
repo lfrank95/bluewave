@@ -245,6 +245,16 @@ admin.api('DELETE', 'poster', {'art': 'film', 'id': test['id'], 'typ': 'hintergr
 pruefe(not os.path.exists(os.path.join(MEDIEN, 'filme', os.path.basename(os.path.dirname(r['datei'])), os.path.basename(r['datei']))), 'eigenes Bild entfernt (in die Sicherungen)')
 pruefe(admin.api('GET', f'serie/{serie["id"]}/bilder?staffel=1')['poster'], 'Staffel-Bildauswahl')
 
+schritt('Specials ausblenden (Serie und Nutzer)')
+admin.api('PUT', f'serie/{serie["id"]}/bearbeiten', {'specials': 'ausblenden'})
+sd = admin.api('GET', f'serie/{serie["id"]}')
+pruefe(sd['specials_einstellung'] == 1 and all(st['nummer'] != 0 for st in sd['staffeln']), f'Serie: Specials aus: {sd["specials_einstellung"]}')
+pruefe(admin.api('GET', f'serie/{serie["id"]}/bearbeiten')['specials'] == 'ausblenden', 'im Dialog sichtbar')
+admin.api('PUT', f'serie/{serie["id"]}/bearbeiten', {'specials': 'standard'})
+admin.api('PUT', 'ich/einstellungen', {'specials': 'ausblenden'})
+pruefe(admin.api('GET', 'ich')['einstellungen']['specials'] == 'ausblenden', 'Nutzereinstellung')
+admin.api('PUT', 'ich/einstellungen', {'specials': 'zeigen'})
+
 schritt('Suche: tolerant (Tippfehler, Satzzeichen, Wortreihenfolge), Bester Treffer, Editor-Auswahl')
 for q, erwartet in [('avengers', "Marvel's The Avengers"), ('avengrs ultron', 'Avengers: Age of Ultron'), ('ultron age', 'Avengers: Age of Ultron'), ('marvels avengers', "Marvel's The Avengers")]:
     d = admin.api('GET', 'suche?q=' + urllib.parse.quote(q))

@@ -245,7 +245,7 @@ function suche_alles(string $q, int $konto, int $grenze = 40): array
     if (mb_strlen($kompakt) >= 3) {
         $like = '%' . str_replace(['%', '_'], ['\%', '\_'], $woerter[0]) . '%';
         foreach (db_alle('SELECT fo.id, fo.titel, fo.staffel_nr, fo.folge_nr, fo.standbild, fo.serie_id, s.titel AS serie FROM folgen fo JOIN serien s ON s.id = fo.serie_id
-            WHERE fo.titel LIKE :q AND EXISTS (SELECT 1 FROM dateien d WHERE d.folge_id = fo.id AND d.fehlt_seit IS NULL) LIMIT 400', ['q' => $like]) as $z) {
+            WHERE fo.titel LIKE :q AND (fo.staffel_nr > 0 OR COALESCE(s.specials_ausblenden, :sp) = 0) AND EXISTS (SELECT 1 FROM dateien d WHERE d.folge_id = fo.id AND d.fehlt_seit IS NULL) LIMIT 400', ['q' => $like, 'sp' => (konto()['einstellungen']['specials'] ?? 'zeigen') === 'ausblenden' ? 1 : 0]) as $z) {
             $w = such_wert((string) $z['titel'], $woerter, $kompakt, $ganz);
             if ($w >= 500) {
                 $folgen[] = ['art' => 'folge', 'id' => (int) $z['id'], 'serie_id' => (int) $z['serie_id'], 'titel' => $z['titel'], 'serie' => $z['serie'],
