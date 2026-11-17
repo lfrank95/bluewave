@@ -8,7 +8,15 @@ set -euo pipefail
 HIER="$(cd "$(dirname "$0")" && pwd)"
 WC="$HIER/.."
 ARBEIT="$(mktemp -d)"
-trap 'kill $(cat "$ARBEIT/php.pid" 2>/dev/null) 2>/dev/null || true; rm -rf "$ARBEIT"' EXIT
+aufraeumen() {
+  local code=$?
+  if [ "$code" != 0 ]; then
+    echo "--- Diagnose ---"; for f in "$ARBEIT"/*.txt "$ARBEIT/ffmpeg.log" "$ARBEIT/php.log"; do [ -f "$f" ] && { echo "## $f"; head -c 3000 "$f"; echo; }; done
+    echo "## direkter Abruf"; curl -s -m 8 -o "$ARBEIT/probe.flac" -w '%{http_code} %{size_download} B in %{time_total} s\n' -b bw_sitzung=test "http://127.0.0.1:18765/ton.php?start=0&ton=1" || true
+  fi
+  kill $(cat "$ARBEIT/php.pid" 2>/dev/null) 2>/dev/null || true; pkill -f "php -S 127.0.0.1:18765" 2>/dev/null || true; rm -rf "$ARBEIT"
+}
+trap aufraeumen EXIT
 command -v ffmpeg >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null; }
 
 echo "== Engine (Linux, Testgerät) bauen"
@@ -31,7 +39,7 @@ header('Content-Type: audio/flac');
 while (!feof(\$r[1])) { \$x = fread(\$r[1], 65536); if (\$x === '' || \$x === false) continue; echo \$x; flush(); if (connection_aborted()) break; }
 proc_terminate(\$p);
 PHP
-PHP_CLI_SERVER_WORKERS=4 php -S 127.0.0.1:18765 -t "$ARBEIT" >/dev/null 2>&1 &
+PHP_CLI_SERVER_WORKERS=4 php -S 127.0.0.1:18765 -t "$ARBEIT" > "$ARBEIT/php.log" 2>&1 &
 echo $! > "$ARBEIT/php.pid"
 sleep 1
 
