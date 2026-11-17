@@ -50,7 +50,8 @@ for g in groessen:
         daten = dib(b)
     else:
         puffer = io.BytesIO()
-        b.save(puffer, 'PNG')
+        # Palette (256 Farben mit Alpha): sichtbar gleich, ein Drittel so groß – die Sektion der Electron-exe ist knapp
+        (b.quantize(256, method=Image.Quantize.FASTOCTREE) if g >= 64 else b).save(puffer, 'PNG', optimize=True)
         daten = puffer.getvalue()
     eintraege.append((g, daten))
 kopf = struct.pack('<HHH', 0, 1, len(eintraege))
