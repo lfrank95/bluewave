@@ -5,6 +5,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/hardware.php';
 require_once __DIR__ . '/bibliothek.php';
 require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/diagnose.php';
 require_once __DIR__ . '/remux.php';
 
 const TEIL_SEKUNDEN = 6;
@@ -451,6 +452,7 @@ function encoder_starten(string $id, array &$m, int $n): void
     $pid = (int) trim((string) shell_exec('setsid sh -c ' . escapeshellarg($zeile) . ' > ' . escapeshellarg($o . '/ffmpeg.log') . ' 2>&1 < /dev/null & echo $!'));
     $m['pid'] = $pid ?: null;
     $m['start_teil'] = $n;
+    $m['generation'] = (int) ($m['generation'] ?? 0) + 1;
     $m['geraeumt_bis'] = min((int) ($m['geraeumt_bis'] ?? 0), max(0, $n - TEILE_BEHALTEN));
     $m['gestoppt'] = false;
     sitzung_meta_schreiben($id, $m);
@@ -488,6 +490,11 @@ function hls_playlist(string $id): string
 }
 
 /** Pfad eines fertigen Teils (bzw. init.mp4); startet/steuert den Encoder nach Bedarf */
+/** Eine Teil-Anfrage, die von einem späteren Sprung überholt wurde */
+class TeilUeberholt extends RuntimeException
+{
+}
+
 function hls_teil(string $id, ?int $n): string
 {
     $o = sitzung_ordner($id);
@@ -499,6 +506,10 @@ function hls_teil(string $id, ?int $n): string
     $ziel = $n === null ? $o . '/init.mp4' : sprintf('%s/teil_%05d.m4s', $o, $n);
     $nr = $n ?? 0;
     $ende = microtime(true) + 25;
+    // Generation des Encoders beim Eintreffen: Hat inzwischen eine andere Anfrage neu gestartet (Spulen),
+    // darf diese (vermutlich vom Browser längst abgebrochene) Anfrage den Encoder nicht zurücksetzen –
+    // sonst springt er zwischen alter und neuer Stelle hin und her und keine Seite bekommt ihren Teil.
+    $generation = null;
     while (microtime(true) < $ende) {
         flock($sperre, LOCK_EX);
         $m = sitzung_meta($id) ?? throw new RuntimeException('Sitzung abgelaufen.');
@@ -507,6 +518,7 @@ function hls_teil(string $id, ?int $n): string
             throw new RuntimeException('Teil gibt es nicht.');
         }
         $laeuft = prozess_laeuft($m['pid'] ? (int) $m['pid'] : null);
+        $generation ??= (int) ($m['generation'] ?? 0);
         // zusammenhängend fertige Teile ab hier (ältere Teile können schon weggeräumt sein)
         $hoechster = $m['start_teil'] !== null ? hoechster_fertiger($o, max((int) $m['start_teil'], $nr), (int) $m['teile']) : -1;
         // init.mp4 gilt erst als fertig, wenn ffmpeg den ersten Teil abgeschlossen hat (vorher kann sie leer bzw. halb geschrieben sein)
@@ -544,8 +556,17 @@ function hls_teil(string $id, ?int $n): string
         if ($n === null && $laeuft) {
             $baldDa = true; // init.mp4: einfach auf den laufenden Encoder warten
         }
+        if (!$baldDa && (int) ($m['generation'] ?? 0) !== $generation) {
+            flock($sperre, LOCK_UN);
+            fclose($sperre);
+            diag('hls_ueberholt', ['teil' => $nr, 'encoder_ab' => $m['start_teil']]);
+            throw new TeilUeberholt('Überholt – inzwischen wurde woanders hingesprungen.');
+        }
         if (!$baldDa) {
+            $alt = $m['start_teil'];
             encoder_starten($id, $m, $nr);
+            $generation = (int) $m['generation'];
+            diag('hls_neustart', ['teil' => $nr, 'ab_s' => $nr * TEIL_SEKUNDEN, 'vorher_ab_teil' => $alt, 'fertig_bis' => $hoechster]);
         } elseif (!empty($m['gestoppt'])) {
             posix_kill((int) $m['pid'], SIGCONT);
             $m['gestoppt'] = false;

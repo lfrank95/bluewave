@@ -374,6 +374,20 @@ for teil in ['init.mp4', 'teil/0.m4s', 'teil/1.m4s', 'teil/5.m4s', 'teil/6.m4s',
     code, body, _ = admin.roh('GET', f'{basis}/{teil}')
     pruefe(code == 200 and len(body) > 200, f'{teil}: {code} {body[:200]}')
     print(f'  {teil}: {len(body)} Bytes in {time.time() - t0:.1f} s')
+# Hin- und Herspringen: Anfragen von vor dem Sprung dürfen den Encoder nicht zurücksetzen (409), die neueste bekommt ihren Teil
+import threading
+ergebnisse = {}
+def holen(teil):
+    t0 = time.time()
+    c, b, _ = admin.roh('GET', f'{basis}/teil/{teil}.m4s')
+    ergebnisse[teil] = (c, len(b), round(time.time() - t0, 1))
+faeden = []
+for teil in (4, 1, 6):
+    f = threading.Thread(target=holen, args=(teil,)); f.start(); faeden.append(f); time.sleep(0.4)
+for f in faeden:
+    f.join(40)
+pruefe(ergebnisse.get(6, (0,))[0] == 200 and all(c in (200, 409) for c, *_ in ergebnisse.values()), f'Springen ohne Hin und Her: {ergebnisse}')
+print('  Springen:', ergebnisse)
 pruefe(any(x['url'] for x in w['untertitel']), 'Untertitel-Spur angeboten')
 ut = next(x for x in w['untertitel'] if x['url'])
 code, body, _ = admin.roh('GET', ut['url'])

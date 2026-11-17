@@ -534,10 +534,14 @@ try {
             }
             session_write_close();
             $tw = microtime(true);
-            $datei = hls_teil($sid, $teilNr);
+            require_once __DIR__ . '/../includes/diagnose.php';
+            try {
+                $datei = hls_teil($sid, $teilNr);
+            } catch (TeilUeberholt $x) {
+                fehler($x->getMessage(), 409);
+            }
             $wartezeit = (int) round((microtime(true) - $tw) * 1000);
             if ($wartezeit > 300 || $teilNr === null || $teilNr % 10 === 0) {
-                require_once __DIR__ . '/../includes/diagnose.php';
                 diag('hls_teil_server', ['teil' => $teilNr ?? 'init', 'warten_auf_encoder_ms' => $wartezeit, 'kb' => (int) (filesize($datei) / 1024)]);
             }
             header('Content-Type: ' . ($teilNr === null ? 'video/mp4' : 'video/iso.segment'));

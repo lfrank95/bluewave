@@ -28,7 +28,7 @@ function faehigkeiten() {
         // MKV spielen Browser nur unzuverlässig – dann wandelt der Server um
         container: { mp4: true, webm: v.canPlayType('video/webm') !== '', mkv: false },
         hdr: window.matchMedia('(dynamic-range: high)').matches && video.hevc,
-        hls: v.canPlayType('application/vnd.apple.mpegurl') ? 'nativ' : (window.MediaSource ? 'mse' : false),
+        hls: hlsNativ() ? 'nativ' : (window.MediaSource ? 'mse' : false),
         max_hoehe: Math.round(Math.max(screen.width, screen.height) * dpr * 9 / 16),
         // Direct Stream (Video unverändert, fortlaufendes fragmentiertes MP4) kann jeder Browser
         remux: true,
@@ -51,6 +51,15 @@ function hlsJs() {
 }
 
 /** Öffentlicher Einstieg: ziel = {art, id, fassung_id?, start_ms?} */
+/** Natives HLS nur bei Safari/iOS (gut und sparsam). Chrome kann es neuerdings auch, aber dort steuert hls.js
+ *  Spulen, Puffer und Wiederholversuche besser – und meldet jeden Teil an die Diagnose. */
+function hlsNativ() {
+    const ua = navigator.userAgent;
+    const safari = /Safari\//.test(ua) && !/Chrome|Chromium|CriOS|Edg|Android|Firefox/.test(ua);
+    const kannNativ = document.createElement('video').canPlayType('application/vnd.apple.mpegurl') !== '';
+    return kannNativ && (safari || !(window.MediaSource || window.ManagedMediaSource));
+}
+
 export async function spielen(ziel, app) {
     if (aktiv) await aktiv.schliessen(false);
     diagNeu({ art: ziel.art, id: ziel.id, bildschirm: `${screen.width}x${screen.height}@${devicePixelRatio}`, verbindung: navigator.connection?.effectiveType || null,
@@ -288,7 +297,7 @@ class Player {
             else await this.remuxLaden(start, false);
             return;
         }
-        if (d.modus === 'hls' && v.canPlayType('application/vnd.apple.mpegurl')) {
+        if (d.modus === 'hls' && hlsNativ()) {
             v.src = d.url;
             v.addEventListener('loadedmetadata', () => { if (start > 0) v.currentTime = start; }, { once: true });
         } else if (d.modus === 'hls') {
