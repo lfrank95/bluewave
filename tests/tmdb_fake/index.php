@@ -9,7 +9,7 @@ $q = $_GET;
 if (preg_match('#^/t/p/(w\d+|original)/(.+)$#', $pfad, $m)) {
     // Bild: einfarbig mit Text (GD)
     $png = str_ends_with($m[2], '.png');
-    $b = (int) (substr($m[1], 1) ?: 500);
+    $b = $m[1] === 'original' ? 1280 : (int) substr($m[1], 1);
     $h = (int) ($b * 1.5);
     $img = imagecreatetruecolor($b, $h);
     $farbe = imagecolorallocate($img, (crc32($m[2]) >> 16) & 120, (crc32($m[2]) >> 8) & 160, 200);
