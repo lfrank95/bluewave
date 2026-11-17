@@ -50,7 +50,7 @@ class Spieler {
 
   /* ---------------- Fenster ---------------- */
   async oeffnen(ziel) {
-    const { BrowserWindow } = this.ctx.electron;
+    const { BrowserWindow, BaseWindow } = this.ctx.electron;
     this.ziel = ziel;
     if (this.offen) {
       // läuft schon: neuen Titel in der Bedienung starten (aus der Mini-Wiedergabe wieder groß)
@@ -63,12 +63,15 @@ class Spieler {
     const b = haupt && !haupt.isDestroyed() ? haupt.getBounds() : { width: 1360, height: 860 };
     const e = this.ctx.einst();
     this.zuGeht = false;
-    this.video = new BrowserWindow({
+    // Bildfenster ohne Webseite (BaseWindow): mpv zeichnet per --wid hinein. Ein BrowserWindow hätte eine eigene
+    // Chromium-Zeichenfläche, die das Bild von mpv verdecken kann (nur Ton, schwarzes Bild)
+    const Fenster = BaseWindow || BrowserWindow;
+    this.video = new Fenster({
       ...b, minWidth: 480, minHeight: 270, frame: false, backgroundColor: '#000000', show: false, title: 'Bluewave',
       icon: this.ctx.icon, autoHideMenuBar: true, fullscreenable: true,
-      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false },
+      ...(BaseWindow ? {} : { webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false } }),
     });
-    this.video.loadURL('data:text/html,<html><body style="margin:0;background:#000"></body></html>');
+    if (!BaseWindow) this.video.loadURL('data:text/html,<html><body style="margin:0;background:#000"></body></html>');
     this.overlay = new BrowserWindow({
       ...b, parent: this.video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, resizable: false,
       movable: false, minimizable: false, maximizable: false, skipTaskbar: true, show: false, focusable: true, title: 'Bluewave',
@@ -100,7 +103,7 @@ class Spieler {
     });
     this.video.on('closed', () => { this.video = null; this.aufraeumen(); });
     if (haupt && !haupt.isDestroyed() && haupt.isMaximized()) this.video.maximize();
-    this.video.once('ready-to-show', async () => {
+    const losgehen = async () => {
       if (e.vollbild || (haupt && !haupt.isDestroyed() && haupt.isFullScreen())) this.video.setFullScreen(true);
       this.video.show();
       folgen();
@@ -110,7 +113,8 @@ class Spieler {
       }
       this.overlay.loadURL(`${this.ctx.basis()}/`);
       this.overlay.once('ready-to-show', () => { folgen(); this.overlay.show(); this.overlay.focus(); if (haupt && !haupt.isDestroyed()) haupt.hide(); });
-    });
+    };
+    if (BaseWindow) setImmediate(losgehen); else this.video.once('ready-to-show', losgehen);
   }
 
   fensterMelden() {

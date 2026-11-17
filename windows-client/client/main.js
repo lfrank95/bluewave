@@ -5,7 +5,7 @@
 // Ablauf beim Start: gemerkten Server anpingen (zuerst im Heimnetz, dann die öffentliche Adresse). Antwortet keiner,
 // wird das Heimnetz durchsucht (derselbe Server wird an seinem Ausweis erkannt – ein Schlüssel, den der Server mit einer
 // Unterschrift belegt). Sonst: Einrichtungsseite (Suche, Liste, Adresse von Hand).
-const { app, BrowserWindow, ipcMain, session, globalShortcut, Tray, Menu, shell, nativeImage, dialog, screen } = require('electron');
+const { app, BrowserWindow, BaseWindow, desktopCapturer, ipcMain, session, globalShortcut, Tray, Menu, shell, nativeImage, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -364,7 +364,7 @@ const rife = new Rife({
 /* ---------- Videowiedergabe (mpv) ---------- */
 const spieler = new Spieler({
   rife,
-  electron: { BrowserWindow, screen },
+  electron: { BrowserWindow, BaseWindow, screen },
   mpvExe: process.env.BW_MPV || path.join(__dirname, 'mpv', process.platform === 'win32' ? 'bluewave-mpv.exe' : 'mpv'),
   userData: app.getPath('userData'),
   logOrdner: path.join(app.getPath('userData'), 'log'),
@@ -1152,19 +1152,50 @@ app.on('second-instance', () => zeigen());
 /** Selbsttest (CI auf Windows): Videofenster mit mpv per --wid, Testbild abspielen, Ergebnis ins Log, beenden */
 async function selbsttestVideo() {
   const ergebnis = (text) => { log.schreiben('INFO', `SELBSTTEST ${text}`); setTimeout(() => { beenden = true; app.quit(); }, 500); };
-  try {
-    spieler.video = new BrowserWindow({ width: 640, height: 360, frame: false, backgroundColor: '#000000', show: true });
-    await spieler.video.loadURL('data:text/html,<body style="margin:0;background:#000">');
+  const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+  /** Ist im Fenster wirklich Bild zu sehen? Bildschirm abgreifen (wie DWM ihn zusammensetzt) und Farben zählen */
+  const bildPruefen = async (fenster) => {
+    const b = fenster.getContentBounds();
+    const d = screen.getDisplayMatching(b);
+    const sk = d.scaleFactor || 1;
+    const quellen = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(d.size.width * sk), height: Math.round(d.size.height * sk) } });
+    const q = quellen.find((x) => String(x.display_id) === String(d.id)) || quellen[0];
+    const img = q.thumbnail.crop({ x: Math.round((b.x - d.bounds.x) * sk) + 20, y: Math.round((b.y - d.bounds.y) * sk) + 20, width: Math.round(b.width * sk) - 40, height: Math.round(b.height * sk) - 40 });
+    const bmp = img.toBitmap();
+    let hell = 0, n = 0;
+    const farben = new Set();
+    for (let i = 0; i + 3 < bmp.length; i += 4 * 31) { n++; if (bmp[i] + bmp[i + 1] + bmp[i + 2] > 90) hell++; farben.add(((bmp[i] >> 5) << 6) | ((bmp[i + 1] >> 5) << 3) | (bmp[i + 2] >> 5)); }
+    return { hell: Math.round((hell / Math.max(1, n)) * 100), farben: farben.size };
+  };
+  /** Wie im Betrieb: Bildfenster (mit mpv per --wid) und darüber die durchsichtige Bedienung */
+  const lauf = async (Art) => {
+    const opt = { x: 100, y: 100, width: 800, height: 450, frame: false, backgroundColor: '#000000', show: true };
+    spieler.video = Art === 'BaseWindow' ? new BaseWindow(opt) : new BrowserWindow(opt);
+    if (Art !== 'BaseWindow') await spieler.video.loadURL('data:text/html,<body style="margin:0;background:#000">');
+    const over = new BrowserWindow({ ...spieler.video.getContentBounds(), parent: spieler.video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, show: true, focusable: false });
+    await over.loadURL('data:text/html,<html style="background:rgba(0,0,0,0.004)"><body style="margin:0"></body></html>');
     await spieler.mpvStarten();
     const m = spieler.mpv;
     let geladen = false;
     m.on('ereignis', (x) => { if (x.event === 'file-loaded') geladen = true; });
     await m.befehl(['loadfile', process.env.BW_TEST_VIDEO, 'replace']);
-    for (let i = 0; i < 100 && !geladen; i++) await new Promise((r) => setTimeout(r, 100));
-    await new Promise((r) => setTimeout(r, 1500));
+    for (let i = 0; i < 100 && !geladen; i++) await warte(100);
+    await warte(2000);
     const [pos, w, h, vo] = await Promise.all([m.lesen('time-pos'), m.lesen('width'), m.lesen('height'), m.lesen('current-vo')]);
-    ergebnis(`${geladen && pos > 0.5 ? 'OK' : 'FEHLER'} geladen=${geladen} pos=${pos} bild=${w}x${h} vo=${vo}`);
-  } catch (x) { ergebnis(`FEHLER ${x.message}`); }
+    let bild = null;
+    try { bild = await bildPruefen(spieler.video); } catch (x) { bild = { fehler: x.message }; }
+    m.beenden(); spieler.mpv = null;
+    over.destroy(); spieler.video.destroy(); spieler.video = null;
+    await warte(500);
+    return { geladen, pos, w, h, vo, bild };
+  };
+  try {
+    const alt = await lauf('BrowserWindow');
+    log.schreiben('INFO', `SELBSTTEST-VERGLEICH BrowserWindow: ${JSON.stringify(alt)}`);
+    const neu = await lauf('BaseWindow');
+    const sichtbar = neu.bild && neu.bild.farben >= 8 && neu.bild.hell >= 20;
+    ergebnis(`${neu.geladen && neu.pos > 0.5 && sichtbar ? 'OK' : 'FEHLER'} BaseWindow: geladen=${neu.geladen} pos=${neu.pos} bild=${neu.w}x${neu.h} vo=${neu.vo} sichtbar=${JSON.stringify(neu.bild)}`);
+  } catch (x) { ergebnis(`FEHLER ${x.stack || x.message}`); }
 }
 
 /** Selbsttest RIFE (CI ohne NVIDIA-Karte): Python + VapourSynth einrichten, Skript mit VSPipe, dann mpv mit
@@ -1178,8 +1209,7 @@ async function selbsttestRife() {
     const z1 = rife.zustand();
     if (!z1?.aktiv) { ergebnis(`FEHLER VSPipe: ${JSON.stringify(z1)}`); return; }
     einst.video = { ...einst.video, bewegung: 'rife', rife_faktor: 2, ton_weg: 'engine' };
-    spieler.video = new BrowserWindow({ width: 640, height: 360, frame: false, backgroundColor: '#000000', show: true });
-    await spieler.video.loadURL('data:text/html,<body style="margin:0;background:#000">');
+    spieler.video = new BaseWindow({ width: 640, height: 360, frame: false, backgroundColor: '#000000', show: true });
     await spieler.mpvStarten();
     const m = spieler.mpv;
     await m.befehl(['loadfile', process.env.BW_TEST_RIFE, 'replace']);

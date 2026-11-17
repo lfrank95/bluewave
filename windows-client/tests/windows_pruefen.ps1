@@ -47,6 +47,7 @@ if (-not $p.WaitForExit(60000)) { $p | Stop-Process -Force; Write-Host "::error 
 Remove-Item Env:\BW_TEST_VIDEO
 $log = Get-Content (Join-Path $daten 'log\client.log') -Raw
 $zeile = ($log -split "`n" | Select-String 'SELBSTTEST' | Select-Object -Last 1)
+($log -split "`n" | Select-String 'SELBSTTEST-VERGLEICH') | ForEach-Object { Write-Host "  $_"; Write-Host "::notice title=Vergleich::$_" }
 Write-Host "  $zeile"
 if (Test-Path (Join-Path $daten 'log\mpv.log')) { Get-Content (Join-Path $daten 'log\mpv.log') | Select-Object -Last 8 | ForEach-Object { Write-Host "  mpv: $_" } }
 if ($log -match 'ABSTURZ') { Write-Host "::error title=Selbsttest::Absturz im Client"; Write-Host $log; exit 1 }
