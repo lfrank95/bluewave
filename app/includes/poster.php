@@ -7,6 +7,7 @@
 // Ist der Ordner nur lesend eingebunden, bleibt das Poster im Cache und gilt trotzdem.
 declare(strict_types=1);
 require_once __DIR__ . '/lokale_bilder.php';
+require_once __DIR__ . '/bibliothek.php';
 
 const POSTER_MAX_BYTES = 25 * 1024 * 1024;
 
