@@ -609,7 +609,13 @@ try {
         case 'untertitel':
             require_once __DIR__ . '/../includes/wiedergabe.php';
             if (preg_match('/^(\d+)\.vtt$/', $t1, $mm) && $methode === 'GET') {
-                $p = untertitel_vtt((int) $mm[1]);
+                try {
+                    $p = untertitel_vtt((int) $mm[1]);
+                } catch (UntertitelNochNicht $x) {
+                    // läuft im Hintergrund – der Player fragt gleich nochmal
+                    header('Retry-After: 5');
+                    fehler($x->getMessage(), 503);
+                }
                 header('Content-Type: text/vtt; charset=utf-8');
                 header('Cache-Control: private, max-age=3600');
                 $versatz = (int) ($_GET['versatz_ms'] ?? 0);

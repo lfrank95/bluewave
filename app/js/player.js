@@ -306,12 +306,25 @@ class Player {
         const d = this.daten;
         v.querySelectorAll('track').forEach((t) => t.remove());
         const versatzMs = Math.round(this.versatz * 1000);
-        for (const u of d.untertitel.filter((x) => x.url)) {
-            const t = el('track', { kind: 'subtitles', src: u.url + (versatzMs > 0 ? '?versatz_ms=' + versatzMs : ''), srclang: (u.sprache || 'und').slice(0, 2),
+        // eingebettete Untertitel werden beim ersten Mal im Hintergrund ausgelesen → bis dahin regelmäßig neu versuchen
+        const spur = (u, versuch = 0) => {
+            const src = u.url + (versatzMs > 0 ? '?versatz_ms=' + versatzMs : '') + (versuch ? (versatzMs > 0 ? '&' : '?') + 'v=' + versuch : '');
+            const t = el('track', { kind: 'subtitles', src, srclang: (u.sprache || 'und').slice(0, 2),
                 label: u.sprache_name + (u.erzwungen ? ' (erzwungen)' : '') });
             t.dataset.id = u.id;
-            v.append(t);
-        }
+            t.addEventListener('error', () => {
+                if (this.daten !== d || !t.isConnected || versuch > 120) return;
+                const aktiv = String(d.untertitel_aktiv) === String(u.id);
+                if (aktiv && !this.utHinweis) { this.utHinweis = true; meldung('Untertitel werden vorbereitet – erscheinen gleich.'); }
+                setTimeout(() => {
+                    if (this.daten !== d || !t.isConnected) return;
+                    t.replaceWith(spur(u, versuch + 1));
+                    if (String(d.untertitel_aktiv) === String(u.id)) this.untertitelAktivieren(u.id);
+                }, 6000);
+            });
+            return t;
+        };
+        for (const u of d.untertitel.filter((x) => x.url)) v.append(spur(u));
         this.untertitelAktivieren(d.untertitel_aktiv);
     }
 

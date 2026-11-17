@@ -451,11 +451,15 @@ function encoder_starten(string $id, array &$m, int $n): void
     $pid = (int) trim((string) shell_exec('setsid sh -c ' . escapeshellarg($zeile) . ' > ' . escapeshellarg($o . '/ffmpeg.log') . ' 2>&1 < /dev/null & echo $!'));
     $m['pid'] = $pid ?: null;
     $m['start_teil'] = $n;
+    $m['geraeumt_bis'] = min((int) ($m['geraeumt_bis'] ?? 0), max(0, $n - TEILE_BEHALTEN));
     $m['gestoppt'] = false;
     sitzung_meta_schreiben($id, $m);
 }
 
 /** Höchster fertiger Teil ab $n ohne Lücke (oder $n-1, wenn Teil $n fehlt) */
+/** So viele Teile hinter der Wiedergabe bleiben liegen (100 × 6 s = 10 Minuten zum Zurückspulen ohne Neuberechnung) */
+const TEILE_BEHALTEN = 100;
+
 function hoechster_fertiger(string $o, int $n, int $teile): int
 {
     $i = $n;
@@ -503,7 +507,8 @@ function hls_teil(string $id, ?int $n): string
             throw new RuntimeException('Teil gibt es nicht.');
         }
         $laeuft = prozess_laeuft($m['pid'] ? (int) $m['pid'] : null);
-        $hoechster = $m['start_teil'] !== null ? hoechster_fertiger($o, (int) $m['start_teil'], (int) $m['teile']) : -1;
+        // zusammenhängend fertige Teile ab hier (ältere Teile können schon weggeräumt sein)
+        $hoechster = $m['start_teil'] !== null ? hoechster_fertiger($o, max((int) $m['start_teil'], $nr), (int) $m['teile']) : -1;
         // init.mp4 gilt erst als fertig, wenn ffmpeg den ersten Teil abgeschlossen hat (vorher kann sie leer bzw. halb geschrieben sein)
         $fertig = is_file($ziel) && ($n !== null || (filesize($ziel) > 0 && (glob($o . '/teil_*.m4s') ?: [])));
         clearstatcache();
@@ -520,6 +525,15 @@ function hls_teil(string $id, ?int $n): string
                     $m['gestoppt'] = false;
                     sitzung_meta_schreiben($id, $m);
                 }
+            }
+            // Teile weit hinter der Wiedergabe löschen: hält den Transkodier-Ordner klein (passt in den RAM);
+            // springt jemand weiter zurück, wird der Teil einfach neu erzeugt
+            if ($n !== null && $n - TEILE_BEHALTEN > (int) ($m['geraeumt_bis'] ?? 0)) {
+                for ($i = (int) ($m['geraeumt_bis'] ?? 0); $i < $n - TEILE_BEHALTEN; $i++) {
+                    @unlink(sprintf('%s/teil_%05d.m4s', $o, $i));
+                }
+                $m['geraeumt_bis'] = $n - TEILE_BEHALTEN;
+                sitzung_meta_schreiben($id, $m);
             }
             flock($sperre, LOCK_UN);
             fclose($sperre);
@@ -627,38 +641,63 @@ function mime_fuer(string $container): string
 }
 
 /** Untertitel als WebVTT (umgewandelt und im Cache gemerkt) */
+/** Cache-Datei für einen Untertitel (ändert sich die Quelldatei, gibt es eine neue) */
+function untertitel_cache_pfad(array $u): string
+{
+    $quelle = $u['quelle'] === 'eingebettet' ? (string) $u['video'] : (string) $u['pfad'];
+    return konfig()['pfade']['cache'] . '/untertitel/' . $u['id'] . '-' . substr(sha1($quelle . '|' . @filemtime($quelle)), 0, 10) . '.vtt';
+}
+
+/** Untertitel wird noch vorbereitet (eingebettet, große Datei) – später nochmal fragen */
+class UntertitelNochNicht extends RuntimeException {}
+
 function untertitel_vtt(int $id): string
 {
     $u = db_zeile('SELECT u.*, d.pfad AS video FROM untertitel u JOIN dateien d ON d.id = u.datei_id WHERE u.id = :id', ['id' => $id]);
     if (!$u || untertitel_ist_bild((string) $u['format'])) {
         throw new RuntimeException('Diese Untertitel gibt es nicht als Text.');
     }
-    $quelle = $u['quelle'] === 'eingebettet' ? (string) $u['video'] : (string) $u['pfad'];
-    $cache = konfig()['pfade']['cache'] . '/untertitel/' . $id . '-' . substr(sha1($quelle . '|' . @filemtime($quelle)), 0, 10) . '.vtt';
+    $cache = untertitel_cache_pfad($u);
     if (is_file($cache)) {
         return $cache;
     }
     @mkdir(dirname($cache), 0775, true);
+    if ($u['quelle'] === 'eingebettet') {
+        // Eingebettete Untertitel: ffmpeg muss dafür die ganze Datei lesen. Das läuft im Hintergrund (niedrige Priorität)
+        // und für alle Text-Untertitel der Datei in EINEM Durchgang – die Wiedergabe wartet nicht darauf.
+        untertitel_extraktion_starten((int) $u['datei_id']);
+        throw new UntertitelNochNicht('Untertitel werden vorbereitet.');
+    }
     $k = konfig()['transkodieren'];
     $cmd = [$k['ffmpeg'], '-hide_banner', '-nostdin', '-loglevel', 'error', '-y'];
-    if ($u['quelle'] === 'eingebettet') {
-        $cmd = array_merge($cmd, ['-i', $quelle, '-map', '0:s:' . (int) $u['strom_index']]);
-    } else {
-        // Zeichensatz: SRT ist oft Windows-1252 – ffmpeg erkennt UTF-8 selbst, sonst lesen wir als cp1252
-        $roh = (string) @file_get_contents($quelle, false, null, 0, 65536);
-        if (!mb_check_encoding($roh, 'UTF-8')) {
-            $cmd = array_merge($cmd, ['-sub_charenc', 'CP1252']);
-        }
-        $cmd = array_merge($cmd, ['-i', $quelle]);
+    // Zeichensatz: SRT ist oft Windows-1252 – ffmpeg erkennt UTF-8 selbst, sonst lesen wir als cp1252
+    $roh = (string) @file_get_contents((string) $u['pfad'], false, null, 0, 65536);
+    if (!mb_check_encoding($roh, 'UTF-8')) {
+        $cmd = array_merge($cmd, ['-sub_charenc', 'CP1252']);
     }
+    $cmd = array_merge($cmd, ['-i', (string) $u['pfad']]);
     $tmp = $cache . '.' . bin2hex(random_bytes(3)) . '.vtt';
-    $r = bw_ausfuehren(array_merge($cmd, ['-c:s', 'webvtt', '-f', 'webvtt', $tmp]), 180);
+    $r = bw_ausfuehren(array_merge($cmd, ['-c:s', 'webvtt', '-f', 'webvtt', $tmp]), 60);
     if ($r['code'] !== 0 || !is_file($tmp)) {
         @unlink($tmp);
         throw new RuntimeException('Untertitel konnten nicht umgewandelt werden.');
     }
     rename($tmp, $cache);
     return $cache;
+}
+
+/** Hintergrund-Durchgang für alle eingebetteten Text-Untertitel einer Datei starten (nur einmal gleichzeitig) */
+function untertitel_extraktion_starten(int $dateiId): void
+{
+    $sperre = konfig()['pfade']['cache'] . '/untertitel/extrahieren-' . $dateiId . '.laeuft';
+    if (is_file($sperre) && filemtime($sperre) > time() - 3 * 3600 && @posix_kill((int) @file_get_contents($sperre), 0)) {
+        return;
+    }
+    @mkdir(dirname($sperre), 0775, true);
+    $skript = realpath(__DIR__ . '/../scripts/untertitel_extrahieren.php');
+    $nice = is_executable('/usr/bin/ionice') ? 'nice -n 19 ionice -c 3 ' : 'nice -n 19 ';
+    shell_exec('setsid ' . $nice . escapeshellarg(PHP_BINARY && !str_contains(PHP_BINARY, 'apache') ? PHP_BINARY : 'php') . ' ' . escapeshellarg((string) $skript) . ' '
+        . $dateiId . ' > /dev/null 2>&1 < /dev/null &');
 }
 
 // ---------- Fortschritt ----------

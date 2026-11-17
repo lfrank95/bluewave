@@ -137,8 +137,11 @@ function remux_senden(array $cmd, string $token = ''): never
         @mkdir(dirname($pidDatei), 0775, true);
         @file_put_contents($pidDatei, (string) $meinPid);
     }
+    // große Lesehappen: PHP liest Pipes sonst in 8-KB-Stücken (viele Systemaufrufe und Mini-Pakete bei 50+ Mbit/s)
+    stream_set_chunk_size($rohre[1], 1024 * 1024);
+    stream_set_read_buffer($rohre[1], 0);
     while (!feof($rohre[1])) {
-        $stueck = fread($rohre[1], 256 * 1024);
+        $stueck = fread($rohre[1], 1024 * 1024);
         if ($stueck === false) {
             break;
         }

@@ -180,10 +180,13 @@ export class MseStrom {
                     await this.anhaengen(kopf, nr, kopf.length > moovEnde(kopf) + 100); // nur Kopf = noch kein Bild
                     continue;
                 }
-                // kleine Stücke bündeln (weniger appendBuffer-Aufrufe)
+                // kleine Stücke bündeln: jedes appendBuffer kostet eine Runde – vorher wurde beim Start jedes
+                // Netzwerkstückchen (oft nur 8–64 KB) einzeln angehängt, das bremste den Start bei hohen Bitraten massiv
                 gesammelt.push(value);
                 groesse += value.length;
-                if (groesse >= 512 * 1024 || this.video.readyState < 3) {
+                const start = this.video.readyState < 3;
+                if (groesse >= (start ? 256 * 1024 : 2 * 1024 * 1024) || performance.now() - (this.letztesAnhaengen || 0) > (start ? 120 : 600)) {
+                    this.letztesAnhaengen = performance.now();
                     const alles = new Uint8Array(groesse);
                     let o = 0;
                     for (const g of gesammelt) { alles.set(g, o); o += g.length; }
