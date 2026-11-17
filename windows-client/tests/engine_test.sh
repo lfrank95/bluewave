@@ -21,6 +21,17 @@ while True:
     if not x: break
     n += len(x); zeiten.append((round(time.time() - t, 2), n))
 print("Stücke (s, Bytes):", zeiten[:6], "…", zeiten[-1:])' || true
+    echo "## Metadaten des Stroms"
+    php -r "require '$WC/../app/includes/remux.php'; echo json_encode(ton_befehl('$ARBEIT/film.mkv', 0, 1));" | python3 -c '
+import json, subprocess, sys
+d = subprocess.run(json.load(sys.stdin), capture_output=True).stdout
+print("Anfang:", d[:4], "Länge", len(d)); i = 4
+while i < len(d):
+    typ, letzt, l = d[i] & 0x7f, d[i] >> 7, int.from_bytes(d[i+1:i+4], "big")
+    print("  Block", typ, "Länge", l, ("STREAMINFO " + d[i+4:i+38].hex()) if typ == 0 else "")
+    i += 4 + l
+    if letzt: break
+print("erster Frame bei", i, d[i:i+4].hex())' || true
     echo "## direkter Abruf"; curl -s -m 8 -o "$ARBEIT/probe.flac" -w '%{http_code} %{size_download} B, erstes Byte nach %{time_starttransfer} s, fertig nach %{time_total} s\n' -b bw_sitzung=test "http://127.0.0.1:18765/ton?start=0&ton=1" || true
   fi
   kill $(cat "$ARBEIT/php.pid" 2>/dev/null) 2>/dev/null || true; rm -rf "$ARBEIT"
