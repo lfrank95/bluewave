@@ -92,7 +92,11 @@ function kind(string $d, int $von, int $bis, string $typ): ?array
 /** moov auswerten: Video-Spur (ID, Zeitbasis) und Standard-Flags je Spur (trex) */
 function moov_lesen(string $d, int $von, int $bis): array
 {
-    $info = ['video' => null, 'skala' => [], 'trex_flags' => []];
+    $info = ['video' => null, 'skala' => [], 'trex_flags' => [], 'edit' => []];
+    $filmSkala = 1000;
+    if ($mvhd = kind($d, $von, $bis, 'mvhd')) {
+        $filmSkala = unpack('N', $d, $mvhd[1] + (ord($d[$mvhd[1]]) === 1 ? 20 : 12))[1] ?: 1000;
+    }
     foreach (boxen($d, $von, $bis) as [$typ, $a, $e]) {
         if ($typ === 'trak') {
             $tkhd = kind($d, $a, $e, 'tkhd');
@@ -111,6 +115,8 @@ function moov_lesen(string $d, int $von, int $bis): array
             if ($hdlr && substr($d, $hdlr[1] + 8, 4) === 'vide' && $info['video'] === null) {
                 $info['video'] = $id;
             }
+            // Edit-Liste: um wie viel die Anzeige gegenüber den Zeitstempeln verschoben ist (B-Frame-Verzögerung, Vorlauf)
+            $info['edit'][$id] = edit_versatz($d, $a, $e, $info['skala'][$id] ?? 1000, $filmSkala);
         } elseif ($typ === 'mvex') {
             foreach (boxen($d, $a, $e) as [$t2, $a2]) {
                 if ($t2 === 'trex') {
@@ -120,6 +126,31 @@ function moov_lesen(string $d, int $von, int $bis): array
         }
     }
     return $info;
+}
+
+/** Versatz (Sekunden) aus der Edit-Liste einer Spur: Anzeigezeit = Medienzeit − media_time + leere Edits davor */
+function edit_versatz(string $d, int $a, int $e, int $spurSkala, int $filmSkala): float
+{
+    $edts = kind($d, $a, $e, 'edts');
+    $elst = $edts ? kind($d, $edts[1], $edts[2], 'elst') : null;
+    if (!$elst) {
+        return 0.0;
+    }
+    $v = ord($d[$elst[1]]);
+    $n = unpack('N', $d, $elst[1] + 4)[1];
+    $p = $elst[1] + 8;
+    $leer = 0.0;
+    for ($i = 0; $i < $n && $p + ($v === 1 ? 20 : 12) <= $elst[2]; $i++) {
+        $dauer = $v === 1 ? unpack('J', $d, $p)[1] : unpack('N', $d, $p)[1];
+        $mt = $v === 1 ? unpack('q', strrev(substr($d, $p + 8, 8)))[1] : unpack('l', strrev(substr($d, $p + 4, 4)))[1];
+        $p += $v === 1 ? 20 : 12;
+        if ($mt === -1) {
+            $leer += $dauer / max(1, $filmSkala);
+            continue;
+        }
+        return $mt / max(1, $spurSkala) - $leer;
+    }
+    return -$leer;
 }
 
 /** moof auswerten: Anzeigezeit des ersten Bildes (Sekunden) und ob es ein Schlüsselbild ist */
@@ -190,7 +221,7 @@ function moof_lesen(string $d, int $von, int $bis, array $moov): array
             }
         }
         if ($zeit !== null) {
-            $zeit = ($zeit + $cto) / max(1, $moov['skala'][$spur] ?? 1000);
+            $zeit = ($zeit + $cto) / max(1, $moov['skala'][$spur] ?? 1000) - ($moov['edit'][$spur] ?? 0.0);
         }
         if ($video) {
             // sample_is_non_sync_sample (Bit 16) nicht gesetzt = Schlüsselbild

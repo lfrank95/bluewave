@@ -57,17 +57,28 @@ def mp4_boxen(d, a, b):
         yield t.decode('latin1'), i + h, i + sz
         i += sz
 
+EDIT = {}  # Spur → Versatz aus der Edit-Liste (Sekunden)
+
 def mp4_init(d):
-    """Video-Spur und Zeitbasen aus init.mp4"""
+    """Video-Spur und Zeitbasen aus init.mp4 (merkt sich auch die Edit-Liste je Spur)"""
     skala, video = {}, None
     for t, a, b in mp4_boxen(d, 0, len(d)):
         if t != 'moov':
             continue
+        film = 1000
+        for t2, a2, b2 in mp4_boxen(d, a, b):
+            if t2 == 'mvhd':
+                film = _struct.unpack('>I', d[a2 + (20 if d[a2] == 1 else 12):][:4])[0] or 1000
         for t2, a2, b2 in mp4_boxen(d, a, b):
             if t2 != 'trak':
                 continue
             tid = sk = hd = None
+            elst = None
             for t3, a3, b3 in mp4_boxen(d, a2, b2):
+                if t3 == 'edts':
+                    for t4, a4, b4 in mp4_boxen(d, a3, b3):
+                        if t4 == 'elst':
+                            elst = (a4, b4)
                 if t3 == 'tkhd':
                     tid = _struct.unpack('>I', d[a3 + (20 if d[a3] == 1 else 12):][:4])[0]
                 if t3 == 'mdia':
@@ -79,6 +90,22 @@ def mp4_init(d):
             skala[tid] = sk
             if hd == b'vide':
                 video = tid
+            versatz = 0.0
+            if elst:
+                v = d[elst[0]]; n = _struct.unpack('>I', d[elst[0] + 4:elst[0] + 8])[0]; p = elst[0] + 8; leer = 0.0
+                for _ in range(n):
+                    if v == 1:
+                        dauer, mt = _struct.unpack('>Qq', d[p:p + 16]); p += 20
+                    else:
+                        dauer, mt = _struct.unpack('>Ii', d[p:p + 8]); p += 12
+                    if mt == -1:
+                        leer += dauer / film
+                        continue
+                    versatz = mt / sk - leer
+                    break
+                else:
+                    versatz = -leer
+            EDIT[tid] = versatz
     return video, skala
 
 def mp4_teil_start(d, video, skala):
@@ -114,7 +141,7 @@ def mp4_teil_start(d, video, skala):
                     if tr & 0x800:
                         cto = _struct.unpack('>i' if tv == 1 else '>I', d[q:q + 4])[0]
             if tid == video and zeit is not None:
-                return (zeit + cto) / skala[tid] - VERSATZ, ((flags >> 16) & 1) == 0
+                return (zeit + cto) / skala[tid] - EDIT.get(tid, 0.0) - VERSATZ, ((flags >> 16) & 1) == 0
     return None, None
 
 VERSATZ = 10  # HLS_ZEIT_VERSATZ: alle umgewandelten Teile liegen 10 s versetzt in der Medienzeit
