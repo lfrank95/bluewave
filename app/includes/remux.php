@@ -102,7 +102,7 @@ function remux_befehl(string $pfad, float $start, int $tonIndex, string $tonModu
     }
     // kurze Fragmente (1 s): das erste Bild ist schneller da; frag_discont hält die echten Zeitstempel im Fragment
     return array_merge($cmd, ['-sn', '-dn', '-avoid_negative_ts', $absolut ? 'disabled' : 'make_zero', '-max_muxing_queue_size', '4096',
-        '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+default_base_moof' . ($absolut ? '+frag_discont' : ''), '-frag_duration', '1000000', 'pipe:1']);
+        '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+delay_moov+default_base_moof' . ($absolut ? '+frag_discont' : ''), '-frag_duration', '1000000', 'pipe:1']);
 }
 
 /** Strom ausliefern, solange der Browser liest; bricht er ab, wird ffmpeg beendet.

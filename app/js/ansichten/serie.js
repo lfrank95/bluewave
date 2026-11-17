@@ -92,12 +92,6 @@ export async function zeigen(r, app) {
         return el('button.staffel-karte', { 'data-nr': s.nummer, title: s.name, onclick: () => {
             staffelNr = s.nummer;
             staffelZeigen();
-    // ausgeblendete Specials/Extras: kurz einblenden
-    const specialsHinweis = d.specials_versteckt ? el('button.chip-gestrichelt', { style: { marginTop: '4px' }, onclick: () => {
-        const p = new URLSearchParams(r.query);
-        p.set('specials', '1');
-        location.replace(`#/serie/${id}?${p}`);
-    } }, icon('plus'), `Specials einblenden (${d.specials_versteckt})`) : null;
             history.replaceState(history.state, '', `#/serie/${id}?` + new URLSearchParams({ ...(d.reihenfolge !== null && d.reihenfolge !== undefined ? { reihenfolge: d.reihenfolge } : {}),
                 ...(r.query.get('specials') === '1' ? { specials: '1' } : {}), staffel: s.nummer }));
             window.__bluewave.routeMerken?.();
@@ -109,6 +103,13 @@ export async function zeigen(r, app) {
             el('span', `${s.folgen.length} ${s.folgen.length === 1 ? 'Folge' : 'Folgen'}` + (da.length < s.folgen.length ? ` · ${da.length} da` : '')));
     }));
     staffelZeigen();
+
+    // ausgeblendete Specials/Extras: kurz einblenden
+    const specialsHinweis = d.specials_versteckt ? el('button.chip-gestrichelt', { style: { marginTop: '4px' }, onclick: () => {
+        const p = new URLSearchParams(r.query);
+        p.set('specials', '1');
+        location.replace(`#/serie/${id}?${p}`);
+    } }, icon('plus'), `Specials einblenden (${d.specials_versteckt})`) : null;
 
     const staffelGesehen = el('button.knopf.klein', { onclick: async () => {
         const st = d.staffeln.find((s) => s.nummer === staffelNr);

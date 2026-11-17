@@ -360,6 +360,8 @@ class Player {
             strom.beenden();
             this.mse = null;
             this.mseAus = true;
+            // Server liefert gar nichts (ffmpeg scheitert am Umpacken) → einfacher Strom hilft nicht, also umwandeln
+            if (x?.leer) { diag('rueckfall_umwandeln', { grund: x.message }); this.neuStarten({ erzwinge_transkodieren: true }); return; }
             this.remuxLaden(this.pos() || start, false);
         }, d.quelle?.bitrate_k || 8000);
         this.mse = strom;

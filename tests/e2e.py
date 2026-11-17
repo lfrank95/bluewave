@@ -328,6 +328,8 @@ ext = next(f for f in td['fassungen'] if f['name'] == 'Extended Edition')
 TV = {**FAEHIG, 'remux': True, 'audio': {'aac': True, 'mp3': True, 'ac3': True, 'eac3': True}}
 w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'fassung_id': ext['id'], 'faehigkeiten': TV})
 pruefe(w['modus'] == 'remux' and w['ton'] == 1 and w['remux']['audio'] == 'copy', f'deutsche E-AC3-Spur statt DTS, unverändert: {w.get("modus")} ton={w.get("ton")} {w.get("remux")}')
+code, body, _ = admin.roh('GET', f'/api/v1/remux/{w["datei_id"]}/strom?start=0&ton=1&audio=copy&kanaele=6&absolut=1&token=e2eac3copy1')
+pruefe(code == 200 and body[4:8] == b'ftyp' and b'ec-3' in body[:4000] and b'moof' in body, f'E-AC3/AC3 unverändert ins MP4 (delay_moov): {code} {len(body)}')
 w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'fassung_id': ext['id'], 'faehigkeiten': TV, 'ton': 0})
 pruefe(w['modus'] == 'remux' and w['remux']['audio'] == 'eac3' and w['remux']['kanaele'] == 6, f'DTS gewählt → Dolby Digital Plus 5.1: {w.get("remux")}')
 code, body, _ = admin.roh('GET', f'/api/v1/remux/{w["datei_id"]}/strom?start=0&ton=0&audio=eac3&kanaele=6')

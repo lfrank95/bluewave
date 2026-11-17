@@ -185,7 +185,10 @@ export class MseStrom {
                 const { done, value } = await leser.read();
                 wartenLesen += performance.now() - tl;
                 if (nr !== this.nr || this.weg) return;
-                if (done) { diag('strom_ende', { nr, mb: +(empfangen / 1048576).toFixed(1), ms: Math.round(performance.now() - t0) }); break; }
+                if (done) { diag('strom_ende', { nr, mb: +(empfangen / 1048576).toFixed(1), ms: Math.round(performance.now() - t0) });
+                    // Strom endet, bevor überhaupt ein Kopf da war → der Server konnte nicht umpacken (ffmpeg-Fehler)
+                    if (!this.sb) { this.fehler?.(Object.assign(new Error('Server konnte die Datei nicht umpacken'), { leer: true })); return; }
+                    break; }
                 empfangen += value.length;
                 if (!erstesByte) { erstesByte = performance.now(); diag('strom_erste_bytes', { nr, ms: Math.round(erstesByte - t0) }); }
                 if (performance.now() - letzterBericht > 5000) {
