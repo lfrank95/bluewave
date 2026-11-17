@@ -1160,15 +1160,15 @@ async function selbsttestVideo() {
     log.schreiben('INFO', `SELBSTTEST-BEREIT ${art} ${Math.round(b.x * sk)} ${Math.round(b.y * sk)} ${Math.round(b.width * sk)} ${Math.round(b.height * sk)}`);
   };
   /** Wie im Betrieb: Bildfenster (mit mpv per --wid) und darüber die durchsichtige Bedienung */
-  const lauf = async (Art, x) => {
-    schritt(`${Art}: Fenster`);
+  const lauf = async (Art, x, mitBedienung = true) => {
+    schritt(`${Art}${mitBedienung ? '' : ' ohne Bedienung'}: Fenster`);
     const opt = { x, y: 100, width: 640, height: 360, frame: false, backgroundColor: '#000000', show: true };
     const video = Art === 'BaseWindow' ? new BaseWindow(opt) : new BrowserWindow(opt);
     if (Art !== 'BaseWindow') await video.loadURL('data:text/html,<body style="margin:0;background:#000">');
     spieler.video = video;
     schritt(`${Art}: Bedienung`);
-    const over = new BrowserWindow({ ...video.getContentBounds(), parent: video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, show: true, focusable: false });
-    await over.loadURL('about:blank').catch((e) => schritt(`${Art}: Bedienung lädt nicht (${e.message})`));
+    const over = mitBedienung ? new BrowserWindow({ ...video.getContentBounds(), parent: video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, show: true, focusable: false }) : null;
+    if (over) await over.loadURL('about:blank').catch((e) => schritt(`${Art}: Bedienung lädt nicht (${e.message})`));
     schritt(`${Art}: mpv`);
     await spieler.mpvStarten();
     const m = spieler.mpv;
@@ -1179,13 +1179,13 @@ async function selbsttestVideo() {
     await warte(2000);
     const [pos, w, h, vo] = await Promise.all([m.lesen('time-pos'), m.lesen('width'), m.lesen('height'), m.lesen('current-vo')]);
     // das Prüfskript fotografiert jetzt den Bildschirm an dieser Stelle (Farben des Testbilds oder nur Schwarz?)
-    melden(Art, video);
+    melden(mitBedienung ? Art : `${Art}OhneBedienung`, video);
     await warte(5000);
     schritt(`${Art}: aufräumen`);
     spieler.mpv = null;
     await m.befehl(['quit']).catch(() => {});
     await warte(800);
-    over.destroy();
+    over?.destroy();
     video.destroy();
     spieler.video = null;
     await warte(500);
@@ -1202,6 +1202,22 @@ async function selbsttestVideo() {
     melden('Probe', probe);
     await warte(3000);
     probe.destroy();
+    // mpv im eigenen Fenster (ohne --wid): zeigt, ob das Foto das Bild von mpv überhaupt sieht
+    {
+      const { Mpv } = require('./mpv');
+      spieler.video = halter;
+      const args = spieler.mpvArgs().filter((a) => !a.startsWith('--wid=')).concat(['--geometry=640x360+100+100', '--no-border', '--ontop']);
+      spieler.video = null;
+      const m = new Mpv(spieler.ctx.mpvExe, args, (st, t) => log.schreiben(st, t));
+      await m.starten();
+      await m.befehl(['loadfile', process.env.BW_TEST_VIDEO, 'replace']);
+      await warte(2500);
+      log.schreiben('INFO', 'SELBSTTEST-BEREIT MpvEigen 100 100 640 360');
+      await warte(4000);
+      await m.befehl(['quit']).catch(() => {});
+      await warte(800);
+    }
+    await lauf('BaseWindow', 100, false);
     const neu = await lauf('BaseWindow', 100);
     const alt = await lauf('BrowserWindow', 100);
     log.schreiben('INFO', `SELBSTTEST-VERGLEICH BrowserWindow: ${JSON.stringify(alt)}`);
