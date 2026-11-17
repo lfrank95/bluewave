@@ -46,9 +46,10 @@ function encoder_zielmasse(int $qb, int $qh, int $maxH): array
  * $a = [
  *   'eingabe' => Datei | ['lavfi' => 'testsrc2=…'],  'start_s' => float, 'dauer_s' => ?float,
  *   'quelle' => ['breite' => int, 'hoehe' => int, 'hdr' => bool, 'hw_dekodieren' => bool],
- *   'video' => ['codec' => h264|hevc|av1, 'hoehe' => int, 'bitrate_k' => int, 'tonemap' => bool],
+ *   'video' => ['codec' => h264|hevc|av1|copy, 'hoehe' => int, 'bitrate_k' => int, 'tonemap' => bool],
  *   'audio' => null | ['strom' => int, 'codec' => aac|eac3|opus|copy, 'kanaele' => int, 'bitrate_k' => int],
- *   'ziel' => ['format' => hls|null|mp4, 'ordner' => …],
+ *   'schluesselbilder' => ffmpeg-Ausdruck für -force_key_frames (Teilgrenzen), sonst alle 6 s,
+ *   'ziel' => ['format' => fmp4|null|mp4, 'datei' => …],   fmp4 = fragmentiertes MP4 auf stdout (für den Segmentierer)
  * ]
  * $hw = Ergebnis der Hardware-Erkennung (für Gerät und verfügbare Filter)
  */
@@ -62,8 +63,9 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     $q = $a['quelle'] ?? [];
     $lavfi = is_array($a['eingabe']);
     $geraet = (string) ($hw['quicksync']['geraet'] ?? '/dev/dri/renderD128');
-    [$b, $h] = encoder_zielmasse((int) ($q['breite'] ?? 0), (int) ($q['hoehe'] ?? 0), (int) $v['hoehe']);
+    [$b, $h] = encoder_zielmasse((int) ($q['breite'] ?? 0), (int) ($q['hoehe'] ?? 0), (int) ($v['hoehe'] ?? 0));
     $tonemap = !empty($v['tonemap']) && !empty($q['hdr']);
+    $kopie = ($v['codec'] ?? '') === 'copy'; // Video unverändert, nur Ton/Container neu
 
     $cmd = [$k['ffmpeg'], '-hide_banner', '-nostdin', '-y', '-loglevel', 'error'];
     $cmd = array_merge($cmd, encoder_geraet_args($profil, $geraet));
@@ -71,8 +73,8 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     $einbrennen = isset($a['einbrennen']) ? (int) $a['einbrennen'] : null; // Index des Bild-Untertitels (0:s:N)
     // Hardware-Dekodieren nur bei echten Dateien und wenn die GPU das Format kann (sonst dekodiert die CPU, kodiert die GPU).
     // Beim Einbrennen von Bild-Untertiteln dekodiert die CPU (Overlay), kodiert wird trotzdem auf der GPU.
-    $hwDekodieren = $profil === 'quicksync' && !$lavfi && !empty($q['hw_dekodieren']) && $einbrennen === null;
-    $hls = ($a['ziel']['format'] ?? '') === 'hls';
+    $hwDekodieren = $profil === 'quicksync' && !$lavfi && !empty($q['hw_dekodieren']) && $einbrennen === null && !$kopie;
+    $fmp4 = ($a['ziel']['format'] ?? '') === 'fmp4';
     $start = (float) ($a['start_s'] ?? 0);
     if ($hwDekodieren) {
         $cmd = array_merge($cmd, ['-hwaccel', 'vaapi', '-hwaccel_output_format', 'vaapi', '-hwaccel_device', 'va']);
@@ -80,8 +82,9 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     if ($start > 0) {
         $cmd = array_merge($cmd, ['-ss', sprintf('%.3f', $start)]);
     }
-    if ($hls) {
-        // Zeitstempel der Quelle behalten: Teil n beginnt genau bei n × 6 s – passt zur fertigen Wiedergabeliste, auch nach einem Neustart beim Spulen
+    if ($fmp4) {
+        // Zeitstempel der Quelle behalten: jeder Teil trägt seine echte Filmzeit – passt zur fertigen Wiedergabeliste,
+        // auch nach einem Neustart beim Spulen und quer über Teile verschiedener Encoder-Läufe (Zwischenspeicher)
         $cmd = array_merge($cmd, ['-copyts', '-start_at_zero']);
     }
     if ($lavfi) {
@@ -94,7 +97,12 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     }
 
     // ---- Video-Filter ----
-    if ($profil === 'quicksync') {
+    if ($kopie) {
+        $cmd = array_merge($cmd, ['-map', '0:v:0', '-c:v', 'copy']);
+        if (strtolower((string) ($q['video_codec'] ?? '')) === 'hevc') {
+            $cmd = array_merge($cmd, ['-tag:v', 'hvc1']); // Apple/Safari spielt HEVC nur mit hvc1
+        }
+    } elseif ($profil === 'quicksync') {
         $kette = $hwDekodieren ? ['hwmap=derive_device=qsv', 'format=qsv'] : ['format=' . ($tonemap ? 'p010le' : 'nv12'), 'hwupload=extra_hw_frames=64'];
         $vpp = 'vpp_qsv=' . ($b > 0 ? 'w=' . $b . ':h=' . $h : 'h=' . $h) . ':format=nv12';
         if ($tonemap) {
@@ -111,7 +119,9 @@ function encoder_befehl(string $profil, array $a, array $hw): array
         $kette[] = 'scale=' . ($b > 0 ? $b . ':' . $h : '-2:' . $h) . ':flags=lanczos';
         $kette[] = 'format=yuv420p';
     }
-    if ($einbrennen !== null) {
+    if ($kopie) {
+        // nichts weiter: Video bleibt, wie es ist
+    } elseif ($einbrennen !== null) {
         // Bild-Untertitel (PGS/VobSub) über das Bild legen, dann wie gewohnt weiter
         $cmd = array_merge($cmd, ['-filter_complex', '[0:v:0][0:s:' . $einbrennen . ']overlay=eof_action=pass,' . implode(',', $kette) . '[v]', '-map', '[v]']);
     } else {
@@ -119,22 +129,24 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     }
 
     // ---- Video-Encoder ----
-    $bitrate = max(500, (int) $v['bitrate_k']);
-    $cmd = array_merge($cmd, ['-c:v', encoder_name($profil, (string) $v['codec'])]);
-    if ($profil === 'quicksync') {
-        $cmd = array_merge($cmd, ['-preset', 'veryfast', '-look_ahead', '0']);
-    } elseif ($v['codec'] === 'av1') {
-        $cmd = array_merge($cmd, ['-preset', '10']);
-    } else {
-        $cmd = array_merge($cmd, ['-preset', 'veryfast']);
-    }
-    $cmd = array_merge($cmd, [
-        '-b:v', $bitrate . 'k', '-maxrate', (int) ($bitrate * 1.5) . 'k', '-bufsize', ($bitrate * 2) . 'k',
-        // feste Schlüsselbilder alle 6 s ab dem Startpunkt (t zählt ab dem ersten Bild) = HLS-Segmentgrenzen
-        '-force_key_frames', 'expr:gte(t,n_forced*6)',
-    ]);
-    if ($v['codec'] === 'hevc') {
-        $cmd = array_merge($cmd, ['-tag:v', 'hvc1']); // Apple/Safari spielt HEVC nur mit hvc1
+    if (!$kopie) {
+        $bitrate = max(500, (int) $v['bitrate_k']);
+        $cmd = array_merge($cmd, ['-c:v', encoder_name($profil, (string) $v['codec'])]);
+        if ($profil === 'quicksync') {
+            $cmd = array_merge($cmd, ['-preset', 'veryfast', '-look_ahead', '0']);
+        } elseif ($v['codec'] === 'av1') {
+            $cmd = array_merge($cmd, ['-preset', '10']);
+        } else {
+            $cmd = array_merge($cmd, ['-preset', 'veryfast']);
+        }
+        $cmd = array_merge($cmd, [
+            '-b:v', $bitrate . 'k', '-maxrate', (int) ($bitrate * 1.5) . 'k', '-bufsize', ($bitrate * 2) . 'k',
+            // Schlüsselbilder genau an den Teilgrenzen (t zählt ab dem ersten Bild); ohne Vorgabe alle 6 s
+            '-force_key_frames', (string) ($a['schluesselbilder'] ?? 'expr:gte(t,n_forced*6)'),
+        ]);
+        if ($v['codec'] === 'hevc') {
+            $cmd = array_merge($cmd, ['-tag:v', 'hvc1']); // Apple/Safari spielt HEVC nur mit hvc1
+        }
     }
 
     // ---- Ton ----
@@ -158,16 +170,12 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     // ---- Ziel ----
     $z = $a['ziel'] ?? ['format' => 'null'];
     switch ($z['format']) {
-        case 'hls':
-            $o = rtrim((string) $z['ordner'], '/');
-            // temp_file: Teile erscheinen erst fertig geschrieben – „Datei da“ heißt „Teil vollständig“
+        case 'fmp4':
+            // fragmentiertes MP4 auf stdout: ~1-s-Fragmente, neues Fragment an jedem Schlüsselbild (= Teilgrenze).
+            // delay_moov: AC3/E-AC3 unverändert geht nur so; frag_discont + avoid_negative_ts: echte Zeitstempel (tfdt)
             $cmd = array_merge($cmd, [
-                '-max_muxing_queue_size', '2048',
-                // frag_discont: echte Zeitstempel (tfdt) auch nach einem Neustart mitten im Film, ohne Edit-Liste
-                '-f', 'hls', '-hls_time', '6', '-hls_playlist_type', 'event', '-hls_segment_type', 'fmp4', '-hls_flags', 'temp_file',
-                '-hls_segment_options', 'movflags=+frag_discont',
-                '-hls_fmp4_init_filename', 'init.mp4', '-hls_segment_filename', $o . '/teil_%05d.m4s',
-                '-start_number', (string) (int) ($z['start_nummer'] ?? 0), $o . '/ffmpeg.m3u8',
+                '-max_muxing_queue_size', '4096', '-avoid_negative_ts', 'disabled',
+                '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+delay_moov+default_base_moof+frag_discont', '-frag_duration', '1000000', 'pipe:1',
             ]);
             break;
         case 'mp4':

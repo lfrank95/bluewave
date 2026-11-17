@@ -29,6 +29,8 @@ function faehigkeiten() {
         container: { mp4: true, webm: v.canPlayType('video/webm') !== '', mkv: false },
         hdr: window.matchMedia('(dynamic-range: high)').matches && video.hevc,
         hls: hlsNativ() ? 'nativ' : (window.MediaSource ? 'mse' : false),
+        // ohne MediaSource bekommt das Gerät statt des fortlaufenden Direct-Stream-Stroms HLS mit unverändertem Video
+        mse: mseVerfuegbar(),
         max_hoehe: Math.round(Math.max(screen.width, screen.height) * dpr * 9 / 16),
         // Direct Stream (Video unverändert, fortlaufendes fragmentiertes MP4) kann jeder Browser
         remux: true,
@@ -161,6 +163,19 @@ class Player {
         v.addEventListener('timeupdate', () => this.zeitAktualisieren());
         v.addEventListener('progress', () => this.zeitAktualisieren());
         v.addEventListener('ended', () => this.ende());
+        // Umwandeln: beim Spulen außerhalb des Puffers dem Server gleich die Zielzeit melden – er startet den Encoder dort,
+        // noch bevor hls.js den passenden Teil anfragt (kurz entprellt, damit Ziehen auf der Zeitleiste nicht flutet)
+        v.addEventListener('seeking', () => {
+            if (this.daten?.modus !== 'hls' || !this.daten.sitzung) return;
+            const t = v.currentTime;
+            for (let i = 0; i < v.buffered.length; i++) if (t >= v.buffered.start(i) && t <= v.buffered.end(i) - 0.5) return;
+            clearTimeout(this.vorstartUhr);
+            const sitzung = this.daten.sitzung;
+            this.vorstartUhr = setTimeout(() => {
+                if (this.daten?.sitzung !== sitzung) return;
+                api(`stream/${sitzung}/vorstart`, 'POST', { zeit: t }).then((r) => diag('vorstart', { zeit: +t.toFixed(1), teil: r.teil })).catch(() => {});
+            }, 120);
+        });
         // Direct Stream: natives Spulen (Medientasten, Systemsteuerung) außerhalb des Puffers → Strom neu starten
         v.addEventListener('seeking', () => {
             if (this.daten?.modus !== 'remux' || this.remuxNr === undefined || this.mse) return;
@@ -273,7 +288,7 @@ class Player {
         this.titelEl.replaceChildren(d.info.untertitel ? el('small', d.info.titel) : null, el('b', d.info.untertitel ? String(d.info.untertitel) : d.info.titel));
         this.naechsteKnopf.hidden = !d.naechste;
         this.qualitaetKnopf.firstChild.textContent = this.qualitaetText(d);
-        this.qualitaetKnopf.classList.toggle('original', d.modus !== 'hls');
+        this.qualitaetKnopf.classList.toggle('original', d.modus !== 'hls' || !!d.transkodierung?.kopie);
         this.markerZeichnen();
         this.introUebersprungen = false;
         this.naechsteGezeigt = false;
@@ -303,8 +318,22 @@ class Player {
         } else if (d.modus === 'hls') {
             let Hls;
             try { Hls = await hlsJs(); } catch (x) { this.fehler(x.message); return; }
-            this.hls = new Hls({ startPosition: start, maxBufferLength: 60, backBufferLength: 90, fragLoadingTimeOut: 60000, manifestLoadingTimeOut: 20000,
-                fragLoadingMaxRetry: 4, xhrSetup: (xhr) => { xhr.withCredentials = true; if (diagKennung()) xhr.setRequestHeader('X-Bluewave-Diag', diagKennung()); } });
+            // progressive: Teile kommen beim Umwandeln schon, während sie entstehen – hls.js hängt jedes Fragment sofort an,
+            // statt auf den ganzen Teil zu warten (Fragmente laden per fetch, deshalb auch fetchSetup für die Diagnose-Kennung)
+            this.hls = new Hls({ startPosition: start, progressive: true, maxBufferLength: 60, backBufferLength: 90, fragLoadingTimeOut: 60000,
+                manifestLoadingTimeOut: 20000, fragLoadingMaxRetry: 4,
+                xhrSetup: (xhr) => { xhr.withCredentials = true; if (diagKennung()) xhr.setRequestHeader('X-Bluewave-Diag', diagKennung()); },
+                fetchSetup: (ctx, init) => {
+                    const kopf = new Headers(init?.headers || {});
+                    if (diagKennung()) kopf.set('X-Bluewave-Diag', diagKennung());
+                    return new Request(ctx.url, { ...init, headers: kopf, credentials: 'same-origin' });
+                } });
+            let letzterTeil = -1;
+            this.hls.on(Hls.Events.FRAG_LOADING, (_, x) => {
+                // Sprünge sichtbar machen: welcher Teil wird nach einem Spulen angefragt?
+                if (typeof x.frag.sn === 'number' && x.frag.sn !== letzterTeil + 1) diag('hls_teil_anfrage', { nr: x.frag.sn, ab_s: +x.frag.start.toFixed(1), vorher: letzterTeil });
+                if (typeof x.frag.sn === 'number') letzterTeil = x.frag.sn;
+            });
             this.hls.on(Hls.Events.FRAG_LOADED, (_, x) => {
                 const st = x.frag.stats || x.stats || {};
                 const dauer = (st.loading?.end || 0) - (st.loading?.start || 0);
@@ -594,9 +623,9 @@ class Player {
     }
 
     qualitaetText(d) {
-        if (d.modus === 'hls') return `${d.transkodierung.hoehe}p`;
+        if (d.modus === 'hls' && !d.transkodierung?.kopie) return `${d.transkodierung.hoehe}p`;
         const h = d.quelle?.hoehe || 0;
-        return (h >= 2000 ? '4K' : h ? `${h >= 1040 ? 1080 : h >= 700 ? 720 : h}p` : 'Original') + (d.modus === 'remux' ? ' · DS' : '');
+        return (h >= 2000 ? '4K' : h ? `${h >= 1040 ? 1080 : h >= 700 ? 720 : h}p` : 'Original') + (d.modus === 'remux' || d.transkodierung?.kopie ? ' · DS' : '');
     }
 
     // ---------- Panels ----------
@@ -624,6 +653,7 @@ class Player {
             const quelleText = [q.hoehe ? `${q.hoehe}p` : null, q.video_codec, q.hdr ? 'HDR' : null, q.bitrate_k ? `${(q.bitrate_k / 1000).toFixed(1).replace('.', ',')} Mbit/s` : null,
                 q.container ? q.container.toUpperCase() : null].filter(Boolean).join(' · ');
             const info = d.modus === 'direkt' ? 'Direct Play – die Datei läuft unverändert.'
+                : d.transkodierung?.kopie ? `Direct Stream (HLS) – Bild unverändert, ${{ copy: 'Ton unverändert', eac3: 'Ton nach Dolby Digital Plus', aac: 'Ton nach AAC' }[d.transkodierung.ton] || 'Ton umgewandelt'}, in Teilen geliefert${d.grund ? ` (${d.grund})` : ''}.`
                 : d.modus === 'remux' ? `Direct Stream – Bild unverändert, ${{ copy: 'Ton unverändert', eac3: 'Ton nach Dolby Digital Plus', aac: 'Ton nach AAC' }[d.remux.audio] || 'Ton umgewandelt'}, nur der Container wird angepasst${d.grund ? ` (${d.grund})` : ''}.`
                 : `Umgewandelt: ${d.transkodierung.hoehe}p · ${(d.transkodierung.bitrate_k / 1000).toString().replace('.', ',')} Mbit/s · ${d.transkodierung.profil}`
                     + (d.transkodierung.tonemap ? ' · HDR→SDR' : '') + (d.grund ? ` (Grund: ${d.grund})` : '');
@@ -637,7 +667,7 @@ class Player {
                 el('h3', 'Qualität'),
                 qualitaet,
                 el('div.info-text', info, quelleText ? el('div', 'Quelle: ' + quelleText) : null),
-                d.modus !== 'hls' ? wahl('Umwandeln erzwingen', false, () => this.neuStarten({ erzwinge_transkodieren: true })) : null,
+                d.modus !== 'hls' || d.transkodierung?.kopie ? wahl('Umwandeln erzwingen', false, () => this.neuStarten({ erzwinge_transkodieren: true })) : null,
                 wahl('Diagnose anzeigen', !!this.diagLiveAus, () => { this.panelEl.hidden = true; this.diagLive(); }, 'Taste I'),
                 el('h3', 'Nachtmodus'),
                 ['aus', 'leicht', 'stark'].map((n) => wahl({ aus: 'Aus (Ton unverändert)', leicht: 'Leicht', stark: 'Stark' }[n], this.nacht === n, () => { this.nacht = n; this.tonKette(); this.panel('einstellungen'); this.panel('einstellungen'); })),

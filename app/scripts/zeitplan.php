@@ -6,6 +6,8 @@ require_once __DIR__ . '/../includes/wiedergabe.php';
 
 try {
     sitzungen_aufraeumen();
+    // Zwischenspeicher der umgewandelten Teile unter seiner Obergrenze halten
+    hls_zwischenspeicher_aufraeumen(hls_limit_bytes((int) (server_einstellungen()['hls_zwischenspeicher_gb'] ?? 0)));
     db_tun('DELETE FROM kopplungen WHERE erstellt_am < NOW() - INTERVAL 15 MINUTE');
     $min = (int) server_einstellungen()['scan_minuten'];
     $letzter = strtotime((string) (system_wert('letzter_scan') ?? '')) ?: 0;

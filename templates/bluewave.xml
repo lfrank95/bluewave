@@ -14,7 +14,7 @@ All-in-One: MariaDB ist enthalten, kein zweiter Container nötig. Filme- und Ser
   <WebUI>http://[IP]:[PORT:80]/</WebUI>
   <TemplateURL>https://raw.githubusercontent.com/lfrank95/bluewave/main/templates/bluewave.xml</TemplateURL>
   <Icon>https://raw.githubusercontent.com/lfrank95/bluewave/main/templates/bluewave.png</Icon>
-  <ExtraParams>--stop-timeout=60 --security-opt no-new-privileges:true</ExtraParams>
+  <ExtraParams>--init --stop-timeout=60 --security-opt no-new-privileges:true</ExtraParams>
   <PostArgs/>
   <Config Name="Web UI port" Target="80" Default="9960" Mode="tcp" Description="Port der Web-App und der Apps." Type="Port" Display="always" Required="true" Mask="false">9960</Config>
   <Config Name="Filme" Target="/filme" Default="/mnt/user/media/filme" Mode="ro" Description="Deine Filme. Nur lesend, solange Plex parallel läuft – fürs Aufräumen später auf rw stellen." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/media/filme</Config>

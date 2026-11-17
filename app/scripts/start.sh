@@ -66,6 +66,7 @@ ls /dev/dri/renderD* >/dev/null 2>&1 && echo "Grafik: $(ls /dev/dri/renderD* | t
 mkdir -p "$CACHE_DIR/bilder" "$CACHE_DIR/tmp" "$CACHE_DIR/geheimnisse" "$BACKUP_DIR" "$TRANS_DIR"
 chmod 700 "$CACHE_DIR/geheimnisse"
 rm -rf "$TRANS_DIR"/sitzung-* 2>/dev/null   # Reste abgebrochener Transkodierungen
+find "$TRANS_DIR/teile" \( -name '*.part' -o -name '*.tmp' \) -delete 2>/dev/null   # halbe Teile (der Zwischenspeicher selbst bleibt)
 for d in "$CACHE_DIR" "$BACKUP_DIR" "$TRANS_DIR" /var/www/html; do
     [ -d "$d" ] && find "$d" -not -path /var/www/html/scripts -not -path '/var/www/html/scripts/*.sh' \
         \( ! -user www-data -o ! -group "$WEB_GRUPPE" \) -exec chown www-data:"$WEB_GRUPPE" {} + 2>/dev/null

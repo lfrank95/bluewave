@@ -1,14 +1,13 @@
 <?php
-// Wiedergabe: Welche Datei, Direct Play oder Transkodieren, HLS-Sitzungen (Teile auf Abruf, Neustart beim Spulen,
-// Drosseln, wenn der Encoder zu weit vorauseilt), Untertitel als WebVTT, Fortschritt.
+// Wiedergabe: Welche Datei, Direct Play, Direct Stream oder Umwandeln (HLS-Sitzungen in hls.php), Untertitel als WebVTT, Fortschritt.
 declare(strict_types=1);
 require_once __DIR__ . '/hardware.php';
 require_once __DIR__ . '/bibliothek.php';
 require_once __DIR__ . '/auth.php';
 require_once __DIR__ . '/diagnose.php';
 require_once __DIR__ . '/remux.php';
-
-const TEIL_SEKUNDEN = 6;
+require_once __DIR__ . '/hls.php';
+require_once __DIR__ . '/schluesselbilder.php';
 
 const BITRATE_JE_HOEHE = [2160 => 20000, 1440 => 12000, 1080 => 8000, 720 => 4000, 480 => 1500];
 
@@ -243,6 +242,36 @@ function wiedergabe_starten(array $konto, array $w): array
     // ---- Direct Stream: Video unverändert, nur Container (und ggf. Ton) neu ----
     if (empty($w['erzwinge_transkodieren']) && !empty($w['faehigkeiten']['remux'])) {
         [$rm, , $tonModus] = remux_moeglich($d, $ton, (array) $w['faehigkeiten'], $grenze, $ut, $tonIndex);
+        // Geräte ohne MediaSource (iPhone, manche Fernseher-Browser) können den fortlaufenden Strom nicht sauber spulen:
+        // dort dasselbe als HLS – Video unverändert, nur Ton/Container neu, Teile an den Schlüsselbildern der Quelle
+        if ($rm && ($w['faehigkeiten']['mse'] ?? true) === false && ($w['faehigkeiten']['hls'] ?? '') === 'nativ'
+            && ($schl = schluesselbilder((string) $d['pfad'], (string) $d['container'])) !== null) {
+            $kan = 2;
+            foreach ($ton as $t) {
+                if ((int) $t['strom_index'] === $tonIndex) {
+                    $kan = max(1, (int) $t['kanaele']);
+                }
+            }
+            $audio = !$ton ? null : ($tonModus === 'copy' ? ['strom' => $tonIndex, 'codec' => 'copy']
+                : ['strom' => $tonIndex, 'codec' => $tonModus, 'kanaele' => min(6, $kan), 'bitrate_k' => $tonModus === 'eac3' ? ($kan > 2 ? 640 : 256) : ($kan > 2 ? 384 : 192)]);
+            $auftrag = [
+                'eingabe' => $d['pfad'],
+                'quelle' => ['breite' => (int) $d['breite'], 'hoehe' => (int) $d['hoehe'], 'hdr' => false, 'video_codec' => strtolower((string) $d['video_codec'])],
+                'video' => ['codec' => 'copy'],
+                'audio' => $audio,
+                'einbrennen' => null,
+            ];
+            $hw = hw_lesen() ?? hw_erkennen();
+            $sitzung = hls_sitzung_anlegen($konto, $d, $auftrag, (string) $hw['aktiv'], (string) ($w['sitzung_alt'] ?? ''), 'kopie', $schl,
+                $start / 1000, hls_limit_bytes((int) (server_einstellungen()['hls_zwischenspeicher_gb'] ?? 0)));
+            $antwort['modus'] = 'hls';
+            $antwort['url'] = '/api/v1/stream/' . $sitzung . '/index.m3u8';
+            $antwort['sitzung'] = $sitzung;
+            $antwort['grund'] = $grund;
+            $antwort['transkodierung'] = ['profil' => 'Video unverändert', 'hoehe' => (int) $d['hoehe'], 'bitrate_k' => (int) round((int) $d['bitrate'] / 1000),
+                'tonemap' => false, 'eingebrannt' => false, 'kopie' => true, 'ton' => $tonModus];
+            return $antwort;
+        }
         if ($rm) {
             $kan = 2;
             foreach ($ton as $t) {
@@ -287,7 +316,8 @@ function wiedergabe_starten(array $konto, array $w): array
         'audio' => $ton ? ton_ziel($ton, $tonIndex, (array) ($w['faehigkeiten'] ?? [])) + ['strom' => $tonIndex] : null,
         'einbrennen' => $einbrennen,
     ];
-    $sitzung = hls_sitzung_anlegen($konto, $d, $auftrag, (string) $hw['aktiv'], (string) ($w['sitzung_alt'] ?? ''));
+    $sitzung = hls_sitzung_anlegen($konto, $d, $auftrag, (string) $hw['aktiv'], (string) ($w['sitzung_alt'] ?? ''), 'umwandeln', null,
+        $start / 1000, hls_limit_bytes((int) (server_einstellungen()['hls_zwischenspeicher_gb'] ?? 0)));
     $antwort['modus'] = 'hls';
     $antwort['url'] = '/api/v1/stream/' . $sitzung . '/index.m3u8';
     $antwort['sitzung'] = $sitzung;
@@ -327,285 +357,6 @@ function marker_fuer(int $dateiId): array
         $aus[$m['art']] = ['start_ms' => (int) $m['start_ms'], 'ende_ms' => (int) $m['ende_ms'], 'quelle' => $m['quelle']];
     }
     return $aus;
-}
-
-// ---------- HLS-Sitzungen ----------
-
-function sitzung_ordner(string $id): string
-{
-    if (!preg_match('/^[a-f0-9]{24}$/', $id)) {
-        throw new RuntimeException('Ungültige Sitzung.');
-    }
-    return konfig()['pfade']['transkodieren'] . '/sitzung-' . $id;
-}
-
-function sitzung_meta(string $id): ?array
-{
-    $m = @json_decode((string) @file_get_contents(sitzung_ordner($id) . '/meta.json'), true);
-    return is_array($m) ? $m : null;
-}
-
-function sitzung_meta_schreiben(string $id, array $m): void
-{
-    bw_schreiben(sitzung_ordner($id) . '/meta.json', (string) json_encode($m, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-}
-
-function hls_sitzung_anlegen(array $konto, array $datei, array $auftrag, string $profil, string $alt): string
-{
-    // alte Sitzung desselben Players beenden; zu viele gleichzeitige? Älteste des Nutzers beenden
-    if ($alt !== '' && preg_match('/^[a-f0-9]{24}$/', $alt)) {
-        sitzung_beenden($alt, (int) $konto['id']);
-    }
-    $max = konfig()['transkodieren']['max_gleichzeitig'];
-    $laufend = sitzungen_alle();
-    if (count($laufend) >= $max) {
-        usort($laufend, static fn($a, $b) => $a['zuletzt'] <=> $b['zuletzt']);
-        foreach ($laufend as $s) {
-            if (time() - $s['zuletzt'] > 60) {
-                sitzung_beenden($s['id']);
-                break;
-            }
-        }
-        if (count(sitzungen_alle()) >= $max) {
-            throw new RuntimeException('Gerade laufen schon ' . $max . ' Umwandlungen – bitte später noch einmal.');
-        }
-    }
-    $id = bin2hex(random_bytes(12));
-    $o = sitzung_ordner($id);
-    @mkdir($o, 0775, true);
-    $dauer = max(1.0, (int) $datei['dauer_ms'] / 1000);
-    sitzung_meta_schreiben($id, [
-        'id' => $id, 'konto_id' => (int) $konto['id'], 'datei_id' => (int) $datei['id'], 'auftrag' => $auftrag, 'profil' => $profil,
-        'dauer_s' => $dauer, 'teile' => (int) ceil($dauer / TEIL_SEKUNDEN), 'pid' => null, 'start_teil' => null, 'erstellt' => time(),
-    ]);
-    @touch($o . '/aktiv');
-    return $id;
-}
-
-function sitzungen_alle(): array
-{
-    $aus = [];
-    foreach (glob(konfig()['pfade']['transkodieren'] . '/sitzung-*', GLOB_ONLYDIR) ?: [] as $d) {
-        $id = substr(basename($d), 8);
-        $m = @json_decode((string) @file_get_contents($d . '/meta.json'), true);
-        $aus[] = ['id' => $id, 'konto_id' => (int) ($m['konto_id'] ?? 0), 'zuletzt' => (int) @filemtime($d . '/aktiv'), 'pid' => $m['pid'] ?? null];
-    }
-    return $aus;
-}
-
-function prozess_laeuft(?int $pid): bool
-{
-    if (!$pid || !posix_kill($pid, 0)) {
-        return false;
-    }
-    $cmd = (string) @file_get_contents("/proc/$pid/cmdline");
-    $stat = (string) @file_get_contents("/proc/$pid/stat");
-    // Zombie zählt nicht
-    if (preg_match('/^\d+ \(.*\) Z/', $stat)) {
-        return false;
-    }
-    return str_contains($cmd, 'ffmpeg');
-}
-
-function encoder_stoppen(?int $pid): void
-{
-    if (!$pid || !prozess_laeuft($pid)) {
-        return;
-    }
-    // SIGKILL statt SIGTERM: ffmpeg soll den angefangenen Teil NICHT abschließen (sonst entstünde ein zu kurzer Teil).
-    // Dank temp_file bleibt der halbe Teil eine .tmp-Datei und wird verworfen.
-    posix_kill($pid, SIGKILL);
-    for ($i = 0; $i < 40 && prozess_laeuft($pid); $i++) {
-        usleep(25000);
-    }
-}
-
-function sitzung_beenden(string $id, ?int $kontoId = null): void
-{
-    $m = sitzung_meta($id);
-    if (!$m || ($kontoId !== null && (int) $m['konto_id'] !== $kontoId)) {
-        return;
-    }
-    encoder_stoppen($m['pid'] ? (int) $m['pid'] : null);
-    $o = sitzung_ordner($id);
-    foreach (glob($o . '/*') ?: [] as $f) {
-        @unlink($f);
-    }
-    @rmdir($o);
-}
-
-/** Encoder ab Teil $n (neu) starten */
-function encoder_starten(string $id, array &$m, int $n): void
-{
-    encoder_stoppen($m['pid'] ? (int) $m['pid'] : null);
-    $o = sitzung_ordner($id);
-    @unlink($o . '/ffmpeg.m3u8');
-    foreach (glob($o . '/*.tmp') ?: [] as $t) {
-        @unlink($t);
-    }
-    $a = $m['auftrag'];
-    $a['start_s'] = $n * TEIL_SEKUNDEN;
-    $a['ziel'] = ['format' => 'hls', 'ordner' => $o, 'start_nummer' => $n];
-    $hw = hw_lesen() ?? [];
-    $cmd = encoder_befehl((string) $m['profil'], $a, $hw);
-    $zeile = 'exec ' . implode(' ', array_map('escapeshellarg', $cmd));
-    $pid = (int) trim((string) shell_exec('setsid sh -c ' . escapeshellarg($zeile) . ' > ' . escapeshellarg($o . '/ffmpeg.log') . ' 2>&1 < /dev/null & echo $!'));
-    $m['pid'] = $pid ?: null;
-    $m['start_teil'] = $n;
-    $m['generation'] = (int) ($m['generation'] ?? 0) + 1;
-    $m['geraeumt_bis'] = min((int) ($m['geraeumt_bis'] ?? 0), max(0, $n - TEILE_BEHALTEN));
-    $m['gestoppt'] = false;
-    sitzung_meta_schreiben($id, $m);
-}
-
-/** Höchster fertiger Teil ab $n ohne Lücke (oder $n-1, wenn Teil $n fehlt) */
-/** So viele Teile hinter der Wiedergabe bleiben liegen (100 × 6 s = 10 Minuten zum Zurückspulen ohne Neuberechnung) */
-const TEILE_BEHALTEN = 100;
-
-function hoechster_fertiger(string $o, int $n, int $teile): int
-{
-    $i = $n;
-    while ($i < $teile && is_file(sprintf('%s/teil_%05d.m4s', $o, $i))) {
-        $i++;
-    }
-    return $i - 1;
-}
-
-/** Wiedergabeliste: alle Teile von Anfang an (VOD) – Spulen springt einfach zum passenden Teil */
-function hls_playlist(string $id): string
-{
-    $m = sitzung_meta($id) ?? throw new RuntimeException('Sitzung abgelaufen.');
-    @touch(sitzung_ordner($id) . '/aktiv');
-    $z = ["#EXTM3U", "#EXT-X-VERSION:7", "#EXT-X-TARGETDURATION:" . TEIL_SEKUNDEN, "#EXT-X-MEDIA-SEQUENCE:0", "#EXT-X-PLAYLIST-TYPE:VOD",
-        "#EXT-X-INDEPENDENT-SEGMENTS", '#EXT-X-MAP:URI="init.mp4"'];
-    $rest = (float) $m['dauer_s'];
-    for ($i = 0; $i < $m['teile']; $i++) {
-        $l = min(TEIL_SEKUNDEN, $rest);
-        $rest -= $l;
-        $z[] = sprintf('#EXTINF:%.3f,', max(0.04, $l));
-        $z[] = 'teil/' . $i . '.m4s';
-    }
-    $z[] = '#EXT-X-ENDLIST';
-    return implode("\n", $z) . "\n";
-}
-
-/** Pfad eines fertigen Teils (bzw. init.mp4); startet/steuert den Encoder nach Bedarf */
-/** Eine Teil-Anfrage, die von einem späteren Sprung überholt wurde */
-class TeilUeberholt extends RuntimeException
-{
-}
-
-function hls_teil(string $id, ?int $n): string
-{
-    $o = sitzung_ordner($id);
-    $sperre = fopen($o . '/sperre', 'c');
-    if (!$sperre) {
-        throw new RuntimeException('Sitzung abgelaufen.');
-    }
-    @touch($o . '/aktiv');
-    $ziel = $n === null ? $o . '/init.mp4' : sprintf('%s/teil_%05d.m4s', $o, $n);
-    $nr = $n ?? 0;
-    $ende = microtime(true) + 25;
-    // Generation des Encoders beim Eintreffen: Hat inzwischen eine andere Anfrage neu gestartet (Spulen),
-    // darf diese (vermutlich vom Browser längst abgebrochene) Anfrage den Encoder nicht zurücksetzen –
-    // sonst springt er zwischen alter und neuer Stelle hin und her und keine Seite bekommt ihren Teil.
-    $generation = null;
-    while (microtime(true) < $ende) {
-        flock($sperre, LOCK_EX);
-        $m = sitzung_meta($id) ?? throw new RuntimeException('Sitzung abgelaufen.');
-        if ($nr >= $m['teile']) {
-            flock($sperre, LOCK_UN);
-            throw new RuntimeException('Teil gibt es nicht.');
-        }
-        $laeuft = prozess_laeuft($m['pid'] ? (int) $m['pid'] : null);
-        $generation ??= (int) ($m['generation'] ?? 0);
-        // Wie weit ist der laufende Encoder? Zusammenhängend fertige Teile ab seinem Start – bzw. ab der Aufräumgrenze,
-        // denn darunter sind ältere Teile schon gelöscht. (NICHT ab dem angefragten Teil: dann gälte jeder fehlende
-        // Teil, egal wie weit weg, als „gleich fertig“ und ein weiter Sprung würde nie neu starten.)
-        $hoechster = $m['start_teil'] !== null
-            ? hoechster_fertiger($o, max((int) $m['start_teil'], (int) ($m['geraeumt_bis'] ?? 0)), (int) $m['teile']) : -1;
-        // init.mp4 gilt erst als fertig, wenn ffmpeg den ersten Teil abgeschlossen hat (vorher kann sie leer bzw. halb geschrieben sein)
-        $fertig = is_file($ziel) && ($n !== null || (filesize($ziel) > 0 && (glob($o . '/teil_*.m4s') ?: [])));
-        clearstatcache();
-        if ($fertig) {
-            // Drosseln: Encoder pausieren, wenn er über 3 Minuten voraus ist; weiter, wenn der Abstand schrumpft
-            if ($laeuft && $n !== null) {
-                $vorsprung = $hoechster - $n;
-                if ($vorsprung > 30 && empty($m['gestoppt'])) {
-                    posix_kill((int) $m['pid'], SIGSTOP);
-                    $m['gestoppt'] = true;
-                    sitzung_meta_schreiben($id, $m);
-                } elseif ($vorsprung < 15 && !empty($m['gestoppt'])) {
-                    posix_kill((int) $m['pid'], SIGCONT);
-                    $m['gestoppt'] = false;
-                    sitzung_meta_schreiben($id, $m);
-                }
-            }
-            // Teile weit hinter der Wiedergabe löschen: hält den Transkodier-Ordner klein (passt in den RAM);
-            // springt jemand weiter zurück, wird der Teil einfach neu erzeugt
-            if ($n !== null && $n - TEILE_BEHALTEN > (int) ($m['geraeumt_bis'] ?? 0)) {
-                for ($i = (int) ($m['geraeumt_bis'] ?? 0); $i < $n - TEILE_BEHALTEN; $i++) {
-                    @unlink(sprintf('%s/teil_%05d.m4s', $o, $i));
-                }
-                $m['geraeumt_bis'] = $n - TEILE_BEHALTEN;
-                sitzung_meta_schreiben($id, $m);
-            }
-            flock($sperre, LOCK_UN);
-            fclose($sperre);
-            return $ziel;
-        }
-        // Teil fehlt: Encoder läuft und ist kurz davor? Dann warten. Sonst ab hier neu starten.
-        $baldDa = $laeuft && $m['start_teil'] !== null && $nr >= (int) $m['start_teil'] && $nr <= $hoechster + 4;
-        if ($n === null && $laeuft) {
-            $baldDa = true; // init.mp4: einfach auf den laufenden Encoder warten
-        }
-        if (!$baldDa && (int) ($m['generation'] ?? 0) !== $generation) {
-            flock($sperre, LOCK_UN);
-            fclose($sperre);
-            diag('hls_ueberholt', ['teil' => $nr, 'encoder_ab' => $m['start_teil']]);
-            throw new TeilUeberholt('Überholt – inzwischen wurde woanders hingesprungen.');
-        }
-        if (!$baldDa) {
-            $alt = $m['start_teil'];
-            encoder_starten($id, $m, $nr);
-            $generation = (int) $m['generation'];
-            diag('hls_neustart', ['teil' => $nr, 'ab_s' => $nr * TEIL_SEKUNDEN, 'vorher_ab_teil' => $alt, 'fertig_bis' => $hoechster]);
-        } elseif (!empty($m['gestoppt'])) {
-            posix_kill((int) $m['pid'], SIGCONT);
-            $m['gestoppt'] = false;
-            sitzung_meta_schreiben($id, $m);
-        }
-        flock($sperre, LOCK_UN);
-        // Encoder abgestürzt? Fehler zurückgeben statt endlos warten
-        usleep(150000);
-        $m2 = sitzung_meta($id);
-        if ($m2 && !prozess_laeuft($m2['pid'] ? (int) $m2['pid'] : null) && !is_file($ziel)) {
-            usleep(300000);
-            clearstatcache();
-            if (!is_file($ziel)) {
-                $log = trim((string) @file_get_contents($o . '/ffmpeg.log'));
-                fclose($sperre);
-                throw new RuntimeException('Umwandlung fehlgeschlagen' . ($log !== '' ? ': ' . mb_substr($log, -400) : ''));
-            }
-        }
-    }
-    fclose($sperre);
-    $m = sitzung_meta($id) ?? [];
-    diag('hls_zeitueberschreitung', ['teil' => $nr, 'encoder_ab' => $m['start_teil'] ?? null, 'laeuft' => prozess_laeuft(($m['pid'] ?? null) ? (int) $m['pid'] : null)]);
-    throw new RuntimeException('Zeitüberschreitung beim Umwandeln.');
-}
-
-/** Liegengebliebene Sitzungen (3 Minuten ohne Abruf) aufräumen */
-function sitzungen_aufraeumen(): int
-{
-    $n = 0;
-    foreach (sitzungen_alle() as $s) {
-        if (time() - $s['zuletzt'] > 180) {
-            sitzung_beenden($s['id']);
-            $n++;
-        }
-    }
-    return $n;
 }
 
 // ---------- Direkt abspielen und Untertitel ----------

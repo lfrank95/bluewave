@@ -530,6 +530,12 @@ try {
                 echo hls_playlist($sid);
                 exit;
             }
+            session_write_close();
+            if ($t2 === 'vorstart' && $methode === 'POST') {
+                // Player meldet beim Spulen die Zielzeit: Encoder dort schon starten, bevor hls.js den Teil anfragt
+                $n = hls_vorstart($sid, max(0.0, (float) (eingabe()['zeit'] ?? 0)));
+                bw_json(['ok' => true, 'teil' => $n]);
+            }
             $teilNr = null;
             if ($t2 === 'init.mp4') {
                 $teilNr = null;
@@ -538,22 +544,26 @@ try {
             } else {
                 fehler('Unbekannt.', 404);
             }
-            session_write_close();
             $tw = microtime(true);
-            require_once __DIR__ . '/../includes/diagnose.php';
             try {
-                $datei = hls_teil($sid, $teilNr);
+                $r = hls_teil($sid, $teilNr);
             } catch (TeilUeberholt $x) {
                 fehler($x->getMessage(), 409);
             }
             $wartezeit = (int) round((microtime(true) - $tw) * 1000);
-            if ($wartezeit > 300 || $teilNr === null || $teilNr % 10 === 0) {
-                diag('hls_teil_server', ['teil' => $teilNr ?? 'init', 'warten_auf_encoder_ms' => $wartezeit, 'kb' => (int) (filesize($datei) / 1024)]);
-            }
             header('Content-Type: ' . ($teilNr === null ? 'video/mp4' : 'video/iso.segment'));
+            if (isset($r['part'])) {
+                // Teil entsteht gerade: sofort ausliefern, was da ist, und jedes neue Fragment hinterher
+                diag('hls_teil_server', ['teil' => $teilNr, 'warten_auf_encoder_ms' => $wartezeit, 'wachsend' => true]);
+                hls_part_senden($sid, $r);
+                exit;
+            }
+            if ($wartezeit > 300 || $teilNr === null || $teilNr % 10 === 0) {
+                diag('hls_teil_server', ['teil' => $teilNr ?? 'init', 'warten_auf_encoder_ms' => $wartezeit, 'kb' => (int) (filesize($r['datei']) / 1024)]);
+            }
             header('Cache-Control: private, max-age=600');
-            header('Content-Length: ' . filesize($datei));
-            readfile($datei);
+            header('Content-Length: ' . filesize($r['datei']));
+            readfile($r['datei']);
             exit;
 
         case 'datei':

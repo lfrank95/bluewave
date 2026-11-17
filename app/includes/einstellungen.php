@@ -11,6 +11,8 @@ const SERVER_STANDARD = [
     'scan_minuten' => 15,
     'untertitel_auto' => true,
     'lokale_bilder' => true,
+    'hls_zwischenspeicher_gb' => 0,      // umgewandelte Teile aufheben: 0 = automatisch (30 % des Laufwerks, höchstens 8 GB)
+    'vorschaubilder' => true,            // Vorschaubilder für die Zeitleiste im Hintergrund erzeugen
     'untertitel_sprachen' => 'deu',
     'opensubtitles_schluessel' => '',
     'opensubtitles_benutzer' => '',

@@ -44,6 +44,86 @@ def schritt(t):
     print('==', t, flush=True)
 
 
+import struct as _struct
+
+def mp4_boxen(d, a, b):
+    i = a
+    while i + 8 <= b:
+        sz, t = _struct.unpack('>I4s', d[i:i + 8]); h = 8
+        if sz == 1:
+            sz = _struct.unpack('>Q', d[i + 8:i + 16])[0]; h = 16
+        if sz < h:
+            return
+        yield t.decode('latin1'), i + h, i + sz
+        i += sz
+
+def mp4_init(d):
+    """Video-Spur und Zeitbasen aus init.mp4"""
+    skala, video = {}, None
+    for t, a, b in mp4_boxen(d, 0, len(d)):
+        if t != 'moov':
+            continue
+        for t2, a2, b2 in mp4_boxen(d, a, b):
+            if t2 != 'trak':
+                continue
+            tid = sk = hd = None
+            for t3, a3, b3 in mp4_boxen(d, a2, b2):
+                if t3 == 'tkhd':
+                    tid = _struct.unpack('>I', d[a3 + (20 if d[a3] == 1 else 12):][:4])[0]
+                if t3 == 'mdia':
+                    for t4, a4, b4 in mp4_boxen(d, a3, b3):
+                        if t4 == 'mdhd':
+                            sk = _struct.unpack('>I', d[a4 + (20 if d[a4] == 1 else 12):][:4])[0]
+                        if t4 == 'hdlr':
+                            hd = d[a4 + 8:a4 + 12]
+            skala[tid] = sk
+            if hd == b'vide':
+                video = tid
+    return video, skala
+
+def mp4_teil_start(d, video, skala):
+    """(Startzeit des ersten Videofragments, erstes Bild ist Schlüsselbild?)"""
+    for t, a, b in mp4_boxen(d, 0, len(d)):
+        if t != 'moof':
+            continue
+        for t2, a2, b2 in mp4_boxen(d, a, b):
+            if t2 != 'traf':
+                continue
+            tid = zeit = None; flags = 0; tf_flags = 0; cto = 0
+            for t3, a3, b3 in mp4_boxen(d, a2, b2):
+                if t3 == 'tfhd':
+                    tf_flags = _struct.unpack('>I', d[a3:a3 + 4])[0] & 0xFFFFFF
+                    tid = _struct.unpack('>I', d[a3 + 4:a3 + 8])[0]
+                    p = a3 + 8 + (8 if tf_flags & 1 else 0) + (4 if tf_flags & 2 else 0) + (4 if tf_flags & 8 else 0) + (4 if tf_flags & 0x10 else 0)
+                    if tf_flags & 0x20:
+                        flags = _struct.unpack('>I', d[p:p + 4])[0]
+                if t3 == 'tfdt':
+                    zeit = _struct.unpack('>Q', d[a3 + 4:a3 + 12])[0] if d[a3] == 1 else _struct.unpack('>I', d[a3 + 4:a3 + 8])[0]
+                if t3 == 'trun':
+                    tv = d[a3]
+                    tr = _struct.unpack('>I', d[a3:a3 + 4])[0] & 0xFFFFFF
+                    q = a3 + 8 + (4 if tr & 1 else 0)
+                    if tr & 4:
+                        flags = _struct.unpack('>I', d[q:q + 4])[0]
+                        q += 4
+                    q += (4 if tr & 0x100 else 0) + (4 if tr & 0x200 else 0)
+                    if tr & 0x400:
+                        if not tr & 4:
+                            flags = _struct.unpack('>I', d[q:q + 4])[0]
+                        q += 4
+                    if tr & 0x800:
+                        cto = _struct.unpack('>i' if tv == 1 else '>I', d[q:q + 4])[0]
+            if tid == video and zeit is not None:
+                return (zeit + cto) / skala[tid], ((flags >> 16) & 1) == 0
+    return None, None
+
+def raster(dauer):
+    g, t = [], 0.0
+    while t < dauer - 0.5 or not g:
+        g.append(t)
+        t += 2 if len(g) <= 3 else 6
+    return g
+
 def pruefe(bed, text):
     if not bed:
         raise AssertionError(text)
@@ -375,6 +455,8 @@ pruefe(w['modus'] == 'hls', f'hls erwartet: {w}')
 code, body, _ = admin.roh('GET', w['url'])
 pl = body.decode()
 pruefe(code == 200 and '#EXT-X-ENDLIST' in pl and 'teil/0.m4s' in pl, 'Playlist')
+dauern = [float(z[8:].rstrip(',')) for z in pl.splitlines() if z.startswith('#EXTINF:')]
+pruefe(dauern[:4] == [2.0, 2.0, 2.0, 6.0], f'kurze Teile am Anfang (2, 2, 2, dann 6 s): {dauern[:5]}')
 basis = w['url'].rsplit('/', 1)[0]
 for teil in ['init.mp4', 'teil/0.m4s', 'teil/1.m4s', 'teil/5.m4s', 'teil/6.m4s', 'teil/2.m4s']:
     t0 = time.time()
@@ -396,6 +478,85 @@ for f in faeden:
 pruefe(ergebnisse.get(6, (0,))[0] == 200 and all(c in (200, 409) for c, *_ in ergebnisse.values()), f'Springen ohne Hin und Her: {ergebnisse}')
 print('  Springen:', ergebnisse)
 pruefe(any(x['url'] for x in w['untertitel']), 'Untertitel-Spur angeboten')
+
+schritt('Umwandeln: Teile liegen genau auf dem Raster, weite Sprünge, Vorstart, Zwischenspeicher')
+_, init, _ = admin.roh('GET', f'{basis}/init.mp4')
+video, skala = mp4_init(init)
+pruefe(video is not None, f'init.mp4 mit Videospur: {skala}')
+g = raster(w['dauer_ms'] / 1000)
+for n in (0, 1, 2, 3, 5):
+    c, body, _ = admin.roh('GET', f'{basis}/teil/{n}.m4s')
+    zeit, schluessel = mp4_teil_start(body, video, skala)
+    pruefe(c == 200 and zeit is not None and abs(zeit - g[n]) < 0.06 and schluessel, f'Teil {n} beginnt bei {g[n]} s mit Schlüsselbild: {zeit} {schluessel}')
+admin.api('DELETE', 'stream/' + w['sitzung'])
+
+# langer Film (10 min): weit springen, Encoder startet sofort dort, Zeitstempel stimmen
+wl = admin.api('POST', 'wiedergabe/start?diag=e2ehls001', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': FAEHIG, 'start_ms': 0})
+pruefe(wl['modus'] == 'hls', f'langer Film wird umgewandelt: {wl.get("modus")}')
+bl = wl['url'].rsplit('/', 1)[0]
+gl = raster(wl['dauer_ms'] / 1000)
+pruefe(len(gl) > 90, f'langer Film hat viele Teile: {len(gl)}')
+kopf = {'X-Bluewave-Diag': 'e2ehls001'}
+_, initl, _ = admin.roh('GET', f'{bl}/init.mp4', kopf=kopf)
+vl, sl = mp4_init(initl)
+c, _, _ = admin.roh('GET', f'{bl}/teil/0.m4s', kopf=kopf)
+pruefe(c == 200, f'Teil 0: {c}')
+for ziel in (80, 30, 95):
+    t0 = time.time()
+    c, body, _ = admin.roh('GET', f'{bl}/teil/{ziel}.m4s', kopf=kopf)
+    zeit, schluessel = mp4_teil_start(body, vl, sl)
+    dauer_s = time.time() - t0
+    print(f'  Sprung auf Teil {ziel} ({gl[ziel]:.0f} s): {c}, {len(body)} Bytes in {dauer_s:.1f} s')
+    pruefe(c == 200 and zeit is not None and abs(zeit - gl[ziel]) < 0.06 and schluessel and dauer_s < 15,
+           f'Sprung auf Teil {ziel}: {c} Zeit {zeit} (erwartet {gl[ziel]}) Schlüsselbild {schluessel} in {dauer_s:.1f} s')
+# Vorstart: Encoder an der Zielzeit starten, bevor der Teil angefragt wird
+r = admin.api('POST', f'stream/{wl["sitzung"]}/vorstart', {'zeit': gl[60] + 1})
+pruefe(r.get('teil') == 60, f'Vorstart startet bei Teil 60: {r}')
+time.sleep(1.5)
+t0 = time.time()
+c, body, _ = admin.roh('GET', f'{bl}/teil/60.m4s', kopf=kopf)
+print(f'  Teil 60 nach Vorstart: {c} in {time.time() - t0:.2f} s')
+pruefe(c == 200 and abs(mp4_teil_start(body, vl, sl)[0] - gl[60]) < 0.06, 'Teil 60 nach Vorstart')
+time.sleep(0.5)
+ereignisse = [e for x in admin.api('GET', 'diagnose?anzahl=30')['wiedergaben'] if x['k'] == 'e2ehls001' for e in x['ereignisse']]
+neustarts = [e['d'].get('teil') for e in ereignisse if e['e'] == 'hls_neustart']
+print('  Encoder-Neustarts:', neustarts)
+pruefe(80 in neustarts and 30 in neustarts and 95 in neustarts, f'Neustart bei jedem weiten Sprung: {neustarts}')
+admin.api('DELETE', 'stream/' + wl['sitzung'])
+# zweite Wiedergabe mit denselben Einstellungen: Teile kommen aus dem Zwischenspeicher, ohne neuen Encoder-Start
+wz = admin.api('POST', 'wiedergabe/start?diag=e2ehls002', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': FAEHIG, 'start_ms': int(gl[80] * 1000)})
+bz = wz['url'].rsplit('/', 1)[0]
+kz = {'X-Bluewave-Diag': 'e2ehls002'}
+t0 = time.time()
+for teil in ('init.mp4', 'teil/80.m4s', 'teil/81.m4s'):
+    c, body, _ = admin.roh('GET', f'{bz}/{teil}', kopf=kz)
+    pruefe(c == 200 and len(body) > 100, f'aus dem Zwischenspeicher: {teil} {c}')
+print(f'  Zwischenspeicher: init + 2 Teile in {time.time() - t0:.2f} s')
+time.sleep(0.3)
+ez = [e for x in admin.api('GET', 'diagnose?anzahl=30')['wiedergaben'] if x['k'] == 'e2ehls002' for e in x['ereignisse']]
+pruefe(not [e for e in ez if e['e'] == 'hls_neustart' and e['d'].get('teil') in (80, 81, 'init')],
+       f'kein Encoder-Neustart für Teile im Zwischenspeicher: {[e for e in ez if e["e"] == "hls_neustart"]}')
+admin.api('DELETE', 'stream/' + wz['sitzung'])
+
+schritt('Gerät ohne MediaSource (iPhone): HLS mit unverändertem Video, Teile an den Schlüsselbildern der Quelle')
+OHNE_MSE = {**FAEHIG, 'remux': True, 'mse': False, 'hls': 'nativ'}
+wk = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': OHNE_MSE, 'start_ms': 0})
+pruefe(wk['modus'] == 'hls' and (wk.get('transkodierung') or {}).get('kopie'), f'HLS mit unverändertem Video: {wk.get("modus")} {wk.get("transkodierung")}')
+bk = wk['url'].rsplit('/', 1)[0]
+c, pl, _ = admin.roh('GET', wk['url'])
+dk = [float(z[8:].rstrip(',')) for z in pl.decode().splitlines() if z.startswith('#EXTINF:')]
+# Schlüsselbilder alle 10 s → Teile von 10 s (die ersten wären 2 s, aber früher gibt es kein Schlüsselbild)
+pruefe(abs(dk[0] - 10) < 0.05 and abs(dk[1] - 10) < 0.05 and len(dk) == 60, f'Raster aus den Schlüsselbildern: {dk[:4]} … {len(dk)} Teile')
+_, ik, _ = admin.roh('GET', f'{bk}/init.mp4')
+vk, sk = mp4_init(ik)
+pruefe(b'avc1' in ik, 'Video bleibt H.264 (unverändert)')
+for n in (0, 1, 30):
+    c, body, _ = admin.roh('GET', f'{bk}/teil/{n}.m4s')
+    zeit, schluessel = mp4_teil_start(body, vk, sk)
+    pruefe(c == 200 and zeit is not None and abs(zeit - n * 10) < 0.06 and schluessel, f'Teil {n} beginnt bei {n * 10} s mit Schlüsselbild: {c} {zeit} {schluessel}')
+admin.api('DELETE', 'stream/' + wk['sitzung'])
+wk2 = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': {**OHNE_MSE, 'mse': True}, 'start_ms': 0})
+pruefe(wk2['modus'] == 'remux', f'mit MediaSource bleibt es beim Direct Stream: {wk2.get("modus")}')
 ut = next(x for x in w['untertitel'] if x['url'])
 code, body, _ = admin.roh('GET', ut['url'])
 pruefe(code == 200 and body.startswith(b'WEBVTT') and 'Hallo Welt – äöü'.encode() in body, f'WebVTT: {body[:120]}')

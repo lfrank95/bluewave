@@ -13,7 +13,9 @@ film() { # ziel breite hoehe dauer
       -c:v libx264 -preset ultrafast -pix_fmt yuv420p -c:a aac -b:a 96k "$1"
 }
 film "$F/Avengers (2012)/The Avengers (2012).mp4" 320 180 30
-film "$F/Avengers - Age of Ultron (2015)/Avengers.Age.of.Ultron.2015.1080p.mkv" 320 180 30
+# 10 Minuten, Schlüsselbild alle 10 s: für weite Sprünge beim Umwandeln und Direct Stream mit echten Zeitstempeln
+q -f lavfi -i "testsrc2=size=320x180:rate=24" -f lavfi -i "sine=frequency=330:sample_rate=48000" -t 600 \
+  -c:v libx264 -preset ultrafast -pix_fmt yuv420p -g 240 -c:a aac -b:a 64k "$F/Avengers - Age of Ultron (2015)/Avengers.Age.of.Ultron.2015.1080p.mkv"
 film "$F/Testfilm (2024)/Testfilm (2024).mkv" 480 270 40
 # Extended: zwei deutsche Tonspuren – erst DTS 5.1, dann E-AC3 5.1 (Gerät ohne DTS soll die E-AC3-Spur bekommen)
 q -f lavfi -i "testsrc2=size=480x270:rate=24" -f lavfi -i "sine=frequency=330:sample_rate=48000" -t 45 \

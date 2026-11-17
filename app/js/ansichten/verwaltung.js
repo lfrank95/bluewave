@@ -251,7 +251,7 @@ const DIAG_NAMEN = {
     video_loadstart: 'Video: lädt', video_loadedmetadata: 'Video: Metadaten', video_loadeddata: 'Video: erstes Bild', video_canplay: 'Video: spielbereit',
     video_playing: 'Video: läuft', video_waiting: 'Video: WARTET', warten_vorbei: 'Warten vorbei', video_pause: 'Pause', video_seeking: 'Spulen',
     video_seeked: 'Gespult', video_stalled: 'Video: Daten stocken', video_emptied: 'Video geleert', video_ended: 'Ende', video_fehler: 'VIDEO-FEHLER',
-    stand: 'Stand', rueckfall_umwandeln: 'Rückfall: umwandeln', hls_neustart: 'Encoder neu gestartet', hls_ueberholt: 'alte Anfrage verworfen', ende: 'Player geschlossen', seite_verlassen: 'Seite verlassen',
+    stand: 'Stand', rueckfall_umwandeln: 'Rückfall: umwandeln', hls_neustart: 'Encoder neu gestartet', hls_teil_anfrage: 'Teil angefragt (Sprung)', vorstart: 'Vorstart beim Spulen', hls_teil_abgebrochen: 'Teil abgebrochen', hls_ueberholt: 'alte Anfrage verworfen', ende: 'Player geschlossen', seite_verlassen: 'Seite verlassen',
 };
 const DIAG_SCHLECHT = /fehler|waiting|stalled|speicher_voll/i;
 const diagSchlecht = (e) => DIAG_SCHLECHT.test(e.e) || (e.e === 'warten_vorbei' && e.d?.dauer_ms > 500)

@@ -18,6 +18,8 @@ services:
     image: ${BLUEWAVE_IMAGE:-ghcr.io/lfrank95/bluewave:beta}
     container_name: ${STACK_NAME:-bluewave}_app
     restart: unless-stopped
+    # kleiner Init-Prozess räumt beendete Hintergrundprozesse (Encoder) zuverlässig ab
+    init: true
     security_opt:
       - no-new-privileges:true
     depends_on:
