@@ -744,7 +744,8 @@ pruefe(c == 200 and kan == 2, f'Nachtmodus + Dialog: Stereo erwartet, {kan} Kan√
 c, _, _ = Client().roh('GET', f'/api/v1/remux/{wn["datei_id"]}/ton?start=0')
 pruefe(c == 401, f'Ton nur angemeldet: {c}')
 print('  FLAC: 48 kHz, 24 Bit, 5.1 aus DTS und E-AC3; Nachtmodus/Dialog als Stereo')
-ut = [u for u in admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'faehigkeiten': NATIV})['untertitel']]
+mit_srt = next(x for x in fass['Kinofassung']['dateien'] if any(u['sprache'] == 'deu' for u in x['untertitel']))
+ut = [u for u in admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'datei_id': mit_srt['id'], 'faehigkeiten': NATIV})['untertitel']]
 ext_ut = [u for u in ut if not u['eingebettet']]
 pruefe(ext_ut and ext_ut[0]['datei_url'], f'externer Untertitel mit Originaldatei: {ut}')
 c, body, h = admin.roh('GET', ext_ut[0]['datei_url'])

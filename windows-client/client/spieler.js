@@ -170,7 +170,7 @@ class Spieler {
       `--hwdec=${e.hwdec === 'no' ? 'no' : 'auto-safe'}`, '--vo=gpu-next', '--gpu-api=d3d11', '--target-colorspace-hint=yes',
       '--cache=yes', '--demuxer-max-bytes=800MiB', '--demuxer-max-back-bytes=200MiB', '--demuxer-readahead-secs=120', '--network-timeout=30',
       `--user-agent=${this.ctx.userAgent}`, '--sub-font=Manrope', '--sub-font-size=44', '--sub-border-size=2.6', '--sub-shadow-offset=1', '--sub-margin-y=48',
-      '--background-color=#000000', '--keep-open-pause=no', '--hr-seek=yes', '--video-sync=audio',
+      '--background-color=#000000', '--keep-open-pause=no', '--hr-seek=yes', '--video-sync=audio', '--media-controls=no',
     ];
     if (process.platform !== 'win32') a.splice(a.indexOf('--gpu-api=d3d11'), 1);
     if (weg === 'engine') {
