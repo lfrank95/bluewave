@@ -62,7 +62,7 @@ jobs:
           [ -n "$Z" ] || Z=https://www.7-zip.org/a/7zr.exe
           curl -fsSL -o "$W/7zr.exe" "$Z" || curl -fsSL -o "$W/7zr.exe" https://www.7-zip.org/a/7zr.exe
           echo "SIEBEN_ZR=$W/7zr.exe" >> "$GITHUB_ENV"
-          curl -fsSL -o "$W/gpl-2.0.txt" https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt && echo "GPL_TEXT=$W/gpl-2.0.txt" >> "$GITHUB_ENV" || true
+          curl -fsSL --retry 5 --retry-all-errors -o "$W/gpl-2.0.txt" https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt && echo "GPL_TEXT=$W/gpl-2.0.txt" >> "$GITHUB_ENV" || true
           pip install --quiet --break-system-packages pillow fonttools brotli
           echo "mpv: $(basename "$MPV")"
       - name: Version
