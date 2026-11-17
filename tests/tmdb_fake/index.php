@@ -8,6 +8,7 @@ $q = $_GET;
 
 if (preg_match('#^/t/p/(w\d+|original)/(.+)$#', $pfad, $m)) {
     // Bild: einfarbig mit Text (GD)
+    if (str_starts_with($m[2], 'fehlt')) { http_response_code(404); exit; }
     $png = str_ends_with($m[2], '.png');
     $b = $m[1] === 'original' ? 1280 : (int) substr($m[1], 1);
     $h = (int) ($b * 1.5);

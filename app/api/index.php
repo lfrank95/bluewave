@@ -120,7 +120,13 @@ try {
             }
             $datei = konfig()['pfade']['cache'] . '/bilder/' . $rel;
             if (!is_file($datei)) {
-                fehler('Unbekannt.', 404);
+                // noch nicht (oder beim Abgleich nicht) geladen → jetzt von TMDB holen
+                db_schliessen();
+                require_once __DIR__ . '/../includes/tmdb.php';
+                if (!tmdb_bild_holen($rel)) {
+                    header('Cache-Control: no-store');
+                    fehler('Bild nicht verfügbar.', 404);
+                }
             }
             header('Content-Type: ' . (str_ends_with($rel, '.png') ? 'image/png' : (str_ends_with($rel, '.svg') ? 'image/svg+xml' : 'image/jpeg')));
             header('Cache-Control: private, max-age=31536000, immutable');

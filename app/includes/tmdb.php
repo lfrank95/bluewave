@@ -72,24 +72,41 @@ function tmdb_bild(?string $tmdbPfad, string $groesse, string $art): ?string
         return null;
     }
     $rel = $art . '/' . $groesse . '/' . ltrim($tmdbPfad, '/');
+    // Darstellerbilder erst laden, wenn sie jemand ansieht (Abgleich bleibt flott, TMDB drosselt nicht);
+    // alle anderen gleich – klappt das nicht, holt der Bild-Endpunkt es beim ersten Aufruf nach
+    if ($art !== 'personen') {
+        tmdb_bild_holen($rel);
+    }
+    return $rel;
+}
+
+/** Bild aus dem Cache-Pfad (art/groesse/datei) von TMDB in den Cache laden; true, wenn es danach da ist */
+function tmdb_bild_holen(string $rel): bool
+{
+    if (!preg_match('#^([a-z]+)/(w\d+|original)/([A-Za-z0-9_.-]+\.(jpg|jpeg|png|svg|webp))$#i', $rel, $m) || $m[1] === 'lokal') {
+        return false;
+    }
     $ziel = konfig()['pfade']['cache'] . '/bilder/' . $rel;
     if (is_file($ziel) && filesize($ziel) > 0) {
-        return $rel;
+        return true;
     }
     @mkdir(dirname($ziel), 0775, true);
-    $c = curl_init(tmdb_bild_url() . '/' . $groesse . $tmdbPfad);
-    $tmp = $ziel . '.' . bin2hex(random_bytes(3)) . '.tmp';
-    $fh = fopen($tmp, 'wb');
-    curl_setopt_array($c, [CURLOPT_FILE => $fh, CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 8, CURLOPT_FOLLOWLOCATION => true]);
-    $ok = curl_exec($c) && (int) curl_getinfo($c, CURLINFO_RESPONSE_CODE) === 200;
-    curl_close($c);
-    fclose($fh);
-    if (!$ok || filesize($tmp) === 0) {
+    for ($versuch = 0; $versuch < 2; $versuch++) {
+        $tmp = $ziel . '.' . bin2hex(random_bytes(3)) . '.tmp';
+        $fh = fopen($tmp, 'wb');
+        $c = curl_init(tmdb_bild_url() . '/' . $m[2] . '/' . $m[3]);
+        curl_setopt_array($c, [CURLOPT_FILE => $fh, CURLOPT_TIMEOUT => 20, CURLOPT_CONNECTTIMEOUT => 6, CURLOPT_FOLLOWLOCATION => true]);
+        $ok = curl_exec($c) && (int) curl_getinfo($c, CURLINFO_RESPONSE_CODE) === 200;
+        curl_close($c);
+        fclose($fh);
+        if ($ok && filesize($tmp) > 0) {
+            rename($tmp, $ziel);
+            return true;
+        }
         @unlink($tmp);
-        return null;
+        usleep(300000);
     }
-    rename($tmp, $ziel);
-    return $rel;
+    return false;
 }
 
 /** Bestes Bild aus einer Bilderliste: bevorzugte Sprache, dann Englisch, dann ohne Text, sonst Ersatz */

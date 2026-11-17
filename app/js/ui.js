@@ -107,7 +107,12 @@ export function initialen(name) {
 export function bild(src, alt = '') {
     if (!src) return null;
     const i = el('img', { src, alt, loading: 'lazy', decoding: 'async' });
-    i.addEventListener('error', () => i.remove(), { once: true });
+    // ein zweiter Versuch nach kurzer Pause (der Server lädt fehlende Bilder bei Bedarf nach), dann aufgeben
+    let versuche = 0;
+    i.addEventListener('error', () => {
+        if (versuche++ === 0) setTimeout(() => { i.src = src + (src.includes('?') ? '&' : '?') + 'n=1'; }, 1500);
+        else i.remove();
+    });
     return i;
 }
 

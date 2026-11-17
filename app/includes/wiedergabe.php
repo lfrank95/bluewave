@@ -519,8 +519,11 @@ function hls_teil(string $id, ?int $n): string
         }
         $laeuft = prozess_laeuft($m['pid'] ? (int) $m['pid'] : null);
         $generation ??= (int) ($m['generation'] ?? 0);
-        // zusammenhängend fertige Teile ab hier (ältere Teile können schon weggeräumt sein)
-        $hoechster = $m['start_teil'] !== null ? hoechster_fertiger($o, max((int) $m['start_teil'], $nr), (int) $m['teile']) : -1;
+        // Wie weit ist der laufende Encoder? Zusammenhängend fertige Teile ab seinem Start – bzw. ab der Aufräumgrenze,
+        // denn darunter sind ältere Teile schon gelöscht. (NICHT ab dem angefragten Teil: dann gälte jeder fehlende
+        // Teil, egal wie weit weg, als „gleich fertig“ und ein weiter Sprung würde nie neu starten.)
+        $hoechster = $m['start_teil'] !== null
+            ? hoechster_fertiger($o, max((int) $m['start_teil'], (int) ($m['geraeumt_bis'] ?? 0)), (int) $m['teile']) : -1;
         // init.mp4 gilt erst als fertig, wenn ffmpeg den ersten Teil abgeschlossen hat (vorher kann sie leer bzw. halb geschrieben sein)
         $fertig = is_file($ziel) && ($n !== null || (filesize($ziel) > 0 && (glob($o . '/teil_*.m4s') ?: [])));
         clearstatcache();
@@ -587,6 +590,8 @@ function hls_teil(string $id, ?int $n): string
         }
     }
     fclose($sperre);
+    $m = sitzung_meta($id) ?? [];
+    diag('hls_zeitueberschreitung', ['teil' => $nr, 'encoder_ab' => $m['start_teil'] ?? null, 'laeuft' => prozess_laeuft(($m['pid'] ?? null) ? (int) $m['pid'] : null)]);
     throw new RuntimeException('Zeitüberschreitung beim Umwandeln.');
 }
 

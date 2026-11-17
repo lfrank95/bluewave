@@ -297,6 +297,13 @@ pruefe(code == 206 and len(body) == 1024 and 'bytes 0-1023/' in h.get('Content-R
 
 schritt('Direct Stream (MKV: Video unverändert, nur Container) und Qualitätswahl')
 ultron = next(f for f in filme if f['titel'] == 'Avengers: Age of Ultron')
+ud = admin.api('GET', f'film/{ultron["id"]}')
+rdj = next((b for b in ud['besetzung'] if b.get('bild_url')), None)
+pruefe(rdj is not None, f'Darsteller mit Bild: {ud["besetzung"]}')
+code, body, _ = admin.roh('GET', rdj['bild_url'])
+pruefe(code == 200 and len(body) > 100, f'Darstellerbild wird bei Bedarf von TMDB geholt: {code} {len(body)}')
+code, _, _ = admin.roh('GET', '/api/v1/bild/personen/w185/fehlt.jpg')
+pruefe(code == 404, f'fehlendes Bild → 404: {code}')
 w = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': {**FAEHIG, 'remux': True}})
 pruefe(w['modus'] == 'remux' and w['remux']['audio'] == 'copy' and 'mkv' in w.get('grund', ''), f'Direct Stream erwartet: {w.get("modus")} {w.get("grund")} {w.get("remux")}')
 k = admin.api('GET', f'remux/{w["datei_id"]}/position?start=12.5')['start']
