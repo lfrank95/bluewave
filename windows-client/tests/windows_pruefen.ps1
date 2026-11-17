@@ -75,7 +75,7 @@ while (-not $p.HasExited -and (Get-Date) -lt $bis) {
 if (-not $p.WaitForExit(20000)) { $p | Stop-Process -Force; Write-Host "::error title=Selbsttest::Client nicht fertig" }
 Remove-Item Env:\BW_TEST_VIDEO
 foreach ($k in $bilder.Keys) { Write-Host "::notice title=Bildfenster $k::$($bilder[$k].farben) Farbstufen, $($bilder[$k].hell) % hell" }
-$neu = $bilder['BaseWindow']
+$neu = $bilder['BildfensterDurch']
 $probe = $bilder['Probe']
 if (-not $probe -or $probe.farben -lt 8) { Write-Host "::warning title=Selbsttest::Bildschirmfoto taugt hier nicht (Gegenprobe $($probe.farben) Farbstufen) – Bildprüfung übersprungen" }
 elseif (-not $neu -or $neu.farben -lt 8 -or $neu.hell -lt 15) { Write-Host "::error title=Selbsttest::im Bildfenster ist kein Bild zu sehen ($($neu.farben) Farbstufen)"; $bildFehler = $true }

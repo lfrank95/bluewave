@@ -63,15 +63,16 @@ class Spieler {
     const b = haupt && !haupt.isDestroyed() ? haupt.getBounds() : { width: 1360, height: 860 };
     const e = this.ctx.einst();
     this.zuGeht = false;
-    // Bildfenster ohne Webseite (BaseWindow): mpv zeichnet per --wid hinein. Ein BrowserWindow hätte eine eigene
-    // Chromium-Zeichenfläche, die das Bild von mpv verdecken kann (nur Ton, schwarzes Bild)
+    // Bildfenster ohne Webseite (BaseWindow), durchsichtig: mpv zeichnet per --wid als Unterfenster hinein. Chromium legt
+    // seine eigene Zeichenfläche über Unterfenster – ist sie deckend (schwarz), sieht man von mpv nichts (nur Ton).
+    // Den schwarzen Hintergrund zeichnet mpv selbst (--background-color). Geprüft im Selbsttest per Bildschirmfoto.
     const Fenster = BaseWindow || BrowserWindow;
     this.video = new Fenster({
-      ...b, minWidth: 480, minHeight: 270, frame: false, backgroundColor: '#000000', show: false, title: 'Bluewave',
+      ...b, minWidth: 480, minHeight: 270, frame: false, transparent: true, backgroundColor: '#00000000', show: false, title: 'Bluewave',
       icon: this.ctx.icon, autoHideMenuBar: true, fullscreenable: true,
       ...(BaseWindow ? {} : { webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false, javascript: false } }),
     });
-    if (!BaseWindow) this.video.loadURL('data:text/html,<html><body style="margin:0;background:#000"></body></html>');
+    if (!BaseWindow) this.video.loadURL('about:blank');
     this.overlay = new BrowserWindow({
       ...b, parent: this.video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, resizable: false,
       movable: false, minimizable: false, maximizable: false, skipTaskbar: true, show: false, focusable: true, title: 'Bluewave',

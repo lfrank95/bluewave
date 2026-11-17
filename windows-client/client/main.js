@@ -1164,8 +1164,8 @@ async function selbsttestVideo() {
     schritt(`${Art}${mitBedienung ? '' : ' ohne Bedienung'}: Fenster`);
     const durch = Art.endsWith('Durch');
     const opt = { x, y: 100, width: 640, height: 360, frame: false, backgroundColor: durch ? '#00000000' : '#000000', transparent: durch, show: true };
-    const video = Art.startsWith('BaseWindow') ? new BaseWindow(opt) : new BrowserWindow(opt);
-    if (!Art.startsWith('BaseWindow')) await video.loadURL(durch ? 'about:blank' : 'data:text/html,<body style="margin:0;background:#000">').catch(() => {});
+    const video = Art.startsWith('Bildfenster') ? new BaseWindow(opt) : new BrowserWindow(opt);
+    if (!Art.startsWith('Bildfenster')) await video.loadURL(durch ? 'about:blank' : 'data:text/html,<body style="margin:0;background:#000">').catch(() => {});
     spieler.video = video;
     schritt(`${Art}: Bedienung`);
     const over = mitBedienung ? new BrowserWindow({ ...video.getContentBounds(), parent: video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, show: true, focusable: false }) : null;
@@ -1218,13 +1218,11 @@ async function selbsttestVideo() {
       await m.befehl(['quit']).catch(() => {});
       await warte(800);
     }
-    await lauf('BaseWindowDurch', 100, false);
-    await lauf('BaseWindowDurch', 100);
-    await lauf('BrowserWindowDurch', 100);
-    const neu = await lauf('BaseWindow', 100);
+    // wie im Betrieb (durchsichtiges BaseWindow mit Bedienung darüber) und zum Vergleich der alte, deckende Aufbau
+    const neu = await lauf('BildfensterDurch', 100);
     const alt = await lauf('BrowserWindow', 100);
     log.schreiben('INFO', `SELBSTTEST-VERGLEICH BrowserWindow: ${JSON.stringify(alt)}`);
-    ergebnis(`${neu.geladen && neu.pos > 0.5 ? 'OK' : 'FEHLER'} BaseWindow: geladen=${neu.geladen} pos=${neu.pos} bild=${neu.w}x${neu.h} vo=${neu.vo}`);
+    ergebnis(`${neu.geladen && neu.pos > 0.5 ? 'OK' : 'FEHLER'} Bildfenster: geladen=${neu.geladen} pos=${neu.pos} bild=${neu.w}x${neu.h} vo=${neu.vo}`);
   } catch (x) { ergebnis(`FEHLER ${x.stack || x.message}`); }
 }
 
@@ -1239,7 +1237,7 @@ async function selbsttestRife() {
     const z1 = rife.zustand();
     if (!z1?.aktiv) { ergebnis(`FEHLER VSPipe: ${JSON.stringify(z1)}`); return; }
     einst.video = { ...einst.video, bewegung: 'rife', rife_faktor: 2, ton_weg: 'engine' };
-    spieler.video = new BaseWindow({ width: 640, height: 360, frame: false, backgroundColor: '#000000', show: true });
+    spieler.video = new BaseWindow({ width: 640, height: 360, frame: false, transparent: true, backgroundColor: '#00000000', show: true });
     await spieler.mpvStarten();
     const m = spieler.mpv;
     await m.befehl(['loadfile', process.env.BW_TEST_RIFE, 'replace']);
