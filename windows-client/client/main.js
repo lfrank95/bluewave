@@ -1191,6 +1191,9 @@ async function selbsttestVideo() {
     await warte(500);
     return { geladen, pos, w, h, vo };
   };
+  // unsichtbares Fenster hält die App am Leben, während die Prüffenster geschlossen und neu geöffnet werden
+  const halter = new BrowserWindow({ width: 100, height: 100, show: false });
+  void halter;
   try {
     // Gegenprobe fürs Bildschirmfoto: eine bunte Seite muss als bunt erkannt werden
     const probe = new BrowserWindow({ x: 100, y: 100, width: 640, height: 360, frame: false, show: true });
