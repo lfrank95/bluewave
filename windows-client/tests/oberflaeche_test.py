@@ -143,6 +143,16 @@ async def main():
             opts = await page.evaluate("[...document.querySelectorAll('.client-karte select')[0].options].map(o => o.textContent)")
             pruefe('LG TV (NVIDIA High Definition Audio)' in opts, f'Tongeräte von mpv: {opts}')
             await page.locator('.client-weg', has_text='Bluewave-Engine').click()
+            await page.wait_for_timeout(200)
+            # LFE ohne Subwoofer auf die Front
+            lfe = page.locator('.client-zeile', has_text='LFE ohne Subwoofer')
+            pruefe(await lfe.is_visible(), 'Einstellung „LFE ohne Subwoofer“ sichtbar')
+            await lfe.locator('select').select_option('an')
+            await lfe.locator('input').fill('-3')
+            await lfe.locator('input').dispatch_event('change')
+            await page.wait_for_timeout(300)
+            lfew = [x for x in await page.evaluate('window.__aufrufe') if x[0] == 'einstSetzen' and 'lfe_front' in x[1]]
+            pruefe(lfew and lfew[-1][1] == {'lfe_front': True, 'lfe_db': -3}, f'LFE auf die Front, -3 dB gespeichert: {lfew[-1:]}')
             await page.wait_for_timeout(300)
             await page.screenshot(path=os.path.join(tempfile.gettempdir(), 'bw_client_profil.png'), full_page=True)
             # Abspielen geht an den Client

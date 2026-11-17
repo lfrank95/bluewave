@@ -38,7 +38,7 @@ if (!app.requestSingleInstanceLock()) {
 
 /* ---------- Einstellungen (pro Windows-Benutzer) ---------- */
 const EINST_DATEI = path.join(app.getPath('userData'), 'einstellungen.json');
-const VIDEO_STANDARD = { ton_weg: 'engine', mpv_geraet: 'auto', mpv_exklusiv: false, spdif: ['ac3', 'dts'], versatz_ms: 0, hwdec: 'auto-safe', vollbild: false };
+const VIDEO_STANDARD = { ton_weg: 'engine', mpv_geraet: 'auto', mpv_exklusiv: false, spdif: ['ac3', 'dts'], versatz_ms: 0, hwdec: 'auto-safe', vollbild: false, lfe_front: false, lfe_db: 0 };
 let einst = { server: null, port: STANDARD_PORT, ausgabe: { geraet: '', exklusiv: false, rate: 0, aufschlag_je: {} }, fenster: null, video: { ...VIDEO_STANDARD } };
 const RATEN = [0, 44100, 48000, 88200, 96000, 176400, 192000];   // 0 = folgt der Datei
 const rateNormal = (r) => (RATEN.includes(Number(r)) ? Number(r) : 0);
@@ -202,6 +202,7 @@ function bassAnEngine(geraet) {
 }
 function ausgabeAnEngine() {
   bassAnEngine(einst.ausgabe.geraet);
+  lfeAnEngine();
   engineSenden({ c: 'ausgabe', geraet: engineGeraet(einst.ausgabe.geraet), exklusiv: einst.ausgabe.exklusiv === true, 'w.rate': rateNormal(einst.ausgabe.rate), 'w.aufschlag': aufschlagFuer(einst.ausgabe.geraet) });
 }
 // Antworten der Engine, auf die jemand wartet (Kanalnamen, Testton)
@@ -232,8 +233,12 @@ function videoPruefen(v) {
     versatz_ms: Math.max(-500, Math.min(500, Math.round(Number(x.versatz_ms) || 0))),
     hwdec: x.hwdec === 'no' ? 'no' : 'auto-safe',
     vollbild: !!x.vollbild,
+    // LFE ohne Subwoofer auf die Front: Pegel gegenüber der Norm (0 dB = wie mit Sub, je Front +4 dB)
+    lfe_front: !!x.lfe_front,
+    lfe_db: Math.max(-20, Math.min(6, Math.round(Number(x.lfe_db) || 0))),
   };
 }
+function lfeAnEngine() { engineSenden({ c: 'lfe', 'w.an': einst.video.lfe_front ? 1 : 0, 'w.db': einst.video.lfe_db }); }
 const ports = () => [...new Set([Number(einst.port) || STANDARD_PORT, STANDARD_PORT])];
 
 let fenster = null;
@@ -372,6 +377,7 @@ ipcMain.handle('video-einst-setzen', (e, w) => {
   if (!vonSeite(e) || !w || typeof w !== 'object') return null;
   einst.video = videoPruefen({ ...einst.video, ...w });
   einstSpeichern();
+  lfeAnEngine();
   return { ...einst.video, mpv_geraete: mpvGeraeteCache || [] };
 });
 ipcMain.handle('ausgabe-status', (e) => (vonSeite(e) ? ausgabeStand : null));

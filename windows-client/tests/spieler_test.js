@@ -130,9 +130,11 @@ function neuerSpieler(weg) {
   console.log('== Ton über mpv (ohne Engine)');
   fs.writeFileSync(PROTOKOLL, '');
   const b = neuerSpieler('mpv');
+  b.einst.lfe_front = true; b.einst.lfe_db = -4;
   await b.sp.laden({ url: 'http://bluewave.test:9960/api/v1/datei/12/inhalt', start: 0, ton: 2, modus: 'direkt', ton_quelle: '12', dauer: 120 });
   await warte(200);
   pruefe(b.sp.mpv.args.includes('--ao=wasapi') && b.sp.mpv.args.includes('--audio-exclusive=no'), 'mpv mit WASAPI geteilt');
+  pruefe(b.sp.mpv.args.includes('--audio-swresample-o=lfe_mix_level=1.000'), 'LFE auf die Front auch in mpv (−4 dB + 4 dB Norm = ×1)');
   pruefe(gesetzt('aid').at(-1) === '3' && b.eng.befehle.length === 0, 'mpv spielt Spur 3, Engine bleibt still');
   await b.sp.befehl({ c: 'tonfilter', nacht: 'leicht', dialog: 0 });
   await warte(50);

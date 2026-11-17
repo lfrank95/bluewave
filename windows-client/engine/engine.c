@@ -736,7 +736,22 @@ static int lage_gleich(int qk, int ak) { return qk == ak || (qk <= 2 && ak >= qk
  *  zusammen (je 0,707, wenn beides da ist), LFE ohne Subwoofer weggelassen (wie Dolby-Downmix) · 5.1 aus 7.1: Seite und
  *  hinten zusammen · weniger Kanäle (Quadro, 3.0, 5.0) auf 5.1/7.1: an die richtigen Plätze, Rest still.
  */
-static void lage_verteilen(const double *q, int qk, double *x, int ak) {
+/** LFE ohne Subwoofer auf die Front (Befehl „lfe“): Faktor je Frontlautsprecher, 0 = weglassen (wie Dolby-Downmix).
+ *  0 dB in der Einstellung = nach Norm: LFE +10 dB, auf zwei Fronts verteilt (gleichphasig +6 dB) → je +4 dB. */
+static volatile double lfe_front_g = 0;
+/** Begrenzer für die Front, solange der LFE dort mitläuft: greift sofort, lässt in ~150 ms los, gleich für alle Kanäle
+ *  (Bild bleibt stehen). Ohne ihn übersteuerte jeder Effekt-Bass – mit ihm wird es nur kurz leiser. */
+static double front_bg = 1, front_r = 0; static int front_rate;
+static void front_begrenzen(double *x, int ak, int rate) {
+  if (rate != front_rate) { front_rate = rate > 0 ? rate : 48000; front_r = 1 - exp(-1.0 / (0.15 * front_rate)); }
+  double spitze = 0;
+  for (int c = 0; c < ak; c++) { double a = fabs(x[c]); if (a > spitze) spitze = a; }
+  if (spitze * front_bg > 0.98) front_bg = 0.98 / spitze;
+  else front_bg += (1 - front_bg) * front_r;
+  if (front_bg < 0.9999) for (int c = 0; c < ak; c++) x[c] *= front_bg;
+}
+
+static void lage_verteilen(const double *q, int qk, double *x, int ak, double lfe_g) {
   for (int c = 0; c < ak; c++) x[c] = 0;
   if (ak == 1) { double m = 0; for (int c = 0; c < qk; c++) m += q[c]; x[0] = m / qk; return; }
   if (qk == 1) { x[0] = x[1] = q[0]; return; }
@@ -746,13 +761,13 @@ static void lage_verteilen(const double *q, int qk, double *x, int ak) {
   if (ak < 4) {
     int sur = qk >= 4;
     double norm = 1.0 / (1.0 + 0.7071 * mitte + 0.7071 * sur);
-    x[0] = (l.fl + 0.7071 * (l.fc + ls)) * norm;
-    x[1] = (l.fr + 0.7071 * (l.fc + rs)) * norm;
+    x[0] = (l.fl + 0.7071 * (l.fc + ls)) * norm + lfe_g * l.lfe;
+    x[1] = (l.fr + 0.7071 * (l.fc + rs)) * norm + lfe_g * l.lfe;
     return;
   }
   if (ak < 6) {
     double norm = mitte ? 1.0 / 1.7071 : 1.0;
-    x[0] = (l.fl + 0.7071 * l.fc) * norm; x[1] = (l.fr + 0.7071 * l.fc) * norm;
+    x[0] = (l.fl + 0.7071 * l.fc) * norm + lfe_g * l.lfe; x[1] = (l.fr + 0.7071 * l.fc) * norm + lfe_g * l.lfe;
     x[2] = ls * norm; x[3] = rs * norm;
     return;
   }
@@ -820,9 +835,10 @@ static int umwandeln(void *dst, const AusInfo *ai, const int32_t *src, int src_k
       ok_bitgenau = 0;
       // Kanäle zuordnen: gleiche Lage 1:1 (übrige Gerätekanäle still), sonst nach Lage verteilen
       if (lage_gleich(src_kan, ak)) for (int c = 0; c < ak; c++) x[c] = c < src_kan ? s[c] / 2147483648.0 : (src_kan == 1 && c == 1 ? s[0] / 2147483648.0 : 0);
-      else { double q[8]; for (int c = 0; c < src_kan && c < 8; c++) q[c] = s[c] / 2147483648.0; lage_verteilen(q, src_kan > 8 ? 8 : src_kan, x, ak); }
+      else { double q[8]; for (int c = 0; c < src_kan && c < 8; c++) q[c] = s[c] / 2147483648.0; lage_verteilen(q, src_kan > 8 ? 8 : src_kan, x, ak, lfe_front_g); }
       for (int c = 0; c < ak; c++) x[c] *= vol_ist * ff;
       if (KORR_AKTIV) korr_frame(x, ak);
+      if (lfe_front_g > 0 && src_kan >= 6 && ak < 6) front_begrenzen(x, ak, ai->rate);
     }
     for (int c = 0; c < ak; c++) {
       switch (ai->fmt) {
@@ -876,9 +892,10 @@ static void umwandeln_float(void *dst, const AusInfo *ai, float *const *src, int
     double ff = fade_faktor(ai->rate);
     double x[8];
     if (lage_gleich(src_kan, ak)) for (int c = 0; c < ak; c++) x[c] = c < src_kan ? src[c][f] : (src_kan == 1 && c == 1 ? src[0][f] : 0);
-    else { double q[8]; for (int c = 0; c < src_kan && c < 8; c++) q[c] = src[c][f]; lage_verteilen(q, src_kan > 8 ? 8 : src_kan, x, ak); }
+    else { double q[8]; for (int c = 0; c < src_kan && c < 8; c++) q[c] = src[c][f]; lage_verteilen(q, src_kan > 8 ? 8 : src_kan, x, ak, lfe_front_g); }
     for (int c = 0; c < ak; c++) x[c] *= vol_ist * ff;
     if (KORR_AKTIV) korr_frame(x, ak);
+    if (lfe_front_g > 0 && src_kan >= 6 && ak < 6) front_begrenzen(x, ak, ai->rate);
     for (int c = 0; c < ak; c++) {
       double v0 = x[c];
       if (!(v0 == v0)) v0 = 0;   // NaN aus der Kette darf nie als Vollausschlag am Gerät ankommen
@@ -1163,7 +1180,7 @@ static void umwandeln_bass(void *dst, const AusInfo *ai, float *const *src, int 
       // nach Lage verteilen (Quadro, 5.0, 7.1 …); der LFE der Quelle geht hier an den Subwoofer
       double q[8]; int qk = src_kan > 8 ? 8 : src_kan;
       for (int c = 0; c < qk; c++) q[c] = src[c][f];
-      lage_verteilen(q, qk, x, am);
+      lage_verteilen(q, qk, x, am, 0);   // mit Sub: der LFE geht zum Sub, nicht auf die Front
       if (L != 6) { Lage lg = lage_lesen(q, qk); lfe = lg.lfe * (L == 2 ? 1.0 / (1.0 + 0.7071 * (qk == 3 || qk >= 5) + 0.7071 * (qk >= 4)) : (qk == 3 || qk >= 5) ? 1.0 / 1.7071 : 1.0); }
     }
     bass_frame(x, lfe, y, ak);
@@ -1952,6 +1969,10 @@ static void ausfuehren(Befehl *b) {
     if (vorher) titel_unterbrechen(vorher);
   } else if (!strcmp(c, "gain") && b->hat_wert) {
     gain_setzen(b->id, b->wert);
+  } else if (!strcmp(c, "lfe")) {
+    // LFE ohne Subwoofer: w.an 0/1, w.db Pegel gegenüber der Norm (−20 … +6 dB)
+    double db = wz(b, "db", 0); if (db < -20) db = -20; if (db > 6) db = 6;
+    lfe_front_g = wz(b, "an", 0) != 0 ? pow(10.0, (4.0 + db) / 20.0) : 0;
   } else if (!strcmp(c, "lautstaerke") && b->hat_wert) {
     double v = b->wert;
     lautstaerke = v < 0 ? 0 : v > 4 ? 4 : v;

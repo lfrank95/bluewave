@@ -19,6 +19,8 @@ quelle() {   # quelle <name> <anzahl> <layout>
   ffmpeg -loglevel error -y "${args[@]}" -filter_complex "${ein}join=inputs=$n:channel_layout=$3:map=$karte[a]" -map "[a]" -c:a flac "$A/$1.flac"
 }
 quelle s51 6 5.1
+# laut: alle Kanäle fast Vollaussteuerung (für den Begrenzer)
+ffmpeg -loglevel error -y -i "$A/s51.flac" -af "volume=7.2" -c:a flac "$A/laut.flac"
 quelle s71 8 7.1
 # Quadro-Quelle: FL FR BL BR mit den Frequenzen von FL FR SL SR
 ffmpeg -loglevel error -y -f lavfi -t 3 -i sine=f=200:r=48000 -f lavfi -t 3 -i sine=f=300:r=48000 -f lavfi -t 3 -i sine=f=1300:r=48000 -f lavfi -t 3 -i sine=f=1700:r=48000 \
@@ -49,6 +51,8 @@ for k in kanaele:
         a = math.sqrt(max(0.0, s1 * s1 + s2 * s2 - c * s1 * s2)) * 2 / laenge
         if a > 0.01: pegel[f] = round(a, 3)
     erg.append(pegel)
+spitze = max(abs(v) for v in w[anf * nk:(anf + laenge) * nk]) / 2147483648.0
+open(sys.argv[1] + '.spitze', 'w').write('%.4f' % spitze)
 print(json.dumps(erg))
 PY
 }
@@ -72,6 +76,12 @@ echo "== Quadro auf 5.1: hinten bleibt hinten, Mitte und LFE still"
 pruefen "4.0 → 5.1" "$(messen s40 0,1,2,3,4,5)" '[[200],[300],[],[],[1300],[1700]]' || fehler=1
 echo "== 5.1 auf Quadro mit Subwoofer (80 Hz): LFE der Quelle zum Sub"
 pruefen "5.1 → 4.1" "$(messen s51 0,1,2,3,4 '{"c":"bass","w.an":1,"w.hz":80,"w.delay":0,"w.layout":4,"w.phase":0,"w.lfe":10}')" '[[200,500],[300,500],[700],[1100],[70]]' || fehler=1
+echo "== LFE ohne Sub auf die Front (Norm: je +4 dB), mit Begrenzer"
+pruefen "5.1 → 4.0, LFE vorn" "$(messen s51 0,1,2,3 '{"c":"lfe","w.an":1,"w.db":0}')" '[[70,200,500],[70,300,500],[700],[1100]]' || fehler=1
+pruefen "5.1 → 2.0, LFE vorn" "$(messen s51 0,1 '{"c":"lfe","w.an":1,"w.db":6}')" '[[70,200,500,700],[70,300,500,1100]]' || fehler=1
+messen laut 0,1 '{"c":"lfe","w.an":1,"w.db":6}' > /dev/null
+sp="$(cat "$A/aus.raw.spitze")"
+python3 -c "import sys; s = float('$sp'); print(('  ok' if s <= 0.981 else '  FEHLER') + ': Spitze %.3f – nichts übersteuert' % s); sys.exit(0 if s <= 0.981 else 1)" || fehler=1
 echo "== 5.1 auf Stereo"
 pruefen "5.1 → 2.0" "$(messen s51 0,1)" '[[200,500,700],[300,500,1100]]' || fehler=1
 [ "$fehler" = 0 ] && echo "Kanalzuordnung: alles in Ordnung." || exit 1

@@ -67,6 +67,7 @@ async function clientKarten() {
         wegeEl.replaceChildren(...WEGE.map(([w, titel, text]) => el('button.client-weg', { type: 'button', 'aria-pressed': String(v.ton_weg === w),
             onclick: async () => { Object.assign(v, await nativ.video.einstSetzen({ ton_weg: w })); wegZeigen(); meldung(`Ton: ${titel}`); } }, el('b', titel), el('span', text))));
         mpvKarte.hidden = v.ton_weg === 'engine';
+        lfeZeile.hidden = v.ton_weg === 'bitstream';   // erst nach dem Aufbau aufgerufen
         engineKarte.hidden = v.ton_weg !== 'engine';
         mpvZeigen();
     };
@@ -111,11 +112,27 @@ async function clientKarten() {
         if (warDa) { steuer.abort(); clearInterval(wache); }
     }, 2000);
 
+    // LFE ohne Subwoofer: weglassen (wie Dolby-Downmix) oder auf die Front – gilt für Engine und mpv, nicht bei Bitstream
+    const lfeWahl = el('select.eingabe', {}, el('option', { value: 'aus' }, 'Weglassen (wie Dolby-Downmix)'), el('option', { value: 'an' }, 'Auf die Front-Lautsprecher'));
+    lfeWahl.value = v.lfe_front ? 'an' : 'aus';
+    const lfePegel = el('input.eingabe', { type: 'number', min: -20, max: 6, step: 1, value: v.lfe_db || 0, style: { width: '90px' } });
+    const lfePegelBox = el('span', { hidden: !v.lfe_front }, lfePegel, ' dB');
+    const lfeSpeichern = async () => {
+        Object.assign(v, await nativ.video.einstSetzen({ lfe_front: lfeWahl.value === 'an', lfe_db: Number(lfePegel.value) || 0 }));
+        lfePegelBox.hidden = !v.lfe_front;
+        lfePegel.value = v.lfe_db;
+        meldung(v.lfe_front ? `LFE auf die Front, ${v.lfe_db > 0 ? '+' : ''}${v.lfe_db} dB gegenüber der Norm.` : 'LFE ohne Subwoofer: weggelassen.');
+    };
+    lfeWahl.addEventListener('change', lfeSpeichern);
+    lfePegel.addEventListener('change', lfeSpeichern);
+    const lfeZeile = zeile('LFE ohne Subwoofer', 'Wenn der Film mehr Kanäle hat als deine Lautsprecher und kein Subwoofer eingerichtet ist (z. B. 5.1 auf Quadro oder Stereo). 0 dB = nach Norm (wie mit Sub); die Engine regelt kurz herunter, statt zu übersteuern. Mit Subwoofer im Lautsprecher-Manager geht der LFE immer zum Sub.',
+        el('div.client-download', lfeWahl, lfePegelBox));
+
     const versatz = el('input.eingabe', { type: 'number', min: -500, max: 500, step: 5, value: v.versatz_ms || 0, style: { width: '120px' } });
     versatz.addEventListener('change', async () => { Object.assign(v, await nativ.video.einstSetzen({ versatz_ms: Number(versatz.value) || 0 })); meldung('Ton-Versatz übernommen.'); });
 
     karten.push(el('section.karte.glass-panel.client-karte', el('h2', 'Ton im Windows-Client'),
-        wegeEl, mpvKarte,
+        wegeEl, mpvKarte, lfeZeile,
         zeile('Ton-Versatz', 'Plus: Ton später, minus: früher (z. B. wenn der Fernseher das Bild verzögert).', el('span', versatz, ' ms'))));
     karten.push(el('section.client-ausgabe', engineKarte));
 

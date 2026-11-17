@@ -181,6 +181,8 @@ class Spieler {
         const f = (e.spdif || []).filter((x) => SPDIF_ERLAUBT.includes(x));
         a.push(`--audio-spdif=${f.join(',') || 'ac3,dts'}`, '--audio-exclusive=yes');
       } else a.push(`--audio-exclusive=${e.mpv_exklusiv ? 'yes' : 'no'}`);
+      // LFE ohne Subwoofer auf die Front (beim Heruntermischen, z. B. 5.1 auf Quadro oder Stereo) – wie in der Engine
+      if (e.lfe_front && weg !== 'bitstream') a.push(`--audio-swresample-o=lfe_mix_level=${(10 ** ((4 + (Number(e.lfe_db) || 0)) / 20)).toFixed(3)}`);
     }
     return a;
   }
