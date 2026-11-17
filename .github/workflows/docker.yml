@@ -49,6 +49,15 @@ jobs:
       - name: All-in-One bauen (für den Test)
         run: docker buildx build --builder default --load -f Dockerfile.aio --build-arg BASIS=bluewave:test -t bluewave-aio:test .
 
+      - name: hls.js als Artefakt (für lokale Browser-Tests)
+        run: mkdir -p artefakt && docker run --rm --entrypoint cat bluewave:test /var/www/html/js/vendor/hls.min.js > artefakt/hls.min.js
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hlsjs
+          path: artefakt/hls.min.js
+          retention-days: 30
+
       - name: Stack testen
         run: bash tests/stack_test.sh bluewave:test bluewave-aio:test
 
