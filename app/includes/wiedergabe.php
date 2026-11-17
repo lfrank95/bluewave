@@ -8,6 +8,9 @@ require_once __DIR__ . '/diagnose.php';
 require_once __DIR__ . '/remux.php';
 require_once __DIR__ . '/hls.php';
 require_once __DIR__ . '/schluesselbilder.php';
+require_once __DIR__ . '/vorarbeit.php';
+require_once __DIR__ . '/vorschau.php';
+require_once __DIR__ . '/optimiert.php';
 
 const BITRATE_JE_HOEHE = [2160 => 20000, 1440 => 12000, 1080 => 8000, 720 => 4000, 480 => 1500];
 
@@ -225,6 +228,7 @@ function wiedergabe_starten(array $konto, array $w): array
         'info' => wiedergabe_info($art, $id),
         'naechste' => $art === 'folge' ? naechste_info(folge_danach($id)) : null,
         'heimnetz' => $heim,
+        'vorschau' => vorschau_info($d),
     ];
     // angebotene Qualitäten: Original plus jede Stufe bis zur Quellauflösung
     $antwort['qualitaet'] = $wahl ?? 'auto';
@@ -284,6 +288,39 @@ function wiedergabe_starten(array $konto, array $w): array
             $antwort['remux'] = ['ton' => $tonIndex, 'audio' => $tonModus, 'kanaele' => $kan];
             $antwort['grund'] = $grund;
             return $antwort;
+        }
+    }
+    // ---- Optimierte Fassung: vorab umgewandelt → direkt abspielen (oder Direct Stream), statt live umzuwandeln ----
+    if (empty($w['erzwinge_transkodieren'])) {
+        $faehig = (array) ($w['faehigkeiten'] ?? []);
+        foreach (optimiert_fuer_datei((int) $d['id']) as $o) {
+            if (min((int) $o['hoehe'], (int) $d['hoehe']) > $grenze['hoehe'] + 40) {
+                continue;
+            }
+            $od = optimiert_als_datei($d, $o);
+            $ot = optimiert_als_ton($ton);
+            [$dir] = direkt_moeglich($od, $ot, $faehig, $grenze, $ut, $tonIndex);
+            $antwort['optimiert'] = ['hoehe' => (int) $od['hoehe'], 'bitrate_k' => (int) $o['bitrate_k']];
+            $antwort['quelle'] = ['hoehe' => (int) $od['hoehe'], 'video_codec' => 'H264', 'container' => 'mp4', 'bitrate_k' => (int) $o['bitrate_k'] + 160, 'hdr' => false];
+            if ($dir) {
+                $antwort['modus'] = 'direkt';
+                $antwort['url'] = '/api/v1/datei/o' . (int) $o['id'] . '/inhalt';
+                $antwort['grund'] = 'optimierte Fassung (' . $grund . ')';
+                return $antwort;
+            }
+            if (!empty($faehig['remux'])) {
+                [$rm, , $tonModus] = remux_moeglich($od, $ot, $faehig, $grenze, $ut, $tonIndex);
+                if ($rm) {
+                    $antwort['modus'] = 'remux';
+                    $antwort['url'] = '/api/v1/remux/o' . (int) $o['id'];
+                    $antwort['remux'] = ['ton' => $tonIndex, 'audio' => $tonModus, 'kanaele' => 2];
+                    $antwort['grund'] = 'optimierte Fassung (' . $grund . ')';
+                    return $antwort;
+                }
+            }
+            unset($antwort['optimiert']);
+            $antwort['quelle'] = ['hoehe' => (int) $d['hoehe'], 'video_codec' => strtoupper((string) $d['video_codec']), 'container' => (string) $d['container'],
+                'bitrate_k' => (int) round((int) $d['bitrate'] / 1000), 'hdr' => $d['hdr'] !== 'sdr'];
         }
     }
     // ---- Transkodieren ----

@@ -26,6 +26,7 @@ $aktuell = (int) $lauf['start'];
 $statusDatei = (string) $lauf['status'];
 $generation = (int) $lauf['generation'];
 $limit = (int) ($lauf['limit_bytes'] ?? 0);
+$versatz = (float) ($lauf['versatz'] ?? 0); // Medienzeit = Filmzeit + Versatz
 
 function status_schreiben(array $s): void
 {
@@ -312,6 +313,9 @@ try {
             }
             if ($typ === 'moof') {
                 $f = moof_lesen($box, $kopf, strlen($box), $moov);
+                if ($f['zeit'] !== null) {
+                    $f['zeit'] -= $versatz;
+                }
                 // Grenze erreicht? (nur an einem Schlüsselbild schneiden)
                 if ($f['video'] && $f['zeit'] !== null && $f['schluessel'] && $aktuell + 1 < $teile && $f['zeit'] >= $grenzen[$aktuell + 1] - 0.05) {
                     $neu = teil_fuer_zeit($f['zeit']);

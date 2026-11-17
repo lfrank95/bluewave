@@ -104,7 +104,9 @@ class Player {
         this.geladen = el('div.geladen');
         this.knauf = el('div.knauf');
         this.markierungen = el('div.markierungen');
-        this.vorschau = el('div.vorschau-zeit', { hidden: true });
+        this.vorschauBild = el('div.vorschau-bild', { hidden: true });
+        this.vorschauText = el('span');
+        this.vorschau = el('div.vorschau-zeit', { hidden: true }, this.vorschauBild, this.vorschauText);
         this.spurEl = el('div.leiste-spur', this.geladen, this.markierungen, this.gespielt, this.knauf);
         this.leiste = el('div.zeitleiste', this.spurEl, this.vorschau);
         const knopf = (name, label, fn, extra = '') => el('button.p-knopf' + extra, { 'aria-label': label, title: label, onclick: (e) => { e.stopPropagation(); fn(); } }, icon(name));
@@ -206,8 +208,7 @@ class Player {
         this.leiste.addEventListener('pointermove', (ev) => {
             const p = position(ev);
             this.vorschau.hidden = false;
-            this.vorschau.style.left = p * 100 + '%';
-            this.vorschau.textContent = zeit(p * this.dauer());
+            this.vorschauZeigen(p);
             if (ziehen) this.zeigeZiel(p);
             this.wach();
         });
@@ -285,6 +286,7 @@ class Player {
             return;
         }
         const d = this.daten;
+        this.vorschauVorladen();
         this.titelEl.replaceChildren(d.info.untertitel ? el('small', d.info.titel) : null, el('b', d.info.untertitel ? String(d.info.untertitel) : d.info.titel));
         this.naechsteKnopf.hidden = !d.naechste;
         this.qualitaetKnopf.firstChild.textContent = this.qualitaetText(d);
@@ -622,9 +624,52 @@ class Player {
         this.diagLiveAus = () => { clearInterval(t); box.remove(); this.video.removeEventListener('waiting', zaehlen); this.diagLiveAus = null; };
     }
 
+    /** Zeit (und, falls vorhanden, Vorschaubild) über der Zeitleiste an Stelle p (0…1) – am Rand nicht abgeschnitten */
+    vorschauZeigen(p) {
+        const t = p * this.dauer();
+        this.vorschauText.textContent = zeit(t);
+        const v = this.daten?.vorschau;
+        let breite = 60;
+        if (v && v.anzahl > 0) {
+            const s = window.innerWidth < 600 ? 0.55 : 0.75;
+            const b = Math.round(v.breite * s);
+            const h = Math.round(v.hoehe * s);
+            const i = Math.min(v.anzahl - 1, Math.max(0, Math.floor(t / v.intervall)));
+            const proBild = v.spalten * v.zeilen;
+            const n = Math.floor(i / proBild);
+            const k = i % proBild;
+            Object.assign(this.vorschauBild.style, {
+                width: b + 'px', height: h + 'px',
+                backgroundImage: `url("${v.url.replace('{n}', n)}")`,
+                backgroundSize: `${v.spalten * b}px ${v.zeilen * h}px`,
+                backgroundPosition: `${-(k % v.spalten) * b}px ${-Math.floor(k / v.spalten) * h}px`,
+            });
+            this.vorschauBild.hidden = false;
+            breite = b + 8;
+        } else {
+            this.vorschauBild.hidden = true;
+        }
+        const lb = this.leiste.getBoundingClientRect().width || 1;
+        const px = Math.min(Math.max(p * lb, breite / 2), lb - breite / 2);
+        this.vorschau.style.left = px + 'px';
+    }
+
+    /** Vorschaubilder vorladen, damit beim Ziehen über die Zeitleiste nichts nachlädt */
+    vorschauVorladen() {
+        const v = this.daten?.vorschau;
+        if (!v) return;
+        this.vorschauCache = [];
+        for (let n = 0; n < Math.ceil(v.anzahl / (v.spalten * v.zeilen)); n++) {
+            const bild = new Image();
+            bild.src = v.url.replace('{n}', n);
+            this.vorschauCache.push(bild);
+        }
+    }
+
     qualitaetText(d) {
         if (d.modus === 'hls' && !d.transkodierung?.kopie) return `${d.transkodierung.hoehe}p`;
         const h = d.quelle?.hoehe || 0;
+        if (d.optimiert) return `${d.optimiert.hoehe}p · OPT`;
         return (h >= 2000 ? '4K' : h ? `${h >= 1040 ? 1080 : h >= 700 ? 720 : h}p` : 'Original') + (d.modus === 'remux' || d.transkodierung?.kopie ? ' · DS' : '');
     }
 
@@ -652,7 +697,8 @@ class Player {
             const q = d.quelle || {};
             const quelleText = [q.hoehe ? `${q.hoehe}p` : null, q.video_codec, q.hdr ? 'HDR' : null, q.bitrate_k ? `${(q.bitrate_k / 1000).toFixed(1).replace('.', ',')} Mbit/s` : null,
                 q.container ? q.container.toUpperCase() : null].filter(Boolean).join(' · ');
-            const info = d.modus === 'direkt' ? 'Direct Play – die Datei läuft unverändert.'
+            const info = d.optimiert ? `Optimierte Fassung ${d.optimiert.hoehe}p – vorab umgewandelt, läuft ${d.modus === 'direkt' ? 'direkt' : 'als Direct Stream'}, Spulen ohne Wartezeit.`
+                : d.modus === 'direkt' ? 'Direct Play – die Datei läuft unverändert.'
                 : d.transkodierung?.kopie ? `Direct Stream (HLS) – Bild unverändert, ${{ copy: 'Ton unverändert', eac3: 'Ton nach Dolby Digital Plus', aac: 'Ton nach AAC' }[d.transkodierung.ton] || 'Ton umgewandelt'}, in Teilen geliefert${d.grund ? ` (${d.grund})` : ''}.`
                 : d.modus === 'remux' ? `Direct Stream – Bild unverändert, ${{ copy: 'Ton unverändert', eac3: 'Ton nach Dolby Digital Plus', aac: 'Ton nach AAC' }[d.remux.audio] || 'Ton umgewandelt'}, nur der Container wird angepasst${d.grund ? ` (${d.grund})` : ''}.`
                 : `Umgewandelt: ${d.transkodierung.hoehe}p · ${(d.transkodierung.bitrate_k / 1000).toString().replace('.', ',')} Mbit/s · ${d.transkodierung.profil}`

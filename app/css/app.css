@@ -1030,3 +1030,9 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
 .diag-tabelle .quelle { padding: 1px 6px; border-radius: 5px; font-size: 0.7rem; font-weight: 800; }
 .diag-tabelle .quelle.q-player { background: rgba(92, 200, 255, 0.15); color: var(--accent-text); }
 .diag-tabelle .quelle.q-server { background: rgba(255, 217, 138, 0.15); color: #ffd98a; }
+
+/* Vorschaubild über der Zeitleiste */
+.player .vorschau-zeit { display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.player .vorschau-bild { border-radius: 10px; background-color: #0b111c; background-repeat: no-repeat; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55); outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: -1px; }
+.player .vorschau-zeit { background: none; padding: 0; box-shadow: none; }
+.player .vorschau-zeit > span { padding: 4px 9px; border-radius: 8px; background: rgba(10, 14, 22, 0.92); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }

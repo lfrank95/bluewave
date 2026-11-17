@@ -114,8 +114,10 @@ def mp4_teil_start(d, video, skala):
                     if tr & 0x800:
                         cto = _struct.unpack('>i' if tv == 1 else '>I', d[q:q + 4])[0]
             if tid == video and zeit is not None:
-                return (zeit + cto) / skala[tid], ((flags >> 16) & 1) == 0
+                return (zeit + cto) / skala[tid] - VERSATZ, ((flags >> 16) & 1) == 0
     return None, None
+
+VERSATZ = 10  # HLS_ZEIT_VERSATZ: alle umgewandelten Teile liegen 10 s versetzt in der Medienzeit
 
 def raster(dauer):
     g, t = [], 0.0
@@ -607,6 +609,53 @@ schritt('Aufräumen: Vorschau (Medien hier beschreibbar, gelöscht wird nichts)'
 a = admin.api('GET', 'aufraeumen/vorschau')
 pruefe(a['moeglich']['filme'] and len(a['liste']) > 0, f'Vorschau: {a["moeglich"]}, {len(a["liste"])}')
 print('  z. B.', a['liste'][0]['alt'], '→', a['liste'][0]['neu'])
+
+schritt('Hintergrund: optimierte Fassung (für unterwegs) und Vorschaubilder der Zeitleiste')
+time.sleep(3)  # Pause nach der letzten Wiedergabe (im Test 2 s)
+r = admin.api('POST', 'optimiert', {'art': 'film', 'id': test['id'], 'hoehe': 720})
+print('  eingereiht:', r)
+pruefe(r['neu'] >= 1, f'Extended (DTS-Ton) wird eingereiht, auch wenn das Bild schon klein ist: {r}')
+fertig = None
+for _ in range(90):
+    liste = admin.api('GET', f'optimiert?art=film&id={test["id"]}')['liste']
+    if liste and all(o['status'] in ('fertig', 'fehler') for o in liste):
+        fertig = liste
+        break
+    time.sleep(2)
+pruefe(fertig and all(o['status'] == 'fertig' for o in fertig), f'optimierte Fassung fertig: {fertig or liste}')
+# ohne Direct-Stream-Fähigkeit würde jetzt live umgewandelt – stattdessen spielt die optimierte Fassung direkt
+OHNE_DS = {**FAEHIG}
+wo = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'fassung_id': ext['id'], 'faehigkeiten': OHNE_DS, 'ton': 0})
+pruefe(wo['modus'] == 'direkt' and wo.get('optimiert') and '/datei/o' in wo['url'], f'optimierte Fassung direkt: {wo.get("modus")} {wo.get("url")} {wo.get("optimiert")}')
+c, body, h = admin.roh('GET', wo['url'], kopf={'Range': 'bytes=0-'})
+pruefe(c in (200, 206) and body[4:8] == b'ftyp' and body.count(b'mp4a') >= 2, f'MP4 mit beiden Tonspuren als AAC: {c} {body.count(b"mp4a")}')
+mvi = body.find(b'moov')
+pruefe(0 < mvi < body.find(b'mdat'), 'Index (moov) vorn – startet sofort')
+wo2 = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'fassung_id': ext['id'], 'faehigkeiten': {**FAEHIG, 'remux': True}, 'ton': 1})
+pruefe(wo2['modus'] in ('remux', 'direkt'), f'andere Tonspur: Direct Stream (aus Original oder optimierter Fassung): {wo2.get("modus")} {wo2.get("url")}')
+if wo2.get('optimiert'):
+    c, body, _ = admin.roh('GET', f'{wo2["url"]}/strom?start=0&ton=1&audio=copy&kanaele=2')
+    pruefe(c == 200 and body[4:8] == b'ftyp', f'Direct Stream aus der optimierten Fassung: {c}')
+erst = fertig[0]
+admin.api('DELETE', f'optimiert/{erst["id"]}')
+pruefe(not [o for o in admin.api('GET', f'optimiert?art=film&id={test["id"]}')['liste'] if o['id'] == erst['id']], 'optimierte Fassung gelöscht')
+
+admin.api('POST', 'vorschau')
+v = {}
+for _ in range(120):
+    v = admin.api('GET', 'vorschau')
+    if v['gesamt'] and v['fertig'] == v['gesamt']:
+        break
+    time.sleep(2)
+print('  Vorschaubilder:', v.get('fertig'), '/', v.get('gesamt'), v.get('arbeiter', {}).get('text'))
+pruefe(v['gesamt'] > 0 and v['fertig'] == v['gesamt'], f'Vorschaubilder für alle Dateien: {v}')
+wv = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': {**FAEHIG, 'remux': True}})
+vs = wv.get('vorschau')
+pruefe(vs and vs['anzahl'] in (120, 121) and vs['intervall'] == 5, f'Vorschau beim Start dabei (600 s, alle 5 s): {vs}')
+c, body, h = admin.roh('GET', vs['url'].replace('{n}', '1'))
+pruefe(c == 200 and body[:2] == b'\xff\xd8' and len(body) > 5000, f'Kachelbild 1 (Bilder 100–119): {c} {len(body)}')
+c, _, _ = admin.roh('GET', vs['url'].replace('{n}', '2'))
+pruefe(c == 404, f'mehr Kachelbilder gibt es nicht: {c}')
 
 schritt('Oberfläche ausgeliefert')
 code, body, _ = admin.roh('GET', '/')

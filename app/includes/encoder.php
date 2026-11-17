@@ -173,6 +173,11 @@ function encoder_befehl(string $profil, array $a, array $hw): array
         case 'fmp4':
             // fragmentiertes MP4 auf stdout: ~1-s-Fragmente, neues Fragment an jedem Schlüsselbild (= Teilgrenze).
             // delay_moov: AC3/E-AC3 unverändert geht nur so; frag_discont + avoid_negative_ts: echte Zeitstempel (tfdt)
+            // Zeitversatz für alle Läufe gleich: so wird die Dekodierzeit (B-Frames!) auch am Filmanfang nie negativ und der
+            // Muxer verschiebt keinen Lauf – Teile verschiedener Läufe passen nahtlos aneinander
+            if (!empty($a['zeit_versatz'])) {
+                $cmd = array_merge($cmd, ['-output_ts_offset', sprintf('%.3f', (float) $a['zeit_versatz'])]);
+            }
             $cmd = array_merge($cmd, [
                 '-max_muxing_queue_size', '4096', '-avoid_negative_ts', 'disabled',
                 '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+delay_moov+default_base_moof+frag_discont', '-frag_duration', '1000000', 'pipe:1',

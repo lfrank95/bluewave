@@ -26,6 +26,7 @@ const HLS_START_TEILE = 3;     // so viele kurze Teile
 const HLS_RASTER_VERSION = 2;  // ändert sich das Raster, gelten alte Zwischenspeicher nicht mehr
 const HLS_VORAUS_MAX = 30;     // Encoder anhalten, wenn er so viele Teile vor der Wiedergabe ist …
 const HLS_VORAUS_WEITER = 15;  // … und weiterlaufen lassen, wenn der Abstand darunter fällt
+const HLS_ZEIT_VERSATZ = 10;   // Sekunden, um die alle Teile in der Medienzeit versetzt sind (siehe encoder.php, fmp4)
 
 /** Gemeinsame Ausnahme: eine Teil-Anfrage, die von einem späteren Sprung überholt wurde */
 class TeilUeberholt extends RuntimeException
@@ -311,6 +312,7 @@ function encoder_starten(string $id, array &$m, int $n): void
     // bei unverändertem Video knapp hinter das Schlüsselbild springen, damit ffmpeg genau dort beginnt (nicht beim vorigen)
     $a['start_s'] = $n > 0 ? (float) $g[$n] + ($kopie ? 0.001 : 0.0) : 0.0;
     $a['ziel'] = ['format' => 'fmp4'];
+    $a['zeit_versatz'] = HLS_ZEIT_VERSATZ;
     if (!$kopie) {
         $a['schluesselbilder'] = hls_schluesselbild_ausdruck((float) $g[$n]);
     }
@@ -320,6 +322,7 @@ function encoder_starten(string $id, array &$m, int $n): void
     $lauf = [
         'cmd' => $cmd, 'ordner' => $cache, 'sitzung' => $id, 'start' => $n, 'grenzen' => $g, 'generation' => $m['generation'],
         'status' => $o . '/status.json', 'log' => $o . '/ffmpeg.log', 'limit_bytes' => (int) ($m['limit_bytes'] ?? hls_limit_bytes()),
+        'versatz' => HLS_ZEIT_VERSATZ,
     ];
     bw_schreiben($o . '/lauf.json', (string) json_encode($lauf, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     @unlink($o . '/status.json');

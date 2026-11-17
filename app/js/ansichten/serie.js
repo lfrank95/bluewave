@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { besetzung, tmdbZuordnen } from './film.js';
 import { universumBereich, universenDialog } from './universum_teile.js';
 import { bearbeitenDialog } from './bearbeiten_dialog.js';
+import { optimiertDialog } from './optimiert_dialog.js';
 import { heroPoster } from './film.js';
 
 let letzterTitel = 'Serie';
@@ -37,6 +38,7 @@ export async function zeigen(r, app) {
     const bearbeiten = (bilder = false) => bearbeitenDialog('serie', id, { staffeln: d.staffeln, staffel: staffelNr, bilderStaffel: bilder, aktionen: [
         { text: 'Anderen TMDB-Eintrag zuordnen', icon: 'suche', fn: () => tmdbZuordnen('serie', id, d.originaltitel || d.titel, d.jahr) },
         { text: 'Universen', icon: 'universum', fn: () => universenDialog('serie', id, d.universen) },
+        { text: 'Optimierte Fassungen (für unterwegs)', icon: 'film', fn: () => optimiertDialog('serie', id, d.titel, staffelNr) },
     ] });
     const alleFolgen = d.staffeln.filter((s) => s.nummer > 0).flatMap((s) => s.folgen).filter((f) => f.vorhanden);
     const meta = el('div.meta', d.zeitraum ? el('span', d.zeitraum) : null, STATUS[d.status] ? [el('span.trenn'), el('span', STATUS[d.status])] : null,

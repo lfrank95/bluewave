@@ -4,6 +4,7 @@ import { el, icon, bild, fsk, dauer, zeit, bytes, initialen, meldung, dialog, au
 import { api } from '../api.js';
 import { universumBereich } from './universum_teile.js';
 import { bearbeitenDialog } from './bearbeiten_dialog.js';
+import { optimiertDialog } from './optimiert_dialog.js';
 import { universenDialog } from './universum_teile.js';
 
 let letzterTitel = 'Film';
@@ -135,6 +136,7 @@ export async function zeigen(r, app) {
         { text: 'Anderen TMDB-Eintrag zuordnen', icon: 'suche', fn: () => tmdbZuordnen('film', id, d.originaltitel || d.titel, d.jahr) },
         { text: 'Fassungen korrigieren', icon: 'film', fn: () => fassungKorrigieren(d, id) },
         { text: 'Universen', icon: 'universum', fn: () => universenDialog('film', id, d.universen) },
+        { text: 'Optimierte Fassung (für unterwegs)', icon: 'film', fn: () => optimiertDialog('film', id, d.titel) },
     ] });
 
     const metaTeile = [d.jahr, d.laufzeit_min ? dauer(d.laufzeit_min) : null, d.genres.slice(0, 2).map((g) => g.name).join(', ') || null].filter(Boolean);

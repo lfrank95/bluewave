@@ -42,5 +42,7 @@ services:
       - ${BACKUP_PFAD:-${APPDATA_PFAD:-.}/backups}:/backups
       # Zwischendateien beim Transkodieren (SSD oder RAM, z. B. /tmp/bluewave)
       - ${TRANSKODIER_PFAD:-${APPDATA_PFAD:-.}/transkodieren}:/transkodieren
+      # optimierte Fassungen (vorab umgewandelte Kopien, groß) – gern auf die Festplatten statt die SSD
+      - ${OPTIMIERT_PFAD:-${APPDATA_PFAD:-.}/optimiert}:/optimiert
     ports:
       - "${APP_BIND:-0.0.0.0}:${APP_PORT:-9960}:80"

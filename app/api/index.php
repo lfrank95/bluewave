@@ -10,6 +10,20 @@ $pfad = trim((string) ($_GET['pfad'] ?? ''), '/');
 $teile = $pfad === '' ? [] : explode('/', $pfad);
 $methode = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+/** Abspielquelle aus dem Pfad: Datei-ID oder optimierte Fassung („o12“) → [pfad, container, video_codec] oder null */
+function abspielquelle(string $t): ?array
+{
+    if (preg_match('/^o(\d+)$/', $t, $m)) {
+        $o = db_zeile("SELECT pfad FROM optimiert WHERE id = :id AND status = 'fertig'", ['id' => (int) $m[1]]);
+        return $o && $o['pfad'] && is_file((string) $o['pfad']) ? ['pfad' => (string) $o['pfad'], 'container' => 'mp4', 'video_codec' => 'h264'] : null;
+    }
+    if (!ctype_digit($t)) {
+        return null;
+    }
+    $d = db_zeile('SELECT pfad, container, video_codec FROM dateien WHERE id = :id AND fehlt_seit IS NULL', ['id' => (int) $t]);
+    return $d && is_file((string) $d['pfad']) ? $d : null;
+}
+
 function eingabe(): array
 {
     static $e = null;
@@ -463,6 +477,7 @@ try {
             require_once __DIR__ . '/../includes/wiedergabe.php';
             if ($t1 === 'start' && $methode === 'POST') {
                 require_once __DIR__ . '/../includes/diagnose.php';
+                wiedergabe_aktiv_merken();
                 $t0 = microtime(true);
                 try {
                     $antwort = wiedergabe_starten($k, eingabe());
@@ -476,6 +491,7 @@ try {
                 bw_json($antwort);
             }
             if ($t1 === 'fortschritt' && $methode === 'POST') {
+                wiedergabe_aktiv_merken();
                 $e = eingabe();
                 if (!empty($e['sitzung']) && preg_match('/^[a-f0-9]{24}$/', (string) $e['sitzung'])) {
                     @touch(sitzung_ordner((string) $e['sitzung']) . '/aktiv');
@@ -544,6 +560,7 @@ try {
             } else {
                 fehler('Unbekannt.', 404);
             }
+            wiedergabe_aktiv_merken();
             $tw = microtime(true);
             try {
                 $r = hls_teil($sid, $teilNr);
@@ -568,11 +585,12 @@ try {
 
         case 'datei':
             require_once __DIR__ . '/../includes/wiedergabe.php';
-            if (zahl($t1) && $t2 === 'inhalt') {
-                $d = db_zeile('SELECT pfad, container FROM dateien WHERE id = :id AND fehlt_seit IS NULL', ['id' => zahl($t1)]);
-                if (!$d || !is_file($d['pfad'])) {
+            if ($t2 === 'inhalt') {
+                $d = abspielquelle($t1);
+                if (!$d) {
                     fehler('Datei nicht gefunden.', 404);
                 }
+                wiedergabe_aktiv_merken();
                 require_once __DIR__ . '/../includes/diagnose.php';
                 diag('direkt_anfrage', ['bereich' => (string) ($_SERVER['HTTP_RANGE'] ?? 'ganz')]);
                 datei_senden($d['pfad'], mime_fuer((string) $d['container']));
@@ -645,10 +663,11 @@ try {
         case 'remux':
             // Direct Stream: remux/{datei}/position?start=S → Schlüsselbild; remux/{datei}/strom?start=&ton=&audio=&kanaele=
             require_once __DIR__ . '/../includes/wiedergabe.php';
-            $d = zahl($t1) ? db_zeile('SELECT pfad, video_codec FROM dateien WHERE id = :id AND fehlt_seit IS NULL', ['id' => zahl($t1)]) : null;
-            if (!$d || !is_file($d['pfad'])) {
+            $d = abspielquelle($t1);
+            if (!$d) {
                 fehler('Datei nicht gefunden.', 404);
             }
+            wiedergabe_aktiv_merken();
             db_schliessen();
             session_write_close();
             if ($t2 === 'position' && $methode === 'GET') {
@@ -658,6 +677,69 @@ try {
                 remux_senden(remux_befehl($d['pfad'], max(0, (float) ($_GET['start'] ?? 0)), max(0, (int) ($_GET['ton'] ?? 0)),
                     in_array($_GET['audio'] ?? '', ['copy', 'eac3'], true) ? (string) $_GET['audio'] : 'aac', (int) ($_GET['kanaele'] ?? 2),
                     strtolower((string) $d['video_codec']) === 'hevc', ($_GET['absolut'] ?? '') === '1'), (string) ($_GET['token'] ?? ''));
+            }
+            break;
+
+        case 'vorschau':
+            // Vorschaubilder der Zeitleiste: vorschau/{datei}/{n}.jpg (Kachelbild n)
+            require_once __DIR__ . '/../includes/vorschau.php';
+            if ($t1 === '' && $methode === 'GET') {
+                // Stand für die Verwaltung: wie viele Dateien haben schon Vorschaubilder?
+                admin_noetig();
+                require_once __DIR__ . '/../includes/vorarbeit.php';
+                $fertig = 0;
+                $gesamt = 0;
+                foreach (db_alle('SELECT id, groesse FROM dateien WHERE fehlt_seit IS NULL AND dauer_ms > 0') as $d) {
+                    $gesamt++;
+                    $fertig += vorschau_info($d) !== null ? 1 : 0;
+                }
+                bw_json(['fertig' => $fertig, 'gesamt' => $gesamt, 'arbeiter' => vorarbeit_status()]);
+            }
+            if ($t1 === '' && $methode === 'POST') {
+                // Hintergrundarbeit sofort anstoßen (sonst beim nächsten Zeitplan-Lauf)
+                admin_noetig();
+                require_once __DIR__ . '/../includes/vorarbeit.php';
+                bw_json(['gestartet' => vorarbeit_starten()]);
+            }
+            if (zahl($t1) && preg_match('/^(\d{1,4})\.jpg$/', $t2, $mm) && $methode === 'GET') {
+                $f = vorschau_ordner(zahl($t1)) . '/' . (int) $mm[1] . '.jpg';
+                if (!is_file($f)) {
+                    fehler('Keine Vorschau.', 404);
+                }
+                db_schliessen();
+                header('Content-Type: image/jpeg');
+                header('Cache-Control: private, max-age=31536000, immutable');
+                header('Content-Length: ' . filesize($f));
+                readfile($f);
+                exit;
+            }
+            break;
+
+        case 'optimiert':
+            // Optimierte Fassungen (Admin): Liste, einreihen {art: film|serie|datei, id, staffel?, hoehe}, löschen
+            admin_noetig();
+            require_once __DIR__ . '/../includes/optimiert.php';
+            require_once __DIR__ . '/../includes/vorarbeit.php';
+            if ($t1 === '' && $methode === 'GET') {
+                $art = (string) ($_GET['art'] ?? '');
+                $liste = optimiert_liste();
+                if (in_array($art, ['film', 'serie'], true) && zahl((string) ($_GET['id'] ?? ''))) {
+                    $ids = array_map(static fn($d) => (int) $d['id'], optimiert_dateien($art, (int) $_GET['id']));
+                    $liste = array_values(array_filter($liste, static fn($o) => in_array($o['datei_id'], $ids, true)));
+                }
+                bw_json(['liste' => $liste, 'arbeiter' => vorarbeit_status(), 'ordner' => optimiert_ordner(),
+                    'frei' => @disk_free_space(optimiert_ordner()) ?: @disk_free_space(dirname(optimiert_ordner())) ?: null]);
+            }
+            if ($t1 === '' && $methode === 'POST') {
+                $e = eingabe();
+                [$neu, $ueber] = optimiert_einreihen((string) ($e['art'] ?? ''), (int) ($e['id'] ?? 0), (int) ($e['hoehe'] ?? 1080),
+                    isset($e['staffel']) && $e['staffel'] !== null ? (int) $e['staffel'] : null);
+                vorarbeit_starten();
+                bw_json(['neu' => $neu, 'uebersprungen' => $ueber]);
+            }
+            if (zahl($t1) && $methode === 'DELETE') {
+                optimiert_loeschen(zahl($t1));
+                bw_json(['ok' => true]);
             }
             break;
 

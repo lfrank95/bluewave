@@ -3,17 +3,18 @@
 import { el, icon, meldung, feld, auswahl, bestaetigen, dialog, bild } from '../ui.js';
 import { api } from '../api.js';
 import { tmdbZuordnen } from './film.js';
+import { optimiertZeile, groesseText } from './optimiert_dialog.js';
 
 export const titel = () => 'Verwaltung – Bluewave';
 
-const REITER = [['bibliothek', 'Bibliothek'], ['universen', 'Universen'], ['aufraeumen', 'Aufräumen'], ['nutzer', 'Nutzer'], ['einstellungen', 'Einstellungen'], ['diagnose', 'Diagnose'], ['system', 'System']];
+const REITER = [['bibliothek', 'Bibliothek'], ['universen', 'Universen'], ['aufraeumen', 'Aufräumen'], ['nutzer', 'Nutzer'], ['einstellungen', 'Einstellungen'], ['hintergrund', 'Hintergrund'], ['diagnose', 'Diagnose'], ['system', 'System']];
 let abfrage = null;
 
 export async function zeigen(r, app) {
     clearInterval(abfrage);
     if (app.konto.rolle !== 'admin') return el('div.leer', el('h2', 'Nur für Admins'));
     const reiter = r.teile[1] || 'bibliothek';
-    const inhalt = await ({ bibliothek, universen, aufraeumen, nutzer, einstellungen, diagnose, system }[reiter] || bibliothek)(r, app);
+    const inhalt = await ({ bibliothek, universen, aufraeumen, nutzer, einstellungen, hintergrund, diagnose, system }[reiter] || bibliothek)(r, app);
     return el('div.seite',
         el('div.seiten-kopf', el('h1', 'Verwaltung')),
         el('nav.reiter', REITER.map(([k, t]) => el('a', { href: '#/verwaltung/' + k, class: k === reiter ? 'aktiv' : '' }, t))),
@@ -170,6 +171,8 @@ async function einstellungen() {
         opensubtitles_passwort: el('input.eingabe', { type: 'password', value: e.opensubtitles_passwort, autocomplete: 'new-password' }),
         aufraeumen_film: el('input.eingabe', { value: e.aufraeumen_film }),
         aufraeumen_serie: el('input.eingabe', { value: e.aufraeumen_serie }),
+        vorschaubilder: el('input', { type: 'checkbox', checked: e.vorschaubilder }),
+        hls_zwischenspeicher_gb: auswahl({ 0: 'Automatisch', 2: '2 GB', 4: '4 GB', 8: '8 GB', 16: '16 GB', 32: '32 GB', 64: '64 GB' }, e.hls_zwischenspeicher_gb),
     };
     const speichern = el('button.knopf.haupt', { onclick: async () => {
         const daten = Object.fromEntries(Object.entries(f).map(([k, x]) => [k, x.type === 'checkbox' ? x.checked : x.value]));
@@ -192,6 +195,12 @@ async function einstellungen() {
                 feld('OpenSubtitles API-Schlüssel', f.opensubtitles_schluessel, 'Kostenlos unter opensubtitles.com → API Consumers.'),
                 feld('OpenSubtitles Benutzer (optional)', f.opensubtitles_benutzer, 'Mit Anmeldung sind mehr Downloads am Tag möglich.'),
                 feld('OpenSubtitles Passwort', f.opensubtitles_passwort))),
+        el('section.karte.glass-panel', el('h2', 'Wiedergabe'),
+            el('label.schalter', f.vorschaubilder, 'Vorschaubilder für die Zeitleiste erzeugen'),
+            el('div.hilfe', 'Beim Ziehen über die Zeitleiste siehst du, wo du landest. Entsteht im Hintergrund (pausiert, solange jemand schaut), etwa 1–3 MB je Film.'),
+            el('div.feld-reihe', { style: { marginTop: '14px' } },
+                feld('Umgewandelte Teile aufheben', f.hls_zwischenspeicher_gb, 'Zurückspringen, Weiterschauen und ein zweiter Zuschauer brauchen dann nichts neu zu berechnen. '
+                    + 'Automatisch = 30 % des Transkodier-Laufwerks, höchstens 8 GB (bei RAM-Ordner entsprechend weniger).'))),
         el('section.karte.glass-panel', el('h2', 'Aufräum-Schema'),
             el('p.leise', 'Platzhalter: {titel} {jahr} {fassung} bzw. {serie} {staffel} {folge} {titel}. „{ - fassung}“ erscheint nur, wenn es eine besondere Fassung ist.'),
             feld('Filme', f.aufraeumen_film), feld('Serien', f.aufraeumen_serie)),
@@ -320,4 +329,38 @@ async function diagnose() {
                     window.__bluewave.neuLaden();
                 } }, icon('loeschen'), 'Protokoll leeren'))),
         liste);
+}
+
+// ---------- Hintergrund: optimierte Fassungen, Vorschaubilder ----------
+async function hintergrund() {
+    const box = el('div');
+    const laden = async () => {
+        const [o, v] = await Promise.all([api('optimiert'), api('vorschau')]);
+        const a = o.arbeiter || {};
+        const offen = o.liste.filter((x) => x.status === 'wartet' || x.status === 'laeuft');
+        const fertigGr = o.liste.filter((x) => x.status === 'fertig').reduce((s, x) => s + (x.groesse || 0), 0);
+        const prozent = v.gesamt ? Math.round((v.fertig / v.gesamt) * 100) : 0;
+        box.replaceChildren(
+            el('section.karte.glass-panel',
+                el('h2', 'Hintergrundarbeit'),
+                el('p', a.laeuft ? el('b', a.text || 'Läuft …') : el('span.leise', a.jemand_schaut ? 'Pausiert – gerade läuft eine Wiedergabe.' : 'Gerade nichts zu tun.')),
+                a.laeuft && a.anteil !== undefined && a.aufgabe ? el('div.balken', el('span', { style: { width: Math.round((a.anteil || 0) * 100) + '%' } })) : null,
+                el('p.leise', { style: { fontSize: '0.85rem', marginTop: '10px' } },
+                    'Optimierte Fassungen und Vorschaubilder entstehen hier nach und nach – mit niedrigster Priorität und angehalten, solange jemand schaut.')),
+            el('section.karte.glass-panel',
+                el('h2', 'Vorschaubilder'),
+                el('div.status-zeile', el('div.wert', el('b', `${v.fertig} / ${v.gesamt}`), el('span', 'Dateien fertig'))),
+                el('div.balken', el('span', { style: { width: prozent + '%' } })),
+                el('p.leise', { style: { fontSize: '0.85rem', marginTop: '10px' } }, 'Ein- und ausschalten unter Einstellungen › Wiedergabe.')),
+            el('section.karte.glass-panel',
+                el('h2', 'Optimierte Fassungen'),
+                el('p.leise', 'Anlegen auf der Seite eines Films oder einer Serie unter „Bearbeiten“. ',
+                    `Speicherort: ${o.ordner}` + (o.frei ? ` · frei: ${groesseText(o.frei)}` : '') + (fertigGr ? ` · belegt: ${groesseText(fertigGr)}` : '')),
+                o.liste.length ? el('table.tabelle', o.liste.map((x) => optimiertZeile(x, laden))) : el('p.leise', 'Noch keine.')));
+        const weiter = a.laeuft || offen.length > 0;
+        if (!weiter) clearInterval(abfrage), abfrage = null;
+        else if (!abfrage) abfrage = setInterval(() => { if (!document.body.contains(box)) { clearInterval(abfrage); abfrage = null; return; } laden().catch(() => {}); }, 4000);
+    };
+    await laden();
+    return box;
 }

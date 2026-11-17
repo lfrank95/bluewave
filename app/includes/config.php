@@ -65,6 +65,8 @@ function konfig(): array
             'cache' => $cache,
             'backups' => rtrim($env('PFAD_BACKUPS', '/backups'), '/'),
             'transkodieren' => rtrim($env('PFAD_TRANSKODIEREN', '/transkodieren'), '/'),
+            // optimierte Fassungen (groß!): eingebundener Ordner /optimiert, sonst im Cache
+            'optimiert' => rtrim($env('PFAD_OPTIMIERT', is_dir('/optimiert') ? '/optimiert' : $cache . '/optimiert'), '/'),
         ],
         'transkodieren' => [
             // Gewünschtes Encoder-Profil aus Vorlage/.env; was wirklich läuft, entscheidet hardware.php
