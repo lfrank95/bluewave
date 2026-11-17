@@ -59,10 +59,10 @@ echo "== 5.1 (AC3) ab 12 s bis zum Ende"
 spielen ac3 "http://127.0.0.1:18765/ton.php?start=12&ton=0" 5
 pruefen "$ARBEIT/ac3.txt" "AC3 5.1" 6 12 ja
 echo "== Stereo (AAC), zweite Spur"
-spielen aac "http://127.0.0.1:18765/ton.php?start=0&ton=1" 2
+spielen aac "http://127.0.0.1:18765/ton.php?start=0&ton=1" 4
 pruefen "$ARBEIT/aac.txt" "AAC Stereo" 2 0 nein
 echo "== Nachtmodus + Dialog → Stereo"
-spielen nacht "http://127.0.0.1:18765/ton.php?start=0&ton=0&nacht=stark&dialog=6" 2
+spielen nacht "http://127.0.0.1:18765/ton.php?start=0&ton=0&nacht=stark&dialog=6" 4
 pruefen "$ARBEIT/nacht.txt" "Nachtmodus" 2 0 nein
 python3 - "$ARBEIT/ac3.raw" <<'PY'
 import sys, struct
