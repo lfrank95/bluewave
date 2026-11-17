@@ -67,6 +67,7 @@ export async function spielen(ziel, app) {
     diagNeu({ art: ziel.art, id: ziel.id, bildschirm: `${screen.width}x${screen.height}@${devicePixelRatio}`, verbindung: navigator.connection?.effectiveType || null,
         mse: mseVerfuegbar(), faehigkeiten: JSON.stringify(faehigkeiten()).slice(0, 600) });
     aktiv = new Player(ziel, app);
+    window.__bluewaveSpieler = aktiv; // für Diagnose und Browser-Tests
     await aktiv.starten();
 }
 

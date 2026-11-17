@@ -109,6 +109,22 @@ if ! python3 tests/e2e.py http://127.0.0.1:19960 "$ARBEIT/medien"; then
     echo "--- App-Log ---"; docker logs bwtest_app 2>&1 | tail -n 60
     echo "--- Auftrag-Log ---"; sudo cat "$ARBEIT/appdata/cache/auftrag.log" 2>/dev/null | tail -n 40
     echo "--- Apache-Fehler ---"; docker exec bwtest_app sh -c 'ls /transkodieren; cat /transkodieren/*/ffmpeg.log 2>/dev/null | tail -n 20'
+    echo "--- Zeitstempel (Diagnose) ---"
+    docker exec bwtest_app sh -c '
+        ffmpeg -hide_banner -version | head -n1
+        echo "Quelle Testfilm:"; ffprobe -v error -show_entries packet=stream_index,pts_time,dts_time,flags -of csv=p=0 -read_intervals "%+#6" "/filme/Testfilm (2024)/Testfilm (2024).mkv" | head -n 12
+        for c in /transkodieren/teile/*/; do
+            [ -f "$c/teil_00000.m4s" ] || continue
+            cat "$c/init.mp4" "$c/teil_00000.m4s" > /tmp/t0.mp4
+            echo "Teil 0 aus $c:"; ffprobe -v error -show_entries packet=stream_index,pts_time,dts_time,flags -of csv=p=0 /tmp/t0.mp4 | head -n 8
+            ffprobe -v error -show_entries stream=index,codec_name,start_time -of csv=p=0 /tmp/t0.mp4
+            cat /transkodieren/sitzung-*/lauf.json 2>/dev/null | head -c 1500; echo
+        done' 2>&1 | head -n 80
+    exit 1
+fi
+echo "== Browser: Player mit hls.js, Sprünge, Direct Stream, Vorschaubilder =="
+if ! python3 tests/browser.py http://127.0.0.1:19960; then
+    echo "--- App-Log ---"; docker logs bwtest_app 2>&1 | tail -n 40
     exit 1
 fi
 docker compose -p bwtest -f docker-compose.yml -f tests/compose.e2e.yml down -v
