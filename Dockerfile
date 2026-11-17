@@ -65,6 +65,8 @@ RUN printf '<Directory /var/www/html>\n    AllowOverride All\n</Directory>\n' > 
     && a2enconf haertung
 
 COPY app /var/www/html
+# Windows-Client (Installer + version.json), von CI gebaut (Job „client“); lokal leer → /api/v1/client/version meldet keinen
+COPY client-dist /opt/bluewave/client
 
 # hls.js (Apache-2.0) für die HLS-Wiedergabe im Browser – feste Version, Prüfsumme aus dem npm-Register
 ARG HLSJS_VERSION=1.7.4

@@ -1,0 +1,153 @@
+// „Bluewave deinstallieren.exe“ – liegt im Programmordner (%LOCALAPPDATA%\Programs\Bluewave) und wird über
+// Einstellungen → Apps aufgerufen. Entfernt Programmordner, Startmenü-Eintrag und den Eintrag unter „Apps“.
+// Die Einstellungen in %APPDATA%\bluewave-client bleiben, außer man wählt „Auch Einstellungen löschen“.
+//
+// Ein laufendes Programm kann seinen eigenen Ordner nicht löschen: Der erste Aufruf kopiert sich nach %TEMP% und startet
+// die Kopie mit /weiter "<Ordner>"; die Kopie räumt auf und lässt sich danach von cmd.exe löschen.
+#define WIN32_LEAN_AND_MEAN
+#ifndef UNICODE
+#define UNICODE
+#endif
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#include <shlobj.h>
+#include <wchar.h>
+
+#ifdef AW_SERVER   // Fassung für den Bluewave Windows Server
+#define TITEL L"Amberwave Server"
+#define UNINSTALL_SCHLUESSEL L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\BluewaveServer"
+#define PROGRAMM L"Amberwave Server.exe"
+#define LNK L"\\Amberwave Server.lnk"
+#else
+#define TITEL L"Bluewave Windows Client"
+#define UNINSTALL_SCHLUESSEL L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\BluewaveClient"
+#define PROGRAMM L"Bluewave Client.exe"
+#define LNK L"\\Bluewave.lnk"
+#endif
+
+static int englisch(void) { return (GetUserDefaultUILanguage() & 0x3ff) != LANG_GERMAN; }
+#define TX(de, en) (englisch() ? (en) : (de))
+
+static int baum_loeschen(const wchar_t *pfad) {
+  if (GetFileAttributesW(pfad) == INVALID_FILE_ATTRIBUTES) return 1;
+  wchar_t doppelt[MAX_PATH * 2 + 2] = {0};
+  wcsncpy(doppelt, pfad, MAX_PATH * 2);
+  SHFILEOPSTRUCTW op = {0};
+  op.wFunc = FO_DELETE; op.pFrom = doppelt; op.fFlags = FOF_NO_UI;
+  return SHFileOperationW(&op) == 0;
+}
+
+/* Ist Bluewave noch offen? Dann lässt sich der Ordner nicht umbenennen. */
+static int laeuft_noch(const wchar_t *ordner) {
+  wchar_t probe[MAX_PATH * 2];
+  _snwprintf(probe, MAX_PATH * 2, L"%ls.pruefen", ordner);
+  if (!MoveFileW(ordner, probe)) return 1;
+  MoveFileW(probe, ordner);
+  return 0;
+}
+
+static void zweiter_schritt(const wchar_t *ordner) {
+  // Sicherung: nur einen Ordner löschen, in dem wirklich Bluewave liegt
+  wchar_t pruef[MAX_PATH * 2];
+  _snwprintf(pruef, MAX_PATH * 2, L"%ls\\" PROGRAMM, ordner);
+  if (GetFileAttributesW(pruef) == INVALID_FILE_ATTRIBUTES) {
+    MessageBoxW(NULL, TX(L"In diesem Ordner ist kein Bluewave installiert – es wird nichts gelöscht.",
+                         L"Bluewave is not installed in this folder – nothing is deleted."), TITEL, MB_OK | MB_ICONWARNING);
+    return;
+  }
+  if (laeuft_noch(ordner)) {
+    MessageBoxW(NULL, TX(L"Bluewave läuft noch. Bitte Bluewave schließen (auch im Infobereich: Rechtsklick → Beenden) und noch einmal deinstallieren.",
+                         L"Bluewave is still running. Please quit Bluewave (also in the notification area: right-click → Quit) and uninstall again."), TITEL, MB_OK | MB_ICONWARNING);
+    return;
+  }
+#ifdef AW_SERVER
+  int r = MessageBoxW(NULL, TX(L"Amberwave Server deinstallieren?\n\nAuch Bibliothek, Konten, Cover und Sicherungen löschen? Deine Musik selbst bleibt immer unangetastet.\nJa = alles löschen · Nein = Daten behalten (für eine spätere Neuinstallation)",
+                               L"Uninstall Amberwave Server?\n\nAlso delete library, accounts, covers and backups? Your music itself is never touched.\nYes = delete everything · No = keep data (for a later reinstall)"),
+                      TITEL, MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2);
+#else
+  int r = MessageBoxW(NULL, TX(L"Bluewave Windows Client deinstallieren?\n\nAuch deine Einstellungen (Server, Ausgabe, Lautsprecher) löschen?\nJa = alles löschen · Nein = Einstellungen behalten",
+                               L"Uninstall Bluewave Windows Client?\n\nAlso delete your settings (server, output, speakers)?\nYes = delete everything · No = keep settings"),
+                      TITEL, MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2);
+#endif
+  if (r == IDCANCEL) return;
+  baum_loeschen(ordner);
+  wchar_t lnk[MAX_PATH * 2];
+  int orte[] = {CSIDL_PROGRAMS, CSIDL_DESKTOPDIRECTORY};
+  for (int i = 0; i < 2; i++) {
+    if (SUCCEEDED(SHGetFolderPathW(NULL, orte[i], NULL, 0, lnk))) {
+      wcsncat(lnk, LNK, MAX_PATH * 2 - wcslen(lnk) - 1);
+      DeleteFileW(lnk);
+    }
+  }
+  RegDeleteKeyW(HKEY_CURRENT_USER, UNINSTALL_SCHLUESSEL);
+#ifdef AW_SERVER
+  {   // Autostart-Eintrag („Mit Windows starten“) entfernen
+    HKEY k;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_SET_VALUE, &k) == ERROR_SUCCESS) {
+      RegDeleteValueW(k, L"Amberwave Server");
+      RegCloseKey(k);
+    }
+  }
+#endif
+  if (r == IDYES) {
+    wchar_t daten[MAX_PATH * 2];
+#ifdef AW_SERVER
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_LOCAL_APPDATA, NULL, 0, daten))) {
+      wcsncat(daten, L"\\Amberwave Server", MAX_PATH * 2 - wcslen(daten) - 1);
+      baum_loeschen(daten);
+    }
+#else
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, daten))) {
+      wcsncat(daten, L"\\bluewave-client", MAX_PATH * 2 - wcslen(daten) - 1);
+      baum_loeschen(daten);
+    }
+#endif
+  }
+  MessageBoxW(NULL, TX(L"Bluewave wurde deinstalliert.", L"Bluewave has been uninstalled."), TITEL, MB_OK | MB_ICONINFORMATION);
+}
+
+int WINAPI wWinMain(HINSTANCE inst, HINSTANCE vorher, PWSTR cmd, int zeigen) {
+  (void)inst; (void)vorher; (void)zeigen;
+  {
+    // Installer liegen im Download-Ordner – dort kann jeder eine DLL danebenlegen. Nachgeladene DLLs darum nur aus System32,
+    // und der Arbeitsordner zählt bei der Suche nicht mit.
+    typedef BOOL (WINAPI *DllOrdnerFn)(DWORD);
+    HMODULE k32 = GetModuleHandleW(L"kernel32.dll");
+    DllOrdnerFn f = k32 ? (DllOrdnerFn)(void *)GetProcAddress(k32, "SetDefaultDllDirectories") : NULL;
+    if (f) f(0x00000800 /* LOAD_LIBRARY_SEARCH_SYSTEM32 */);
+    SetDllDirectoryW(L"");
+  }
+  wchar_t selbst[MAX_PATH * 2];
+  GetModuleFileNameW(NULL, selbst, MAX_PATH * 2);
+  int argc = 0;
+  wchar_t **argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (argv && argc >= 3 && !wcscmp(argv[1], L"/weiter")) {
+    // Kopie aus %TEMP%: aufräumen, dann sich selbst löschen lassen
+    zweiter_schritt(argv[2]);
+    wchar_t befehl[MAX_PATH * 3];
+    _snwprintf(befehl, MAX_PATH * 3, L"/c ping -n 3 127.0.0.1 >nul & del /f /q \"%ls\"", selbst);
+    ShellExecuteW(NULL, L"open", L"cmd.exe", befehl, NULL, SW_HIDE);
+    LocalFree(argv);
+    return 0;
+  }
+  (void)cmd;
+  // erster Aufruf aus dem Programmordner: Ordner merken, Kopie nach %TEMP% starten
+  wchar_t ordner[MAX_PATH * 2];
+  wcscpy(ordner, selbst);
+  wchar_t *schnitt = wcsrchr(ordner, L'\\');
+  if (schnitt) *schnitt = 0;
+  wchar_t temp[MAX_PATH], kopie[MAX_PATH * 2], param[MAX_PATH * 2 + 16];
+  GetTempPathW(MAX_PATH, temp);
+  _snwprintf(kopie, MAX_PATH * 2, L"%lsbluewave-deinstallieren-%lu.exe", temp, GetTickCount());
+  if (!CopyFileW(selbst, kopie, FALSE)) {
+    MessageBoxW(NULL, TX(L"Die Deinstallation ließ sich nicht starten.", L"Could not start the uninstaller."), TITEL, MB_OK | MB_ICONERROR);
+    return 1;
+  }
+  _snwprintf(param, MAX_PATH * 2 + 16, L"/weiter \"%ls\"", ordner);
+  ShellExecuteW(NULL, L"open", kopie, param, temp, SW_SHOWNORMAL);
+  if (argv) LocalFree(argv);
+  return 0;
+}

@@ -1,0 +1,15 @@
+Bluewave Windows-Client
+Copyright (C) 2026 Lorenzo Frank. Alle Rechte vorbehalten.
+
+Bluewave ist ein privates Projekt für den eigenen Gebrauch und für Familie und Freunde. Weitergabe nur mit Zustimmung
+des Rechteinhabers. Das Programm wird ohne jede Gewährleistung bereitgestellt – Nutzung auf eigene Gefahr.
+
+Enthaltene Komponenten anderer Hersteller stehen unter ihren eigenen Lizenzen; die vollständige Liste mit Quellen und
+Lizenzen steht in DRITTANBIETER.md im Programmordner (und unten).
+
+Bluewave Windows Client
+Copyright (C) 2026 Lorenzo Frank. All rights reserved.
+
+Bluewave is a private project for personal use and for family and friends. Redistribution only with the consent of the
+copyright holder. Provided without any warranty – use at your own risk. Bundled third-party components are licensed under
+their own terms, listed in DRITTANBIETER.md in the program folder (and below).

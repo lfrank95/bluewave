@@ -33,6 +33,11 @@ Eigener Film- und Serienserver aus der Amberwave-Familie – als Ersatz für Ple
 
 **Verwaltung**: Bibliothek (Scan, Metadaten, Intro-Erkennung, Untertitel, Zuordnen von Hand), Universen, Aufräumen mit Vorschau, Nutzer, Einstellungen, Hintergrund (optimierte Fassungen, Vorschaubilder), Diagnose (Zeitleiste jeder Wiedergabe), System (QuickSync-Status, Transkodiertest)
 
+**Windows-Client** (`windows-client/`, Installer im Server-Image: Profil › Windows-Client › Herunterladen)
+- Electron-Hülle um die Web-App; Filme und Serien spielt **mpv** – jede Datei unverändert (MKV, HEVC/AV1, HDR, alle Ton- und Untertitelspuren inkl. PGS), kein Umwandeln
+- Ton wahlweise über die **Bluewave-Engine** (aus Amberwave: WASAPI geteilt/exklusiv, ASIO, Lautsprecher-Manager mit Abständen, Pegeln, Subwoofer-Weiche und Kanal-EQ; der Server liefert die Spur verlustfrei als FLAC, das Bild folgt der Uhr der Engine), über **mpv** (WASAPI, auf Wunsch exklusiv) oder als **Bitstream** zum AV-Receiver (Dolby Digital/TrueHD/Atmos, DTS/DTS-HD)
+- findet den Server im Heimnetz von selbst (Ausweis per Ed25519), Updates kommen vom eigenen Server; eigene mpv-Einstellungen in `%APPDATA%\bluewave-client\mpv\mpv.conf`
+
 ## Installation (Unraid, Compose-Stack)
 
 1. `docker-compose.yml` als Stack anlegen, `.env.example` als `.env` daneben, Pfade anpassen
@@ -52,3 +57,5 @@ Privates Repository → die Images sind privat: einmal `docker login ghcr.io` mi
 ## Entwicklung
 
 Jeder Push auf `main` baut die Images, startet Stack und All-in-One, erzeugt Testmedien und prüft mit einer Ersatz-TMDB den ganzen Ablauf (`tests/e2e.py`) und den Player in echtem Chrome (`tests/browser.py`) – erst dann wird nach `ghcr.io` gepusht. Der Zweig `entwicklung` wird nur gebaut und getestet.
+
+Der Windows-Client wird im selben Lauf gebaut (llvm-mingw, Electron, mpv von shinchiro) und vorher geprüft: Ton-Engine unter Linux mit dem FLAC-Strom des Servers (`windows-client/tests/engine_test.sh`), Gleichlauf von Bild und Ton mit einer mpv-Attrappe (`spieler_test.js`), die Oberfläche in Chrome (`oberflaeche_test.py`) und auf echtem Windows Dateiangaben, mpv, Engine, Videofenster und stilles Update (`windows_pruefen.ps1`). Vorabversionen zählen mit jedem Lauf hoch (`0.2.0-beta.<lauf>`).

@@ -25,10 +25,101 @@ env:
   AIO: ghcr.io/${{ github.repository_owner }}/bluewave-aio
 
 jobs:
+  # Windows-Client (Electron, mpv, Ton-Engine, Installer) – landet im Server-Image, der Client holt dort seine Updates
+  client:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      ELECTRON_VERSION: 44.9.3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Werkzeuge (llvm-mingw, Electron, mpv)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          W="$RUNNER_TEMP/werkzeug"; mkdir -p "$W"
+          URL="$(gh api repos/mstorsjo/llvm-mingw/releases/latest --jq '.assets[].browser_download_url' | grep -E 'ucrt-ubuntu-[0-9.]+-x86_64\.tar\.xz$' | head -1)"
+          curl -fsSL "$URL" | tar -xJ -C "$W"
+          echo "LLVM_MINGW=$(ls -d "$W"/llvm-mingw-*)" >> "$GITHUB_ENV"
+          curl -fsSL -o "$W/electron.zip" "https://github.com/electron/electron/releases/download/v$ELECTRON_VERSION/electron-v$ELECTRON_VERSION-win32-x64.zip"
+          echo "ELECTRON_ZIP=$W/electron.zip" >> "$GITHUB_ENV"
+          # mpv: fertiger Windows-Build von shinchiro (x86_64 ohne v3 – läuft auch auf älteren CPUs)
+          MPV="$(gh api repos/shinchiro/mpv-winbuild-cmake/releases/latest --jq '.assets[] | select(.name | test("^mpv-x86_64-[0-9]{8}-git-[0-9a-f]+\\.7z$")) | .browser_download_url' | head -1)"
+          [ -n "$MPV" ] || { echo "::error title=mpv::kein mpv-Build gefunden"; exit 1; }
+          curl -fsSL -o "$W/$(basename "$MPV")" "$MPV"
+          echo "MPV_7Z=$W/$(basename "$MPV")" >> "$GITHUB_ENV"
+          curl -fsSL -o "$W/gpl-2.0.txt" https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt && echo "GPL_TEXT=$W/gpl-2.0.txt" >> "$GITHUB_ENV" || true
+          pip install --quiet --break-system-packages pillow fonttools brotli
+          echo "mpv: $(basename "$MPV")"
+      - name: Version
+        run: |
+          # Vorabversionen zählen mit jedem Lauf hoch (0.2.0-beta.<lauf>), damit Clients das Update erkennen
+          node -e '
+            const fs = require("fs"), p = "windows-client/client/package.json", j = JSON.parse(fs.readFileSync(p));
+            if (!process.env.GITHUB_REF.startsWith("refs/tags/") && j.version.includes("-")) j.version = j.version.replace(/-.*$/, "-beta." + process.env.GITHUB_RUN_NUMBER);
+            fs.writeFileSync(p, JSON.stringify(j, null, 2) + "\n"); console.log(j.version);'
+          echo "V=$(node -p "require('./windows-client/client/package.json').version")" >> "$GITHUB_ENV"
+      - name: Engine unter Linux testen (Strom vom Server, FLAC 5.1, unbekannte Länge)
+        run: bash windows-client/tests/engine_test.sh
+      - name: Spieler-Logik testen (mpv-Attrappe, Engine-Uhr)
+        run: node windows-client/tests/spieler_test.js
+      - name: Oberfläche des Clients testen (Chrome, nachgebaute Client-Brücke)
+        run: |
+          python3 -m pip install --quiet --break-system-packages playwright
+          python3 windows-client/tests/oberflaeche_test.py /usr/bin/google-chrome
+      - name: Client bauen
+        run: |
+          AUS="$RUNNER_TEMP/aus" bash windows-client/bauen.sh
+          mkdir -p client-dist
+          cp "$RUNNER_TEMP/aus/Bluewave-Windows-Client-$V.exe" client-dist/
+          SHA="$(sha256sum "client-dist/Bluewave-Windows-Client-$V.exe" | cut -d' ' -f1)"
+          printf '{"version":"%s","datei":"%s","sha256":"%s","gebaut":"%s","commit":"%s"}\n' "$V" "Bluewave-Windows-Client-$V.exe" "$SHA" "$(date -u +%FT%TZ)" "${GITHUB_SHA::12}" > client-dist/version.json
+          cat client-dist/version.json
+          echo "::notice title=Windows-Client::Bluewave-Windows-Client-$V.exe, SHA-256 $SHA"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-dist
+          path: client-dist/
+          retention-days: 7
+          compression-level: 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: client-ordner
+          path: ${{ runner.temp }}/aus/Bluewave Windows Client
+          retention-days: 1
+
+  client_pruefen:
+    # Auf echtem Windows: Dateiangaben, stilles Update, mpv und Engine laufen, der Client startet ohne Fehler
+    needs: client
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: windows-client/tests
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-ordner
+          path: ${{ runner.temp }}/ordner
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-dist
+          path: ${{ runner.temp }}/a
+      - name: Prüfen
+        shell: pwsh
+        run: '& windows-client/tests/windows_pruefen.ps1 -Ordner "$env:RUNNER_TEMP\ordner" -Paket (Get-ChildItem "$env:RUNNER_TEMP\a\*.exe" | Select-Object -First 1).FullName'
+
   bauen:
+    needs: [client, client_pruefen]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-dist
+          path: client-dist
 
       - name: PHP- und Shell-Prüfung
         run: |

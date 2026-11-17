@@ -2,6 +2,7 @@
 'use strict';
 import { el, icon, meldung, feld, auswahl, bestaetigen } from '../ui.js';
 import { api } from '../api.js';
+import { clientBereich } from '../client/einstellungen.js';
 
 export const titel = () => 'Profil – Bluewave';
 
@@ -54,7 +55,8 @@ export async function zeigen(r, app) {
 
     const code = el('input.eingabe', { inputmode: 'numeric', maxlength: 7, placeholder: '123456', style: { width: '140px', fontSize: '1.3rem', letterSpacing: '0.2em' } });
 
-    return el('div.seite', { style: { maxWidth: '900px' } },
+    const client = await clientBereich().catch(() => []);
+    return el('div.seite', { style: { maxWidth: window.bluewaveNativ ? '1180px' : '900px' } },
         el('div.seiten-kopf', el('h1', 'Profil')),
         el('section.karte.glass-panel', el('h2', 'Wiedergabe'),
             el('div.feld-reihe',
@@ -71,6 +73,7 @@ export async function zeigen(r, app) {
                 feld('Nachtmodus', w.nachtmodus, 'Standard aus: Ohne Nachtmodus wird der Ton nicht angefasst.'),
                 feld('Dialog-Anhebung', w.dialog_db, 'Hebt Stimmen an (Mitte/Center). Auch im Player umschaltbar.')),
             el('div.knoepfe', speichern)),
+        client,
         el('section.karte.glass-panel', el('h2', 'Fernseher koppeln'),
             el('p.leise', 'Zeigt dein Fernseher einen 6-stelligen Code? Hier eingeben – der Fernseher bleibt dann fest mit deinem Konto angemeldet.'),
             el('div', { style: { display: 'flex', gap: '10px', alignItems: 'center' } }, code,

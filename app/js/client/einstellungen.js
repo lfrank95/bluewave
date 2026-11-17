@@ -1,0 +1,184 @@
+// Profil › Windows-Client: Tonweg (Engine / mpv / Bitstream), Ausgabe der Engine (aus Amberwave übernommen: Geräte,
+// ASIO-Ausgänge, Lautsprecher-Manager, Kanal-EQ), Bild, Updates und Client-Optionen. Im Browser: Download des Clients.
+'use strict';
+import { el, meldung, bestaetigen } from '../ui.js';
+import { api } from '../api.js';
+import { nativ } from './nativ.js';
+
+const WEGE = [
+    ['engine', 'Bluewave-Engine', 'WASAPI geteilt/exklusiv oder ASIO, mit Lautsprecher-Manager, Delay, Pegel, Subwoofer und Kanal-EQ. Der Server liefert den Ton verlustfrei als PCM.'],
+    ['mpv', 'mpv (WASAPI)', 'mpv spielt den Ton selbst, auf Wunsch exklusiv. Am wenigsten Umwege, ohne Lautsprecher-Manager.'],
+    ['bitstream', 'Bitstream zum Receiver', 'Dolby Digital, Dolby TrueHD (Atmos), DTS und DTS-HD gehen unverändert per HDMI/S/PDIF an den AV-Receiver. Lautstärke regelt der Receiver.'],
+];
+const FORMATE = [['ac3', 'Dolby Digital'], ['eac3', 'Dolby Digital Plus'], ['truehd', 'Dolby TrueHD / Atmos'], ['dts', 'DTS'], ['dts-hd', 'DTS-HD MA']];
+
+const zeile = (titel, text, regler) => el('div.client-zeile', el('div', el('b', titel), text ? el('p', text) : null), regler);
+
+/** Browser: Hinweis und Download, wenn das Image einen Client mitbringt */
+async function downloadKarte() {
+    let info = null;
+    try { info = await api('client/version'); } catch { return null; }
+    if (!info?.version) return null;
+    return el('section.karte.glass-panel.client-karte', el('h2', 'Windows-Client'),
+        el('p.leise', 'Spielt jede Datei unverändert mit mpv ab – ohne Umwandeln, mit allen Ton- und Untertitelspuren, HDR und Ton über WASAPI exklusiv, ASIO oder als Bitstream zum AV-Receiver. Updates kommen später direkt über diesen Server.'),
+        el('div.client-download',
+            el('a.knopf.haupt', { href: '/api/v1/client/download', download: info.datei }, `Herunterladen (${info.version})`),
+            el('span.leise', `${(info.groesse / 1048576).toFixed(0)} MB · Windows 10/11 (64 Bit)`)));
+}
+
+/** Zustand der Engine-Ausgabe für die übernommene Amberwave-Sektion (Format, Anlauf, Aussetzer) */
+function ausgabeZustand() {
+    const audio = new EventTarget();
+    const pl = {
+        audio, track: null, nativAusgabe: {}, nativGeraete: [], spielt: false,
+        pausieren() {}, ausgangBassLaden() {},
+        bewertung() {
+            const f = audio.format;
+            if (!f) return { stufe: 'transparent', grund: '' };
+            return (f.asio || f.exklusiv) && !f.umgerechnet ? { stufe: 'bitgenau', grund: '' } : { stufe: f.umgerechnet ? 'veraendert' : 'transparent', grund: f.umgerechnet ? 'Abtastrate wird umgerechnet' : 'Windows mischt' };
+        },
+        nativAusgabeSetzen(w) { nativ.ausgabeSetzen(w); pl.nativAusgabe = { ...pl.nativAusgabe, ...w }; },
+    };
+    const uebernehmen = (s) => {
+        if (!s) return;
+        if (s.format) audio.format = s.format;
+        if (s.anlauf) audio.anlaufLetzt = s.anlauf;
+        audio.aussetzerZahl = s.aussetzer || 0;
+    };
+    nativ.ausgabeStatus?.().then((s) => { uebernehmen(s); audio.dispatchEvent(new Event('nativformat')); }).catch(() => {});
+    const aus = nativ.auf((m) => {
+        if (m.e === 'format') { audio.format = m; audio.dispatchEvent(new Event('nativformat')); }
+        else if (m.e === 'anlauf') { audio.anlaufLetzt = m; audio.dispatchEvent(new Event('nativformat')); }
+        else if (m.e === 'aussetzer') audio.aussetzerZahl = (audio.aussetzerZahl || 0) + 1;
+    });
+    return { pl, aus };
+}
+
+/** Client: Tonweg, Ausgabe, Bild, Updates, Optionen */
+async function clientKarten() {
+    const v = await nativ.video.einst();
+    const karten = [];
+
+    // ---- Tonweg ----
+    const wegeEl = el('div.client-wege');
+    const mpvKarte = el('div');
+    const engineKarte = el('div');
+    const wegZeigen = () => {
+        wegeEl.replaceChildren(...WEGE.map(([w, titel, text]) => el('button.client-weg', { type: 'button', 'aria-pressed': String(v.ton_weg === w),
+            onclick: async () => { Object.assign(v, await nativ.video.einstSetzen({ ton_weg: w })); wegZeigen(); meldung(`Ton: ${titel}`); } }, el('b', titel), el('span', text))));
+        mpvKarte.hidden = v.ton_weg === 'engine';
+        engineKarte.hidden = v.ton_weg !== 'engine';
+        mpvZeigen();
+    };
+    const geraetWahl = el('select.eingabe');
+    const exklusiv = el('input', { type: 'checkbox' });
+    const formate = FORMATE.map(([w, name]) => [w, el('input', { type: 'checkbox' }), name]);
+    const formatBox = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px 18px' } }, formate.map(([, c, name]) => el('label.schalter', c, name)));
+    const mpvZeigen = () => {
+        geraetWahl.replaceChildren(el('option', { value: 'auto' }, 'Windows-Standardgerät'),
+            ...(v.mpv_geraete || []).filter((g) => g.id !== 'auto').map((g) => el('option', { value: g.id, selected: g.id === v.mpv_geraet }, g.name)));
+        geraetWahl.value = v.mpv_geraet || 'auto';
+        exklusiv.checked = !!v.mpv_exklusiv;
+        for (const [w, c] of formate) c.checked = (v.spdif || []).includes(w);
+        formatBox.parentElement && (formatBox.closest('.client-zeile').hidden = v.ton_weg !== 'bitstream');
+        exklusiv.closest('.client-zeile') && (exklusiv.closest('.client-zeile').hidden = v.ton_weg === 'bitstream');
+    };
+    const mpvSpeichern = async () => {
+        Object.assign(v, await nativ.video.einstSetzen({ mpv_geraet: geraetWahl.value, mpv_exklusiv: exklusiv.checked, spdif: formate.filter(([, c]) => c.checked).map(([w]) => w) }));
+        meldung('Übernommen – gilt ab dem nächsten Abspielen.');
+    };
+    geraetWahl.addEventListener('change', mpvSpeichern);
+    exklusiv.addEventListener('change', mpvSpeichern);
+    formate.forEach(([, c]) => c.addEventListener('change', mpvSpeichern));
+    mpvKarte.append(
+        zeile('Ausgabegerät', 'Für Bitstream das Gerät am HDMI- bzw. S/PDIF-Ausgang zum Receiver wählen.', geraetWahl),
+        zeile('Exklusiv', 'mpv belegt das Gerät allein (an der Windows-Mischung vorbei). Andere Programme sind solange stumm.', el('label.schalter', exklusiv, 'An')),
+        zeile('Formate, die der Receiver kann', 'Alles andere wandelt mpv in PCM. Im Zweifel nur Dolby Digital und DTS anhaken.', formatBox));
+
+    // Ausgabe der Engine: übernommene Amberwave-Sektion
+    const ausgabeBox = el('div.einst-ausgabe');
+    engineKarte.append(ausgabeBox);
+    const steuer = new AbortController();
+    const { pl, aus } = ausgabeZustand();
+    steuer.signal.addEventListener('abort', aus);
+    import('./ausgabe_amberwave.js').then(({ ausgabeZeichnen }) => ausgabeZeichnen(ausgabeBox, steuer.signal, pl)).catch((x) => {
+        ausgabeBox.replaceChildren(el('p.leise', 'Ausgabe-Einstellungen nicht verfügbar: ' + x.message));
+    });
+    // Seite verlassen → Beobachter weg
+    let warDa = false;
+    const wache = setInterval(() => {
+        if (ausgabeBox.isConnected) { warDa = true; return; }
+        if (warDa) { steuer.abort(); clearInterval(wache); }
+    }, 2000);
+
+    const versatz = el('input.eingabe', { type: 'number', min: -500, max: 500, step: 5, value: v.versatz_ms || 0, style: { width: '120px' } });
+    versatz.addEventListener('change', async () => { Object.assign(v, await nativ.video.einstSetzen({ versatz_ms: Number(versatz.value) || 0 })); meldung('Ton-Versatz übernommen.'); });
+
+    karten.push(el('section.karte.glass-panel.client-karte', el('h2', 'Ton im Windows-Client'),
+        wegeEl, mpvKarte,
+        zeile('Ton-Versatz', 'Plus: Ton später, minus: früher (z. B. wenn der Fernseher das Bild verzögert).', el('span', versatz, ' ms'))));
+    karten.push(el('section.client-ausgabe', engineKarte));
+
+    // ---- Bild ----
+    const hwdec = el('select.eingabe', {}, [['auto-safe', 'Grafikkarte (empfohlen)'], ['no', 'Prozessor (bei Bildfehlern)']].map(([w, t]) => el('option', { value: w, selected: v.hwdec === w }, t)));
+    hwdec.addEventListener('change', async () => { Object.assign(v, await nativ.video.einstSetzen({ hwdec: hwdec.value })); meldung('Übernommen – gilt ab dem nächsten Abspielen.'); });
+    const vollbild = el('input', { type: 'checkbox', checked: !!v.vollbild });
+    vollbild.addEventListener('change', async () => { Object.assign(v, await nativ.video.einstSetzen({ vollbild: vollbild.checked })); });
+    karten.push(el('section.karte.glass-panel.client-karte', el('h2', 'Bild'),
+        zeile('Dekodieren', 'Die Grafikkarte dekodiert HEVC, AV1 und 4K sparsam. HDR zeigt mpv auf HDR-Bildschirmen direkt, sonst rechnet es sauber auf SDR um.', hwdec),
+        zeile('Im Vollbild starten', 'Sonst öffnet der Film in der Größe des Bluewave-Fensters (F oder Doppelklick schaltet um).', el('label.schalter', vollbild, 'An'))));
+
+    // ---- Client ----
+    const ce = await nativ.clientEinst();
+    const tray = el('input', { type: 'checkbox', checked: !!ce?.tray });
+    const autostart = el('input', { type: 'checkbox', checked: !!ce?.autostart });
+    tray.addEventListener('change', () => nativ.clientEinstSetzen({ tray: tray.checked }));
+    autostart.addEventListener('change', () => nativ.clientEinstSetzen({ autostart: autostart.checked }));
+    const updateText = el('span.leise');
+    const updateKnopf = el('button.knopf.klein', 'Nach Updates suchen');
+    const updateZeigen = (u) => {
+        if (u?.stand === 'laedt') { updateText.textContent = `Lade Version ${u.version} … ${u.prozent || 0} %`; updateKnopf.disabled = true; return; }
+        if (u?.stand === 'startet') { updateText.textContent = 'Installiere – der Client startet gleich neu …'; updateKnopf.disabled = true; return; }
+        updateKnopf.disabled = false;
+        if (u?.version) {
+            updateText.textContent = u.stand === 'fehler' ? `Update fehlgeschlagen: ${u.fehler}` : `Neue Version ${u.version} verfügbar.`;
+            updateKnopf.textContent = 'Jetzt aktualisieren';
+            updateKnopf.onclick = () => nativ.update.installieren();
+        } else {
+            updateText.textContent = `Installiert: ${nativ.version}`;
+            updateKnopf.textContent = 'Nach Updates suchen';
+            updateKnopf.onclick = async () => {
+                updateKnopf.disabled = true;
+                const r = await nativ.update.suchen();
+                updateKnopf.disabled = false;
+                if (!r?.ok) { meldung('Der Server ist gerade nicht erreichbar.', true); return; }
+                if (!r.update) meldung('Der Client ist auf dem neuesten Stand.');
+                updateZeigen(r.update);
+            };
+        }
+    };
+    updateZeigen(await nativ.update.info());
+    const updateAus = nativ.update.auf(updateZeigen);
+    steuer.signal.addEventListener('abort', updateAus);
+    karten.push(el('section.karte.glass-panel.client-karte', el('h2', 'Windows-Client'),
+        zeile('Updates', 'Neue Versionen bringt der Bluewave-Server mit – nach einem Server-Update erscheint hier der passende Client.', el('div.client-download', updateText, updateKnopf)),
+        zeile('Im Infobereich weiterlaufen', 'Schließen versteckt das Fenster nur; Beenden über das Symbol im Infobereich.', el('label.schalter', tray, 'An')),
+        zeile('Mit Windows starten', 'Startet unsichtbar im Infobereich.', el('label.schalter', autostart, 'An')),
+        zeile('Server', 'Anderen Bluewave-Server wählen oder die Adresse ändern.', el('button.knopf.klein', { onclick: async () => {
+            if (await bestaetigen('Server wechseln?', 'Der Client zeigt die Serversuche.', 'Wechseln')) nativ.serverWechseln();
+        } }, 'Server wechseln …')),
+        zeile('Fehlersuche', 'Log von Client, mpv und Engine; die Diagnosedatei landet auf dem Desktop.', el('div.client-download',
+            el('button.knopf.klein', { onclick: () => nativ.logOeffnen() }, 'Log-Ordner'),
+            el('button.knopf.klein', { onclick: async () => { const r = await nativ.diagnose(); if (r?.ok) meldung('Diagnosedatei auf dem Desktop gespeichert.'); else meldung(r?.text || 'Fehlgeschlagen', true); } }, 'Diagnosedatei')))));
+    wegZeigen();
+    return karten;
+}
+
+/** Abschnitte für das Profil: im Client die Einstellungen, im Browser der Download (oder nichts) */
+export async function clientBereich() {
+    if (nativ?.video?.einst) {
+        try { return await clientKarten(); } catch (x) { return [el('section.karte.glass-panel', el('h2', 'Windows-Client'), el('p.leise', x.message))]; }
+    }
+    const k = await downloadKarte();
+    return k ? [k] : [];
+}

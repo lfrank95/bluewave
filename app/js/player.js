@@ -5,10 +5,19 @@ import { el, icon, zeit, meldung } from './ui.js';
 import { api } from './api.js';
 import { MseStrom, mseVerfuegbar } from './mse_strom.js';
 import { diag, diagNeu, diagEnde, diagVideo, diagKennung } from './diagnose.js';
+import { NativVideo } from './client/nativ_video.js';
 
 let aktiv = null;
+// Windows-Client, Spielerfenster: Bild und Ton kommen von mpv (bzw. der Ton-Engine), diese Seite ist nur die Bedienung
+const NATIV = window.bluewaveNativ?.rolle === 'spieler' ? window.bluewaveNativ.video : null;
 
 function faehigkeiten() {
+    if (NATIV) {
+        // mpv spielt jede Datei unverändert (Container, Codecs, HDR mit eigenem Tone-Mapping, alle Ton- und Untertitelspuren)
+        const alle = (liste) => Object.fromEntries(liste.map((k) => [k, true]));
+        return { nativ: true, video: alle(['h264', 'hevc', 'av1', 'vp9']), audio: alle(['aac', 'mp3', 'opus', 'flac', 'ac3', 'eac3', 'dts', 'truehd', 'pcm', 'vorbis']),
+            container: alle(['mp4', 'webm', 'mkv']), hdr: true, hls: 'mse', mse: true, max_hoehe: 0, remux: false, fernseher: false };
+    }
     const v = document.createElement('video');
     const a = document.createElement('audio');
     const kann = (t) => v.canPlayType(t) !== '' || (window.MediaSource && MediaSource.isTypeSupported?.(t));
@@ -95,7 +104,7 @@ class Player {
     }
 
     aufbauen() {
-        this.video = el('video', { playsinline: true, preload: 'auto' });
+        this.video = NATIV ? new NativVideo(NATIV) : el('video', { playsinline: true, preload: 'auto' });
         this.kreisel = el('div.kreisel');
         this.mitte = el('div.mitte-status', this.kreisel);
         this.titelEl = el('div.titel');
@@ -138,7 +147,7 @@ class Player {
                         knopf('untertitel', 'Ton und Untertitel', () => this.panel('spuren')),
                         knopf('einstellungen', 'Einstellungen', () => this.panel('einstellungen')),
                         this.vollKnopf))));
-        this.wurzel = el('div.player', this.video, this.mitte, this.ebene, this.ueberspringenEl, this.naechsteEl, this.panelEl);
+        this.wurzel = el('div.player' + (NATIV ? '.nativ' : ''), NATIV ? this.video.element : this.video, this.mitte, this.ebene, this.ueberspringenEl, this.naechsteEl, this.panelEl);
         document.body.append(this.wurzel);
         document.body.style.overflow = 'hidden';
 
@@ -235,7 +244,7 @@ class Player {
             else if (k === 'f') this.vollbild();
             else if (k === 'n' && this.daten?.naechste) this.naechste();
             else if (k === 'i') this.diagLive();
-            else if (k === 'Escape') { if (!this.panelEl.hidden) this.panelEl.hidden = true; else if (!document.fullscreenElement) this.schliessen(); }
+            else if (k === 'Escape') { if (!this.panelEl.hidden) this.panelEl.hidden = true; else if (NATIV && this.nativVoll) this.vollbild(); else if (!document.fullscreenElement) this.schliessen(); }
             else return;
             this.wach();
         };
@@ -260,6 +269,16 @@ class Player {
         });
         this.video.addEventListener('dblclick', () => { if (!matchMedia('(pointer: coarse)').matches) this.vollbild(); });
         document.addEventListener('fullscreenchange', this.vollAenderung = () => this.vollKnopf.replaceChildren(icon(document.fullscreenElement ? 'vollbildAus' : 'vollbild')));
+        if (NATIV) {
+            // Fenster statt Element: Doppelklick und F schalten das Spielerfenster auf Vollbild
+            this.wurzel.addEventListener('dblclick', (ev) => { if (!ev.target.closest('button, input, .zeitleiste, .panel')) this.vollbild(); });
+            this.nativAus = NATIV.aufFenster((f) => { this.nativVoll = !!f.vollbild; this.vollKnopf.replaceChildren(icon(f.vollbild ? 'vollbildAus' : 'vollbild')); });
+            this.tasteAus = NATIV.aufTaste((t) => { if (t === 'playpause') this.umschalten(); else if (t === 'next' && this.daten?.naechste) this.naechste(); else if (t === 'stop' || t === 'schliessen') this.schliessen(); });
+            this.video.addEventListener('nativ', (ev) => {
+                const m = ev.detail;
+                if (m.e === 'hinweis') meldung(m.text, !!m.fehler);
+            });
+        }
         this.wach();
     }
 
@@ -288,7 +307,7 @@ class Player {
         }
         const d = this.daten;
         this.vorschauVorladen();
-        this.titelEl.replaceChildren(d.info.untertitel ? el('small', d.info.titel) : null, el('b', d.info.untertitel ? String(d.info.untertitel) : d.info.titel));
+        this.titelEl.replaceChildren(...[d.info.untertitel ? el('small', d.info.titel) : null, el('b', d.info.untertitel ? String(d.info.untertitel) : d.info.titel)].filter(Boolean));
         this.naechsteKnopf.hidden = !d.naechste;
         this.qualitaetKnopf.firstChild.textContent = this.qualitaetText(d);
         this.qualitaetKnopf.classList.toggle('original', d.modus !== 'hls' || !!d.transkodierung?.kopie);
@@ -310,6 +329,13 @@ class Player {
         this.versatz = 0;
         this.mse?.beenden();
         this.mse = null;
+        if (NATIV) {
+            v.laden(d.url, start, { ton: d.ton, untertitel: this.nativUntertitel(d.untertitel_aktiv), datei_id: d.datei_id,
+                modus: d.modus, ton_quelle: d.modus === 'direkt' ? String(d.datei_id) : '',
+                tonspuren: d.tonspuren, dauer: this.dauer(), titel: [d.info?.titel, d.info?.untertitel].filter(Boolean).join(' · ') });
+            if (this.nacht !== 'aus' || this.dialogDb > 0) v.tonFilter(this.nacht, this.dialogDb);
+            return;
+        }
         if (d.modus === 'remux') {
             if (mseVerfuegbar() && !this.mseAus) await this.mseStarten(start);
             else await this.remuxLaden(start, false);
@@ -463,7 +489,21 @@ class Player {
         this.video.currentTime = t;
     }
 
+    /** Untertitel für mpv: eingebettete per Spurnummer (nur bei unveränderter Datei), sonst die Datei bzw. das WebVTT */
+    nativUntertitel(id) {
+        const u = this.daten?.untertitel.find((x) => String(x.id) === String(id));
+        if (!u) return null;
+        if (u.eingebettet && this.daten.modus === 'direkt') return { eingebettet: true, index: u.strom_index };
+        if (u.datei_url) return { url: u.datei_url };
+        return u.url ? { url: u.url } : null;   // eingebettete Bild-Untertitel brennt beim Umwandeln der Server ein
+    }
+
     untertitelAktivieren(id) {
+        if (NATIV) {
+            this.video.untertitel(this.nativUntertitel(id));
+            if (this.daten) this.daten.untertitel_aktiv = id;
+            return;
+        }
         const tracks = this.video.textTracks;
         const elemente = [...this.video.querySelectorAll('track')];
         for (let i = 0; i < tracks.length; i++) {
@@ -483,6 +523,7 @@ class Player {
         }
     }
     vollbild() {
+        if (NATIV) { NATIV.vollbild(); return; }
         if (document.fullscreenElement) document.exitFullscreen?.();
         else (this.wurzel.requestFullscreen?.() || this.video.webkitEnterFullscreen?.());
     }
@@ -686,19 +727,24 @@ class Player {
         if (art === 'spuren') {
             setzen(el('div.panel-spalte',
                 el('h3', 'Ton'),
-                d.tonspuren.map((t) => wahl(t.sprache_name, t.index === d.ton, () => this.neuStarten({ ton: t.index }), t.text + (t.kommentar ? ' · Kommentar' : '')))),
+                d.tonspuren.map((t) => wahl(t.sprache_name, t.index === d.ton, () => {
+                    // im Client: unveränderte Datei → Spur in mpv bzw. der Engine wechseln, ohne neu zu starten
+                    if (NATIV && d.modus === 'direkt') { d.ton = t.index; this.video.tonspur(t.index); this.panelEl.hidden = true; return; }
+                    this.neuStarten({ ton: t.index });
+                }, t.text + (t.kommentar ? ' · Kommentar' : '')))),
                 el('div.panel-spalte',
                 el('h3', 'Untertitel'),
                 wahl('Aus', !d.untertitel_aktiv, () => { if (d.transkodierung?.eingebrannt) this.neuStarten({ untertitel: 'aus' }); else { this.untertitelAktivieren(null); this.panelEl.hidden = true; } }),
                 d.untertitel.map((u) => wahl(u.sprache_name + (u.erzwungen ? ' (erzwungen)' : '') + (u.sdh ? ' (SDH)' : ''), u.id === d.untertitel_aktiv, () => {
-                    if (u.bild || d.transkodierung?.eingebrannt) this.neuStarten({ untertitel: u.id });
+                    if ((u.bild && !NATIV) || d.transkodierung?.eingebrannt) this.neuStarten({ untertitel: u.id });
                     else { this.untertitelAktivieren(u.id); this.panelEl.hidden = true; }
-                }, u.bild ? 'wird eingebrannt' : (u.quelle === 'opensubtitles' ? 'OpenSubtitles' : '')))));
+                }, u.bild && !NATIV ? 'wird eingebrannt' : (u.quelle === 'opensubtitles' ? 'OpenSubtitles' : '')))));
         } else {
             const q = d.quelle || {};
             const quelleText = [q.hoehe ? `${q.hoehe}p` : null, q.video_codec, q.hdr ? 'HDR' : null, q.bitrate_k ? `${(q.bitrate_k / 1000).toFixed(1).replace('.', ',')} Mbit/s` : null,
                 q.container ? q.container.toUpperCase() : null].filter(Boolean).join(' · ');
             const info = d.optimiert ? `Optimierte Fassung ${d.optimiert.hoehe}p – vorab umgewandelt, läuft ${d.modus === 'direkt' ? 'direkt' : 'als Direct Stream'}, Spulen ohne Wartezeit.`
+                : d.modus === 'direkt' && NATIV ? `Direct Play im Windows-Client – mpv spielt die Datei unverändert, Ton ${{ engine: 'über die Bluewave-Engine', bitstream: 'als Bitstream zum Receiver', mpv: 'über mpv (WASAPI)' }[this.video.weg] || 'über mpv'}.`
                 : d.modus === 'direkt' ? 'Direct Play – die Datei läuft unverändert.'
                 : d.transkodierung?.kopie ? `Direct Stream (HLS) – Bild unverändert, ${{ copy: 'Ton unverändert', eac3: 'Ton nach Dolby Digital Plus', aac: 'Ton nach AAC' }[d.transkodierung.ton] || 'Ton umgewandelt'}, in Teilen geliefert${d.grund ? ` (${d.grund})` : ''}.`
                 : d.modus === 'remux' ? `Direct Stream – Bild unverändert, ${{ copy: 'Ton unverändert', eac3: 'Ton nach Dolby Digital Plus', aac: 'Ton nach AAC' }[d.remux.audio] || 'Ton umgewandelt'}, nur der Container wird angepasst${d.grund ? ` (${d.grund})` : ''}.`
@@ -768,6 +814,7 @@ class Player {
 
     // ---------- Ton: Nachtmodus und Dialog (nur wenn an) ----------
     tonKette() {
+        if (NATIV) { this.video.tonFilter(this.nacht, this.dialogDb); return; }
         const an = this.nacht !== 'aus' || this.dialogDb > 0;
         if (!this.audio) {
             if (!an) return; // Ton bleibt komplett unangetastet
@@ -842,12 +889,17 @@ class Player {
         await this.fortschrittSenden(true);
         document.removeEventListener('keydown', this.taste);
         document.removeEventListener('fullscreenchange', this.vollAenderung);
+        this.nativAus?.();
+        this.tasteAus?.();
+        if (NATIV) this.video.beenden();
         if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
         if (this.hls) this.hls.destroy();
         this.mse?.beenden();
-        this.video.pause();
-        this.video.removeAttribute('src');
-        this.video.load();
+        if (!NATIV) {
+            this.video.pause();
+            this.video.removeAttribute('src');
+            this.video.load();
+        }
         if (this.daten?.sitzung) api('stream/' + this.daten.sitzung, 'DELETE').catch(() => {});
         this.audio?.ctx.close?.();
         this.diagLos?.();

@@ -54,7 +54,33 @@ function zahl(string $s): int
 try {
     // ---------- ohne Anmeldung ----------
     if ($pfad === 'ping') {
-        bw_json(['app' => 'bluewave', 'version' => konfig()['version']]);
+        // ohne Datenbank: Apps und der Windows-Client prüfen damit die Adresse; Name und Ausweis für die Suche im Heimnetz
+        // client_protokoll: Schnittstellen-Stand für den Windows-Client (bei unverträglichen Änderungen hochzählen)
+        require_once __DIR__ . '/../includes/ausweis.php';
+        $aw = ausweis_ping();
+        header('Cache-Control: no-store');
+        bw_json(['app' => 'bluewave', 'version' => konfig()['version'], 'client_protokoll' => 1, 'name' => konfig()['app_name']]
+            + ($aw ? ['kennung' => $aw['kennung'], 'schluessel' => $aw['schluessel']] : []));
+    }
+    // Ausweis: „bist du wirklich der Server mit diesem Schlüssel?“ – Unterschrift über die Zufallszahl des Fragenden
+    if ($pfad === 'ausweis' && $methode === 'GET') {
+        require_once __DIR__ . '/../includes/ausweis.php';
+        header('Cache-Control: no-store');
+        $z = (string) ($_GET['z'] ?? '');
+        if (!preg_match('/^[0-9a-f]{32,64}$/', $z)) {
+            fehler('Ungültige Anfrage.');
+        }
+        bw_json(ausweis_beweis($z));
+    }
+    // Windows-Client: das Image bringt den passenden Installer mit (Updates aus der App heraus, ohne GitHub-Zugang)
+    if ($pfad === 'client/version' && $methode === 'GET') {
+        require_once __DIR__ . '/../includes/client.php';
+        header('Cache-Control: no-store');
+        bw_json(client_info() ?? ['version' => null]);
+    }
+    if ($pfad === 'client/download' && ($methode === 'GET' || $methode === 'HEAD')) {
+        require_once __DIR__ . '/../includes/client.php';
+        client_senden();
     }
     $bearer = str_starts_with((string) ($_SERVER['HTTP_AUTHORIZATION'] ?? $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ?? ''), 'Bearer ');
     if ($methode !== 'GET' && $methode !== 'HEAD' && !$bearer && ($_SERVER['HTTP_X_BLUEWAVE'] ?? '') !== '1') {
@@ -673,6 +699,11 @@ try {
             if ($t2 === 'position' && $methode === 'GET') {
                 bw_json(['start' => remux_schluesselbild($d['pfad'], max(0, (float) ($_GET['start'] ?? 0)))]);
             }
+            if ($t2 === 'ton' && $methode === 'GET') {
+                remux_senden(ton_befehl($d['pfad'], max(0, (float) ($_GET['start'] ?? 0)), max(0, (int) ($_GET['ton'] ?? 0)),
+                    in_array($_GET['nacht'] ?? '', ['leicht', 'stark'], true) ? (string) $_GET['nacht'] : 'aus', max(0, min(12, (int) ($_GET['dialog'] ?? 0)))),
+                    'ton' . preg_replace('/[^a-z0-9]/', '', (string) ($_GET['token'] ?? '')), 'audio/flac');
+            }
             if ($t2 === 'strom' && $methode === 'GET') {
                 remux_senden(remux_befehl($d['pfad'], max(0, (float) ($_GET['start'] ?? 0)), max(0, (int) ($_GET['ton'] ?? 0)),
                     in_array($_GET['audio'] ?? '', ['copy', 'eac3'], true) ? (string) $_GET['audio'] : 'aac', (int) ($_GET['kanaele'] ?? 2),
@@ -763,6 +794,20 @@ try {
                 } else {
                     readfile($p);
                 }
+                exit;
+            }
+            // Originaldatei eines externen Untertitels (Windows-Client: mpv liest SRT, ASS und Bild-Untertitel selbst)
+            if (ctype_digit($t1) && $t2 === 'datei' && $methode === 'GET') {
+                $u = db_zeile("SELECT pfad FROM untertitel WHERE id = :id AND quelle <> 'eingebettet'", ['id' => (int) $t1]);
+                if (!$u || !is_file((string) $u['pfad'])) {
+                    fehler('Untertitel nicht gefunden.', 404);
+                }
+                $endung = strtolower(pathinfo((string) $u['pfad'], PATHINFO_EXTENSION));
+                header('Content-Type: application/octet-stream');
+                header('Content-Disposition: inline; filename="untertitel.' . (preg_match('/^[a-z0-9]{1,5}$/', $endung) ? $endung : 'srt') . '"');
+                header('Content-Length: ' . filesize((string) $u['pfad']));
+                header('Cache-Control: private, max-age=3600');
+                readfile((string) $u['pfad']);
                 exit;
             }
             if ($t1 === 'suchen' && $methode === 'POST') {

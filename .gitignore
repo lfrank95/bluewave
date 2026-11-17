@@ -8,3 +8,7 @@ filme/
 serien/
 __pycache__/
 node_modules/
+client-dist/*
+!client-dist/LIESMICH.md
+windows-client/build/
+windows-client/dist/

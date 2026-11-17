@@ -1,0 +1,83 @@
+# Prüft den gebauten Windows-Client auf echtem Windows (GitHub Actions, windows-latest):
+# Dateiangaben aller eigenen Programmdateien, mpv und Ton-Engine laufen, Selbsttest Videofenster (mpv per --wid),
+# der Client startet ohne Fehler, stilles Update (/aktualisieren) ohne Klicks.
+param([Parameter(Mandatory)] [string] $Ordner, [Parameter(Mandatory)] [string] $Paket)
+$ErrorActionPreference = 'Stop'
+$app = Join-Path $Ordner 'resources\app'
+
+Write-Host '== Dateiangaben'
+$dateien = @(Get-Item $Paket) + @(Get-ChildItem $Ordner -Recurse -Include 'Bluewave*.exe', 'bluewave-*.exe')
+$fehlt = @()
+foreach ($f in $dateien) {
+  $i = $f.VersionInfo
+  Write-Host ("  {0}: {1} | {2} | {3} | {4}" -f $f.Name, $i.CompanyName, $i.FileDescription, $i.ProductVersion, $i.LegalCopyright)
+  if (-not $i.CompanyName -or -not $i.FileDescription -or -not $i.ProductVersion -or $i.LegalCopyright -notmatch '©') { $fehlt += $f.Name }
+}
+if ($dateien.Count -lt 4) { Write-Host "::error title=Windows-Client::nur $($dateien.Count) Programmdateien gefunden"; exit 1 }
+if ($fehlt) { Write-Host "::error title=Windows-Client::unvollständige Dateiangaben: $($fehlt -join ', ')"; exit 1 }
+
+Write-Host '== mpv'
+$mpv = Join-Path $app 'mpv\mpv.exe'
+$v = & $mpv --no-config --version 2>&1 | Select-Object -First 1
+Write-Host "  $v"
+if ($v -notmatch '^mpv ') { Write-Host "::error title=mpv::mpv.exe startet nicht ($v)"; exit 1 }
+& $mpv --no-config --vo=null --ao=null --frames=20 'av://lavfi:testsrc=duration=2:size=320x180' 2>&1 | Select-Object -Last 3 | ForEach-Object { Write-Host "  $_" }
+if ($LASTEXITCODE -ne 0) { Write-Host "::error title=mpv::Testbild lässt sich nicht abspielen ($LASTEXITCODE)"; exit 1 }
+$geraete = & $mpv --no-config --ao=wasapi --audio-device=help 2>&1
+Write-Host "  Tongeräte laut mpv: $(($geraete | Select-String "'wasapi/").Count)"
+
+Write-Host '== Ton-Engine'
+$eng = Join-Path $app 'engine\bluewave-engine.exe'
+$aus = "{`"c`":`"geraete`"}`n{`"c`":`"beenden`"}`n" | & $eng 2>&1
+$aus | Select-Object -First 3 | ForEach-Object { Write-Host "  $($_.ToString().Substring(0, [Math]::Min(200, $_.ToString().Length)))" }
+if (-not ($aus -match '"e":"bereit"') -or -not ($aus -match '"e":"geraete"')) { Write-Host "::error title=Engine::Engine antwortet nicht"; exit 1 }
+
+Write-Host '== Selbsttest Videofenster (mpv per --wid in Electron)'
+$daten = Join-Path $env:RUNNER_TEMP 'bwdaten'
+New-Item -ItemType Directory -Force $daten | Out-Null
+$env:BW_DATEN = $daten
+$env:BW_TEST_VIDEO = 'av://lavfi:testsrc2=duration=30:size=1280x720:rate=24'
+$p = Start-Process -FilePath (Join-Path $Ordner 'Bluewave Client.exe') -PassThru
+if (-not $p.WaitForExit(60000)) { $p | Stop-Process -Force; Write-Host "::error title=Selbsttest::Client nach 60 s nicht fertig" }
+Remove-Item Env:\BW_TEST_VIDEO
+$log = Get-Content (Join-Path $daten 'log\client.log') -Raw
+$zeile = ($log -split "`n" | Select-String 'SELBSTTEST' | Select-Object -Last 1)
+Write-Host "  $zeile"
+if (Test-Path (Join-Path $daten 'log\mpv.log')) { Get-Content (Join-Path $daten 'log\mpv.log') | Select-Object -Last 8 | ForEach-Object { Write-Host "  mpv: $_" } }
+if ($log -match 'ABSTURZ') { Write-Host "::error title=Selbsttest::Absturz im Client"; Write-Host $log; exit 1 }
+if ("$zeile" -notmatch 'SELBSTTEST OK') { Write-Host "::error title=Selbsttest::mpv im Videofenster: $zeile"; Write-Host $log; exit 1 }
+Write-Host "::notice title=Selbsttest::$zeile"
+
+Write-Host '== Client startet (Einrichtung, ohne Server)'
+Remove-Item -Recurse -Force (Join-Path $daten 'log') -ErrorAction SilentlyContinue
+$p = Start-Process -FilePath (Join-Path $Ordner 'Bluewave Client.exe') -PassThru
+Start-Sleep -Seconds 15
+$log = Get-Content (Join-Path $daten 'log\client.log') -Raw
+Get-Process -Name 'Bluewave Client', 'bluewave-engine' -ErrorAction SilentlyContinue | Stop-Process -Force
+($log -split "`n" | Select-Object -First 12) | ForEach-Object { Write-Host "  $_" }
+if ($log -notmatch 'Bluewave Windows-Client .* gestartet' -or $log -notmatch 'Engine gestartet') { Write-Host "::error title=Client::Start unvollständig"; exit 1 }
+if ($log -match 'ABSTURZ|FEHLER unhandled') { Write-Host "::error title=Client::Fehler beim Start"; Write-Host $log; exit 1 }
+Remove-Item Env:\BW_DATEN
+
+Write-Host '== Stilles Update (/aktualisieren)'
+$ort = "$env:LOCALAPPDATA\Programs\Bluewave"
+New-Item -ItemType Directory -Force $ort | Out-Null
+Copy-Item "$env:WINDIR\System32\whoami.exe" "$ort\Bluewave Client.exe"
+Set-Content "$ort\alt.txt" 'alte Version'
+$k = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\BluewaveClient'
+New-Item -Force $k | Out-Null
+Set-ItemProperty $k InstallLocation $ort
+Set-ItemProperty $k DisplayVersion '0.0.1'
+$p = Start-Process -FilePath $Paket -ArgumentList '/aktualisieren' -PassThru
+if (-not $p.WaitForExit(240000)) { Write-Host "::error title=Stilles Update::Installer nach 4 Minuten nicht fertig (wartet er auf einen Klick?)"; exit 1 }
+Start-Sleep -Seconds 5
+$v = (Get-ItemProperty $k).DisplayVersion
+$pkg = Get-Content "$ort\resources\app\package.json" -Raw | ConvertFrom-Json
+$laeuft = Get-Process -Name 'Bluewave Client' -ErrorAction SilentlyContinue
+Write-Host "  Eintrag: $v · Paket: $($pkg.version) · alt.txt noch da: $(Test-Path "$ort\alt.txt") · Client gestartet: $([bool]$laeuft)"
+Get-Process -Name 'Bluewave Client', 'bluewave-engine', 'mpv' -ErrorAction SilentlyContinue | Stop-Process -Force
+if ($v -ne $pkg.version -or $v -eq '0.0.1') { Write-Host "::error title=Stilles Update::Version nicht aktualisiert ($v)"; exit 1 }
+if (Test-Path "$ort\alt.txt") { Write-Host "::error title=Stilles Update::alte Dateien nicht ersetzt"; exit 1 }
+if (-not $laeuft) { Write-Host "::error title=Stilles Update::Client nach dem Update nicht gestartet"; exit 1 }
+if (-not (Test-Path "$ort\resources\app\mpv\mpv.exe")) { Write-Host "::error title=Stilles Update::mpv fehlt in der Installation"; exit 1 }
+Write-Host "::notice title=Windows-Client::geprüft – Dateiangaben, mpv, Engine, Videofenster, Start, stilles Update auf $v"

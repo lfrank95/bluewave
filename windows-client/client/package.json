@@ -1,0 +1,10 @@
+{
+  "name": "bluewave-client",
+  "productName": "Bluewave Windows-Client",
+  "version": "0.2.0-beta.1",
+  "description": "Bluewave Windows-Client – spielt Filme und Serien deines Bluewave-Servers mit mpv ab",
+  "main": "main.js",
+  "author": "Lorenzo Frank",
+  "license": "UNLICENSED",
+  "private": true
+}

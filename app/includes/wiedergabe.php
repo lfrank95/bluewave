@@ -56,6 +56,16 @@ function wiedergabe_datei(string $art, int $id, ?int $fassungId, ?int $dateiId, 
 /** Kann der Browser/die App die Datei ohne Umwandlung abspielen? Grund im zweiten Wert. */
 function direkt_moeglich(array $d, array $ton, array $faehig, array $grenze, ?array $untertitel, int $tonIndex): array
 {
+    // Windows-Client (mpv): spielt jede Datei, jede Ton- und Untertitelspur selbst – nur Qualitätsgrenzen zählen
+    if (!empty($faehig['nativ'])) {
+        if ($grenze['bitrate_k'] > 0 && (int) $d['bitrate'] > $grenze['bitrate_k'] * 1000 * 1.1) {
+            return [false, 'Bitrate'];
+        }
+        if ((int) $d['hoehe'] > $grenze['hoehe'] + 40) {
+            return [false, 'Auflösung'];
+        }
+        return [true, ''];
+    }
     $container = strtolower((string) $d['container']);
     $vc = strtolower((string) $d['video_codec']);
     $vName = ['h264' => 'h264', 'hevc' => 'hevc', 'av1' => 'av1', 'vp9' => 'vp9'][$vc] ?? null;
@@ -202,7 +212,7 @@ function wiedergabe_starten(array $konto, array $w): array
     $alleUt = db_alle('SELECT * FROM untertitel WHERE datei_id = :d ORDER BY quelle, strom_index', ['d' => $d['id']]);
     $ut = untertitel_waehlen($alleUt, $e, $tonSprache, $w['untertitel'] ?? null);
     // Bild-Untertitel aus Dateien (.sup) können wir (noch) nicht einbrennen
-    if ($ut && untertitel_ist_bild((string) $ut['format']) && $ut['quelle'] !== 'eingebettet') {
+    if ($ut && untertitel_ist_bild((string) $ut['format']) && $ut['quelle'] !== 'eingebettet' && empty($w['faehigkeiten']['nativ'])) {
         $ut = null;
     }
 
@@ -223,7 +233,10 @@ function wiedergabe_starten(array $konto, array $w): array
             'sprache_name' => sprache_name($t['sprache']), 'kommentar' => (bool) $t['kommentar']], $ton),
         'untertitel' => array_map(static fn($u) => ['id' => (int) $u['id'], 'sprache' => $u['sprache'], 'sprache_name' => sprache_name($u['sprache']),
             'erzwungen' => (bool) $u['erzwungen'], 'sdh' => (bool) $u['hoergeschaedigt'], 'bild' => untertitel_ist_bild((string) $u['format']),
-            'url' => untertitel_ist_bild((string) $u['format']) ? null : '/api/v1/untertitel/' . $u['id'] . '.vtt', 'titel' => $u['titel']], $alleUt),
+            'url' => untertitel_ist_bild((string) $u['format']) ? null : '/api/v1/untertitel/' . $u['id'] . '.vtt', 'titel' => $u['titel'],
+            // für den Windows-Client (mpv): eingebettete wählt er per Spurnummer, externe lädt er als Originaldatei (auch .sup/.ass)
+            'eingebettet' => $u['quelle'] === 'eingebettet', 'strom_index' => (int) $u['strom_index'],
+            'datei_url' => $u['quelle'] === 'eingebettet' ? null : '/api/v1/untertitel/' . $u['id'] . '/datei'], $alleUt),
         'marker' => marker_fuer((int) $d['id']),
         'info' => wiedergabe_info($art, $id),
         'naechste' => $art === 'folge' ? naechste_info(folge_danach($id)) : null,

@@ -3,9 +3,18 @@
 import { el, icon, initialen, meldung, feld } from './ui.js';
 import { api, wennAbgemeldet } from './api.js';
 
+// Windows-Client: Hauptfenster (Bibliothek) oder Spielerfenster (durchsichtige Bedienung über dem mpv-Bild)
+const NATIV = window.bluewaveNativ || null;
+if (NATIV) {
+    document.documentElement.classList.add('bw-nativ', NATIV.rolle === 'spieler' ? 'bw-spieler' : 'bw-haupt');
+    document.head.append(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: '/css/client.css' }));
+}
+
 const app = {
     konto: null,
     abspielen: async (ziel) => {
+        // im Client spielt mpv in einem eigenen Fenster (jede Datei unverändert, Ton über WASAPI, ASIO oder Bitstream)
+        if (NATIV?.video && NATIV.rolle === 'haupt') { NATIV.video.oeffnen(ziel); return; }
         const { spielen } = await import('./player.js');
         spielen(ziel, app);
     },
@@ -241,9 +250,19 @@ async function starten() {
         document.getElementById('app').replaceChildren(el('div.leer', el('h2', 'Bluewave ist nicht erreichbar'), el('p', e.message)));
         return;
     }
+    if (NATIV?.rolle === 'spieler') {
+        // Spielerfenster: nur der Player; Schließen beendet das Fenster, das Hauptfenster lädt seine Ansicht neu
+        app.neuLaden = () => NATIV.video.zu();
+        const ziel = await NATIV.video.auftrag();
+        if (!ziel) { NATIV.video.zu(); return; }
+        const { spielen } = await import('./player.js');
+        spielen(ziel, app);
+        return;
+    }
     rahmen();
     letzteRoute = '';
     route(true);
+    NATIV?.video?.aufEnde?.(() => app.neuLaden());
 }
 
 wennAbgemeldet((daten) => {

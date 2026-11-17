@@ -1036,3 +1036,26 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
 .player .vorschau-bild { border-radius: 10px; background-color: #0b111c; background-repeat: no-repeat; box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55); outline: 2px solid rgba(255, 255, 255, 0.85); outline-offset: -1px; }
 .player .vorschau-zeit { background: none; padding: 0; box-shadow: none; }
 .player .vorschau-zeit > span { padding: 4px 9px; border-radius: 8px; background: rgba(10, 14, 22, 0.92); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
+
+/* ---------- Windows-Client ---------- */
+/* Hauptfenster: die Kopfzeile ist die Titelleiste (ziehen), rechts bleiben die Windows-Knöpfe frei */
+html.bw-haupt .kopf { -webkit-app-region: drag; app-region: drag;
+    padding-right: calc(var(--seite-rand) + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)); }
+html.bw-haupt .kopf a, html.bw-haupt .kopf button, html.bw-haupt .kopf input, html.bw-haupt .kopf label { -webkit-app-region: no-drag; app-region: no-drag; }
+/* Spielerfenster: durchsichtig über dem Bild von mpv. Ein Hauch Deckkraft, damit Windows Klicks nicht durchreicht */
+html.bw-spieler, html.bw-spieler body { background: rgba(0, 0, 0, 0.004) !important; }
+html.bw-spieler .player { background: transparent; }
+html.bw-spieler .player .oben { -webkit-app-region: drag; app-region: drag; }
+html.bw-spieler .player .oben button { -webkit-app-region: no-drag; app-region: no-drag; }
+.player .nativ-bild { position: absolute; inset: 0; pointer-events: none; }
+/* Client-Einstellungen im Profil */
+.client-karte .client-zeile { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--glass-border); }
+.client-karte .client-zeile:first-of-type { border-top: 0; }
+.client-karte .client-zeile p { margin: 2px 0 0; color: var(--text-muted); font-size: 0.88rem; }
+.client-karte .client-zeile select, .client-karte .client-zeile input[type=number] { min-width: 220px; }
+.client-wege { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 6px 0 4px; }
+.client-weg { text-align: left; padding: 14px 16px; border-radius: var(--radius-md); border: 1px solid var(--glass-border); background: var(--glass-bg); color: var(--text-primary); cursor: pointer; }
+.client-weg b { display: block; font-family: var(--font-display); margin-bottom: 3px; }
+.client-weg span { color: var(--text-muted); font-size: 0.86rem; line-height: 1.4; }
+.client-weg[aria-pressed="true"] { border-color: rgba(92, 200, 255, 0.65); background: rgba(92, 200, 255, 0.09); box-shadow: 0 0 0 1px rgba(92, 200, 255, 0.35) inset; }
+.client-download { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }

@@ -105,10 +105,47 @@ function remux_befehl(string $pfad, float $start, int $tonIndex, string $tonModu
         '-f', 'mp4', '-movflags', 'frag_keyframe+empty_moov+delay_moov+default_base_moof' . ($absolut ? '+frag_discont' : ''), '-frag_duration', '1000000', 'pipe:1']);
 }
 
+/**
+ * Nachtmodus und Dialog-Anhebung wie im Browser-Player: Dialog = Stereo-Mitte anheben (vorher heruntermischen),
+ * Nacht = weicher Kompressor mit Pegelausgleich. Leer, wenn beides aus ist (dann bleibt der Ton unangetastet).
+ * Dieselbe Kette baut der Windows-Client für mpv (client/spieler.js: tonFilter).
+ */
+function ton_filter(string $nacht, int $dialogDb): string
+{
+    $f = '';
+    if ($dialogDb > 0) {
+        $g = 10 ** (min(12, $dialogDb) / 20);
+        $a = sprintf('%.4f', ($g + 1) / 2);
+        $b = sprintf('%.4f', ($g - 1) / 2);
+        $f .= "aformat=channel_layouts=stereo,pan=stereo|c0={$a}*c0+{$b}*c1|c1={$b}*c0+{$a}*c1,";
+    }
+    if ($nacht === 'leicht' || $nacht === 'stark') {
+        $f .= $nacht === 'stark' ? 'acompressor=threshold=-34dB:ratio=6:knee=2.8:attack=8:release=300:makeup=2.818,' : 'acompressor=threshold=-26dB:ratio=3:knee=4:attack=8:release=300:makeup=1.778,';
+    }
+    return $f;
+}
+
+/**
+ * Nur der Ton als FLAC (Windows-Client mit eigener Ton-Engine: ASIO, WASAPI exklusiv, Lautsprecher-Manager).
+ * Ab Sekunde $start, jede Quelle (AC3, DTS-HD, TrueHD …) verlustfrei als 24-Bit-PCM in FLAC, bis 7.1 in FLAC-Kanalfolge.
+ * -readrate: nicht die ganze Spur in Sekunden durchjagen (Platte und CPU), aber deutlich schneller als Echtzeit.
+ */
+function ton_befehl(string $pfad, float $start, int $tonIndex, string $nacht = 'aus', int $dialogDb = 0): array
+{
+    $k = konfig()['transkodieren'];
+    $cmd = [$k['ffmpeg'], '-hide_banner', '-nostdin', '-loglevel', 'error', '-readrate', '4', '-readrate_initial_burst', '20'];
+    if ($start > 0) {
+        $cmd = array_merge($cmd, ['-ss', sprintf('%.3f', $start)]);
+    }
+    return array_merge($cmd, ['-i', $pfad, '-map', '0:a:' . max(0, $tonIndex), '-vn', '-sn', '-dn',
+        '-af', ton_filter($nacht, $dialogDb) . 'aformat=sample_fmts=s32:channel_layouts=mono|stereo|3.0|quad|5.0|5.1|6.1|7.1',
+        '-c:a', 'flac', '-compression_level', '0', '-bits_per_raw_sample', '24', '-f', 'flac', 'pipe:1']);
+}
+
 /** Strom ausliefern, solange der Browser liest; bricht er ab, wird ffmpeg beendet.
  *  $token: pro Player – ein neuer Strom desselben Players beendet den alten sofort (wichtig über den Tunnel,
  *  wo ein Abbruch erst spät ankommt; sonst lesen mehrere ffmpeg gleichzeitig dieselbe große Datei). */
-function remux_senden(array $cmd, string $token = ''): never
+function remux_senden(array $cmd, string $token = '', string $mime = 'video/mp4'): never
 {
     require_once __DIR__ . '/diagnose.php';
     $t0 = microtime(true);
@@ -124,7 +161,7 @@ function remux_senden(array $cmd, string $token = ''): never
     while (ob_get_level() > 0) {
         ob_end_clean();
     }
-    header('Content-Type: video/mp4');
+    header('Content-Type: ' . $mime);
     header('Cache-Control: no-store');
     header('Accept-Ranges: none');
     header('X-Accel-Buffering: no');

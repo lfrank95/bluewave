@@ -684,6 +684,74 @@ pruefe(c == 200 and body[:2] == b'\xff\xd8' and len(body) > 5000, f'Kachelbild 1
 c, _, _ = admin.roh('GET', vs['url'].replace('{n}', '2'))
 pruefe(c == 404, f'mehr Kachelbilder gibt es nicht: {c}')
 
+schritt('Windows-Client: Ping mit Ausweis, Client-Download, Direct Play mit mpv, Ton als FLAC')
+_, body, _ = admin.roh('GET', '/api/v1/ping')
+p = json.loads(body)
+pruefe(p.get('app') == 'bluewave' and p.get('client_protokoll') == 1, f'Ping: {p}')
+pruefe(len(p.get('schluessel', '')) == 64 and p.get('kennung', '').startswith('BW-'), f'Ausweis im Ping: {p}')
+zufall = os.urandom(16).hex()
+c, body, _ = Client().roh('GET', f'/api/v1/ausweis?z={zufall}')
+b = json.loads(body)
+pruefe(c == 200 and b['zufall'] == zufall and b['schluessel'] == p['schluessel'] and len(b['unterschrift']) == 128, f'Ausweis: {c} {b}')
+try:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    host = urllib.parse.urlparse(BASIS).netloc.lower()
+    Ed25519PublicKey.from_public_bytes(bytes.fromhex(b['schluessel'])).verify(bytes.fromhex(b['unterschrift']),
+        f'bluewave-ausweis-v1|{zufall}|{b["schluessel"]}|{host}'.encode())
+    print('  Ausweis-Unterschrift gültig für', host)
+except ImportError:
+    print('  (cryptography fehlt – Unterschrift nicht nachgerechnet)')
+c, _, _ = Client().roh('GET', '/api/v1/ausweis?z=xyz')
+pruefe(c == 400, f'ungültige Zufallszahl abgelehnt: {c}')
+cv = Client().api('GET', 'client/version')
+if cv.get('version'):
+    import hashlib
+    c, body, h = Client().roh('GET', '/api/v1/client/download')
+    pruefe(c == 200 and body[:2] == b'MZ' and hashlib.sha256(body).hexdigest() == cv['sha256'] and len(body) == cv['groesse'], f'Client-Download passt zu version.json: {c} {len(body)}')
+    print('  Windows-Client im Image:', cv['version'], cv['datei'], round(cv['groesse'] / 1048576), 'MB')
+else:
+    c, _, _ = Client().roh('GET', '/api/v1/client/download')
+    pruefe(c == 404, f'ohne Client im Image: 404, nicht {c}')
+    print('  (Image ohne Windows-Client)')
+NATIV = {'nativ': True, 'video': {'h264': True, 'hevc': True, 'av1': True, 'vp9': True}, 'audio': {k: True for k in ['aac', 'ac3', 'eac3', 'dts', 'truehd', 'flac', 'mp3', 'opus']},
+         'container': {'mp4': True, 'webm': True, 'mkv': True}, 'hdr': True, 'hls': 'mse', 'mse': True, 'max_hoehe': 0, 'remux': False}
+wn = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'fassung_id': ext['id'], 'faehigkeiten': NATIV, 'ton': 0})
+pruefe(wn['modus'] == 'direkt' and wn['url'].startswith('/api/v1/datei/') and not wn.get('optimiert'), f'mpv: MKV mit DTS direkt (Original): {wn["modus"]} {wn.get("url")}')
+wn2 = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'fassung_id': ext['id'], 'faehigkeiten': NATIV, 'ton': 1})
+pruefe(wn2['modus'] == 'direkt' and wn2['ton'] == 1, f'mpv: zweite Tonspur ohne Umwandeln: {wn2["modus"]} {wn2["ton"]}')
+wq = admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'faehigkeiten': NATIV, 'qualitaet': '480'})
+pruefe(wq['modus'] == 'hls' or wq['quelle']['hoehe'] <= 520, f'Qualitätsgrenze gilt auch im Client: {wq["modus"]}')
+if wq.get('sitzung'):
+    admin.roh('DELETE', f'/api/v1/stream/{wq["sitzung"]}')
+
+def flac_kopf(body):
+    pruefe(body[:4] == b'fLaC' and body[4] & 0x7f == 0, f'FLAC mit STREAMINFO erwartet: {body[:8]!r}')
+    si = body[8:8 + 34]
+    rate = (si[10] << 12) | (si[11] << 4) | (si[12] >> 4)
+    kanaele = ((si[12] >> 1) & 7) + 1
+    bits = (((si[12] & 1) << 4) | (si[13] >> 4)) + 1
+    return rate, kanaele, bits
+
+for ton, erwartet in [(0, 6), (1, 6)]:
+    c, body, h = admin.roh('GET', f'/api/v1/remux/{wn["datei_id"]}/ton?start=5&ton={ton}&token=e2etonspur{ton}')
+    rate, kan, bits = flac_kopf(body)
+    pruefe(c == 200 and h.get('Content-Type', '').startswith('audio/flac') and rate == 48000 and kan == erwartet and bits == 24,
+           f'Tonspur {ton} als FLAC: {c} {h.get("Content-Type")} {rate} Hz {kan} Kanäle {bits} Bit')
+    pruefe(len(body) > 200000, f'Tonspur {ton}: ab 5 s bis zum Ende (40 s, 5.1) erwartet, nur {len(body)} Bytes')
+c, body, _ = admin.roh('GET', f'/api/v1/remux/{wn["datei_id"]}/ton?start=0&ton=0&nacht=stark&dialog=6&token=e2etonnacht')
+rate, kan, bits = flac_kopf(body)
+pruefe(c == 200 and kan == 2, f'Nachtmodus + Dialog: Stereo erwartet, {kan} Kanäle')
+c, _, _ = Client().roh('GET', f'/api/v1/remux/{wn["datei_id"]}/ton?start=0')
+pruefe(c == 401, f'Ton nur angemeldet: {c}')
+print('  FLAC: 48 kHz, 24 Bit, 5.1 aus DTS und E-AC3; Nachtmodus/Dialog als Stereo')
+ut = [u for u in admin.api('POST', 'wiedergabe/start', {'art': 'film', 'id': test['id'], 'faehigkeiten': NATIV})['untertitel']]
+ext_ut = [u for u in ut if not u['eingebettet']]
+pruefe(ext_ut and ext_ut[0]['datei_url'], f'externer Untertitel mit Originaldatei: {ut}')
+c, body, h = admin.roh('GET', ext_ut[0]['datei_url'])
+pruefe(c == 200 and 'Hallo Welt' in body.decode('utf-8', 'replace') and '.srt' in h.get('Content-Disposition', ''), f'Untertitel-Datei: {c} {body[:60]!r}')
+c, _, _ = Client().roh('GET', ext_ut[0]['datei_url'])
+pruefe(c == 401, f'Untertitel-Datei nur angemeldet: {c}')
+
 schritt('Oberfläche ausgeliefert')
 code, body, _ = admin.roh('GET', '/')
 pruefe(code == 200 and b'/js/app.js' in body, 'index.php')
