@@ -28,9 +28,10 @@ if ((\$_COOKIE['bw_sitzung'] ?? '') !== 'test') { http_response_code(401); exit;
 header('Content-Type: audio/flac');
 \$p = proc_open(ton_befehl('$ARBEIT/film.mkv', (float) (\$_GET['start'] ?? 0), (int) (\$_GET['ton'] ?? 0), (string) (\$_GET['nacht'] ?? 'aus'), (int) (\$_GET['dialog'] ?? 0)),
     [1 => ['pipe', 'w'], 2 => ['file', '$ARBEIT/ffmpeg.log', 'a']], \$r);
-while (!feof(\$r[1])) { \$x = fread(\$r[1], 65536); if (\$x === '' || \$x === false) continue; echo \$x; flush(); }
+while (!feof(\$r[1])) { \$x = fread(\$r[1], 65536); if (\$x === '' || \$x === false) continue; echo \$x; flush(); if (connection_aborted()) break; }
+proc_terminate(\$p);
 PHP
-php -S 127.0.0.1:18765 -t "$ARBEIT" >/dev/null 2>&1 &
+PHP_CLI_SERVER_WORKERS=4 php -S 127.0.0.1:18765 -t "$ARBEIT" >/dev/null 2>&1 &
 echo $! > "$ARBEIT/php.pid"
 sleep 1
 
