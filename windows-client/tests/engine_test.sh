@@ -12,13 +12,24 @@ aufraeumen() {
   local code=$?
   if [ "$code" != 0 ]; then
     echo "--- Diagnose ---"; for f in "$ARBEIT"/*.txt "$ARBEIT/ffmpeg.log" "$ARBEIT/server.log" "$ARBEIT/server.out"; do [ -f "$f" ] && { echo "## $f"; head -c 3000 "$f"; echo; }; done
-    echo "## direkter Abruf"; curl -s -m 8 -o "$ARBEIT/probe.flac" -w '%{http_code} %{size_download} B in %{time_total} s\n' -b bw_sitzung=test "http://127.0.0.1:18765/ton?start=0&ton=1" || true
+    echo "## ffmpeg direkt (ohne Server)"
+    php -r "require '$WC/../app/includes/remux.php'; echo json_encode(ton_befehl('$ARBEIT/film.mkv', 0, 1));" | python3 -c '
+import json, subprocess, sys, time
+cmd = json.load(sys.stdin); t = time.time(); p = subprocess.Popen(cmd, stdout=subprocess.PIPE); n = 0; zeiten = []
+while True:
+    x = p.stdout.read1(65536)
+    if not x: break
+    n += len(x); zeiten.append((round(time.time() - t, 2), n))
+print("Stücke (s, Bytes):", zeiten[:6], "…", zeiten[-1:])' || true
+    echo "## direkter Abruf"; curl -s -m 8 -o "$ARBEIT/probe.flac" -w '%{http_code} %{size_download} B, erstes Byte nach %{time_starttransfer} s, fertig nach %{time_total} s\n' -b bw_sitzung=test "http://127.0.0.1:18765/ton?start=0&ton=1" || true
   fi
   kill $(cat "$ARBEIT/php.pid" 2>/dev/null) 2>/dev/null || true; rm -rf "$ARBEIT"
 }
 trap aufraeumen EXIT
 command -v ffmpeg >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null; }
 
+ffmpeg -hide_banner -version | head -n1
+ffmpeg -hide_banner -version | head -n1
 echo "== Engine (Linux, Testgerät) bauen"
 gcc -O2 -I"$WC/dsp" -o "$ARBEIT/engine" "$WC/engine/engine.c" "$WC/engine/geraet.c" "$WC/engine/klang.c" "$WC/engine/ausgabe_test.c" \
   "$WC/engine/ausgabe_asio.c" "$WC/engine/asio_attrappe.c" "$WC/engine/netz_posix.c" "$WC/engine/vstanbindung.c" "$WC"/dsp/*.c -lpthread -lm 2>&1 | grep -E "error" && exit 1 || true
