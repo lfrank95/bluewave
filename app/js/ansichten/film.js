@@ -3,6 +3,7 @@
 import { el, icon, bild, fsk, dauer, zeit, bytes, initialen, meldung, dialog, auswahl } from '../ui.js';
 import { api } from '../api.js';
 import { universumBereich } from './universum_teile.js';
+import { posterDialog } from './poster_dialog.js';
 
 let letzterTitel = 'Film';
 export const titel = () => letzterTitel + ' – Bluewave';
@@ -155,7 +156,9 @@ export async function zeigen(r, app) {
                     technik,
                     admin ? el('div.knoepfe', { style: { marginTop: '18px' } },
                         el('button.knopf.klein', { onclick: () => tmdbZuordnen('film', id, d.originaltitel || d.titel, d.jahr) }, icon('bearbeiten'), 'TMDB-Zuordnung'),
-                        el('button.knopf.klein', { onclick: () => fassungKorrigieren(d, id) }, icon('film'), 'Fassungen')) : null))),
+                        el('button.knopf.klein', { onclick: () => fassungKorrigieren(d, id) }, icon('film'), 'Fassungen'),
+                        el('button.knopf.klein', { onclick: () => posterDialog([{ art: 'film', id, name: d.titel, poster: d.poster,
+                            datei: (d.fassungen[0]?.dateien[0]?.dateiname || d.titel).replace(/\.[^.]+$/, '') + '-poster.jpg' }]) }, icon('bild'), 'Poster')) : null))),
         reihe,
         universumBereich(d.universen, 'film', id, app),
         el('div', { style: { height: '40px' } }));

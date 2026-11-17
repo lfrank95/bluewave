@@ -192,6 +192,30 @@ admin.api('PUT', 'ich/einstellungen', {'sortierung': {'filme': 'neu', 'universum
 so = admin.api('GET', 'ich')['einstellungen']['sortierung']
 pruefe(so == {'filme': 'neu', 'universum:1': 'erscheinung'}, f'Sortierung gemerkt (und bereinigt): {so}')
 
+schritt('Poster per Link: in den Ordner mit passendem Namen, fest gegen TMDB')
+import os
+r = admin.api('POST', 'poster', {'art': 'film', 'id': test['id'], 'url': 'http://tmdbfake/t/p/w780/eigen-film.jpg'})
+pruefe(r['datei'] and r['datei'].endswith('-poster.jpg') and not r.get('hinweis'), f'Film-Poster im Ordner: {r}')
+pruefe(any(n.endswith('-poster.jpg') for n in os.listdir(os.path.join(MEDIEN, 'filme', 'Testfilm (2024)'))), 'Datei liegt neben dem Film')
+r = admin.api('POST', 'poster', {'art': 'staffel', 'id': serie['id'], 'staffel': 1, 'url': 'http://tmdbfake/t/p/w780/eigen-staffel.jpg'})
+pruefe(r['datei'] and r['datei'].endswith('/season01-poster.jpg'), f'Staffel-Poster: {r}')
+r = admin.api('POST', 'poster', {'art': 'serie', 'id': serie['id'], 'url': 'http://tmdbfake/t/p/w780/eigen-serie.jpg'})
+pruefe(r['datei'] and r['datei'].endswith('/poster.jpg'), f'Serien-Poster: {r}')
+gesicherte = [os.path.join(w, n) for w, _, ns in os.walk(MEDIEN) for n in ns if n == 'folder.jpg']
+pruefe(gesicherte, 'folder.jpg (anderer Name) bleibt unangetastet')
+neu_poster = admin.api('GET', f'film/{test["id"]}')['poster']
+code, body, _ = admin.roh('POST', '/api/v1/bibliothek/auftrag', {'art': 'metadaten_alle'})
+pruefe(code == 200, f'Metadaten-Abgleich starten: {code} {body[:200]}')
+time.sleep(1)
+for _ in range(90):
+    st = admin.api('GET', 'bibliothek/status')
+    if not st['auftrag'].get('laeuft') and st['auftrag'].get('ende'):
+        break
+    time.sleep(2)
+pruefe(admin.api('GET', f'film/{test["id"]}')['poster'] == neu_poster, 'Poster bleibt nach TMDB-Abgleich')
+pruefe(admin.api('POST', 'poster', {'art': 'film', 'id': test['id'], 'url': 'http://tmdbfake/gibtsnicht'}, erwartet=400).get('fehler'), 'kein Bild → verständlicher Fehler')
+pruefe(admin.api('POST', 'poster', {'art': 'film', 'id': test['id'], 'url': 'file:///etc/passwd'}, erwartet=400).get('fehler'), 'nur http(s)')
+
 schritt('Suche: tolerant (Tippfehler, Satzzeichen, Wortreihenfolge), Bester Treffer, Editor-Auswahl')
 for q, erwartet in [('avengers', "Marvel's The Avengers"), ('avengrs ultron', 'Avengers: Age of Ultron'), ('ultron age', 'Avengers: Age of Ultron'), ('marvels avengers', "Marvel's The Avengers")]:
     d = admin.api('GET', 'suche?q=' + urllib.parse.quote(q))

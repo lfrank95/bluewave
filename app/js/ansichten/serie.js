@@ -4,6 +4,7 @@ import { el, icon, bild, fsk, meldung, auswahl } from '../ui.js';
 import { api } from '../api.js';
 import { besetzung, tmdbZuordnen } from './film.js';
 import { universumBereich, universenDialog } from './universum_teile.js';
+import { posterDialog } from './poster_dialog.js';
 
 let letzterTitel = 'Serie';
 export const titel = () => letzterTitel + ' – Bluewave';
@@ -29,7 +30,13 @@ export async function zeigen(r, app) {
             n.modus === 'weiter' ? `${n.kennung} weiterschauen` : n.modus === 'naechste' ? `${n.kennung} abspielen` : 'Abspielen',
             n.modus === 'weiter' && n.fortschritt?.prozent ? el('span.linie', { style: { width: n.fortschritt.prozent + '%' } }) : null) : el('span.chip', 'Alles gesehen'),
         admin ? el('button.knopf', { onclick: () => tmdbZuordnen('serie', id, d.originaltitel || d.titel, d.jahr) }, icon('bearbeiten'), 'TMDB-Zuordnung') : null,
-        admin ? el('button.knopf', { onclick: () => universenDialog('serie', id, d.universen) }, icon('universum'), 'Universen') : null);
+        admin ? el('button.knopf', { onclick: () => universenDialog('serie', id, d.universen) }, icon('universum'), 'Universen') : null,
+        admin ? el('button.knopf', { onclick: () => {
+            const ziele = [{ art: 'serie', id, name: `Serie: ${d.titel}`, poster: d.poster, datei: 'poster.jpg' },
+                ...d.staffeln.map((s) => ({ art: 'staffel', id, staffel: s.nummer, name: s.name, poster: s.poster || d.poster,
+                    datei: s.nummer === 0 ? 'season-specials-poster.jpg' : `season${String(s.nummer).padStart(2, '0')}-poster.jpg` }))];
+            posterDialog(ziele, Math.max(0, ziele.findIndex((z) => z.art === 'staffel' && z.staffel === staffelNr)));
+        } }, icon('bild'), 'Poster') : null);
     const alleFolgen = d.staffeln.filter((s) => s.nummer > 0).flatMap((s) => s.folgen).filter((f) => f.vorhanden);
     const meta = el('div.meta', d.zeitraum ? el('span', d.zeitraum) : null, STATUS[d.status] ? [el('span.trenn'), el('span', STATUS[d.status])] : null,
         d.sender ? [el('span.trenn'), el('span', d.sender)] : null,

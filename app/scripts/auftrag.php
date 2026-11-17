@@ -28,6 +28,8 @@ try {
         $ergebnis['metadaten'] = metadaten_abgleichen($art === 'metadaten_alle');
         // Bilder aus den Medienordnern haben Vorrang vor TMDB
         $ergebnis['lokale_bilder'] = lokale_bilder_alle(static fn($i, $n) => auftrag_stand('Lokale Bilder', $i, $n));
+        require_once __DIR__ . '/../includes/poster.php';
+        eigene_poster_anwenden(); // per Link gesetzte Poster gewinnen immer
     }
     if ($art === 'marker' || $art === 'alles') {
         $ergebnis['marker'] = marker_erkennen_alle(static fn($i, $n) => auftrag_stand('Intro & Abspann erkennen', $i, $n));

@@ -90,7 +90,9 @@ echo "== Ende-zu-Ende: Testmedien, Ersatz-TMDB, Scan, Metadaten, Wiedergabe =="
 sudo rm -rf "$ARBEIT/appdata" "$ARBEIT/filme" "$ARBEIT/serien"
 mkdir -p "$ARBEIT/appdata" "$ARBEIT/medien"
 docker run --rm --entrypoint bash -v "$ARBEIT/medien:/m" -v "$PWD/tests:/t:ro" "$APP_IMAGE" /t/medien_erzeugen.sh /m /usr/lib/jellyfin-ffmpeg/ffmpeg
+sudo chmod -R a+rwX "$ARBEIT/medien"   # Poster per Link werden in den Ordner geschrieben
 cat > .env <<ENV
+MEDIEN_MOUNT_MODUS=rw
 FILME_PFAD=$ARBEIT/medien/filme
 SERIEN_PFAD=$ARBEIT/medien/serien
 APPDATA_PFAD=$ARBEIT/appdata

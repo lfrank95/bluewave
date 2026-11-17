@@ -929,3 +929,11 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
 .player .qualitaet-chip { font-size: 0.78rem; font-weight: 800; letter-spacing: 0.02em; padding: 0 12px; height: 32px; border: 1px solid rgba(255, 255, 255, 0.3); }
 .player .qualitaet-chip.original { border-color: rgba(92, 200, 255, 0.6); color: var(--accent-text); }
 @media (max-width: 767px), (max-height: 500px) { .player .qualitaet-chip span { display: inline; } .player .p-knopf.mit-text.qualitaet-chip { width: auto; padding: 0 10px; } }
+
+/* Poster per Link */
+.poster-dialog { display: grid; grid-template-columns: 140px minmax(0, 1fr); gap: 20px; align-items: start; width: min(620px, 80vw); }
+.poster-vorschau { aspect-ratio: 2 / 3; border-radius: 12px; overflow: hidden; background: #15233b; display: grid; place-items: center; color: var(--text-leise); font-size: 0.85rem; box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45); }
+.poster-vorschau img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.poster-dialog .eingabe, .poster-dialog select { width: 100%; box-sizing: border-box; }
+.poster-datei { font-size: 0.8rem; padding: 1px 6px; border-radius: 5px; background: rgba(226, 238, 255, 0.08); color: var(--accent-text); overflow-wrap: anywhere; }
+@media (max-width: 767px) { .poster-dialog { grid-template-columns: 1fr; width: auto; } .poster-vorschau { width: 110px; } }

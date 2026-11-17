@@ -217,6 +217,8 @@ try {
                 if (lb_aktiv()) {
                     lokale_bilder_film($neu ?: zahl($t1));
                 }
+                require_once __DIR__ . '/../includes/poster.php';
+                eigene_poster_anwenden('film', $neu ?: zahl($t1));
                 bw_json(['ok' => true, 'id' => $neu]);
             }
             if (zahl($t1) && $t2 === 'universen' && $methode === 'PUT') {
@@ -274,6 +276,8 @@ try {
                 if (lb_aktiv()) {
                     lokale_bilder_serie($neu ?: zahl($t1));
                 }
+                require_once __DIR__ . '/../includes/poster.php';
+                eigene_poster_anwenden('serie', $neu ?: zahl($t1));
                 bw_json(['ok' => true, 'id' => $neu]);
             }
             if (zahl($t1) && $t2 === 'gesehen' && $methode === 'POST') {
@@ -519,6 +523,21 @@ try {
                     fehler('Datei nicht gefunden.', 404);
                 }
                 datei_senden($d['pfad'], mime_fuer((string) $d['container']));
+            }
+            break;
+
+        case 'poster':
+            // Eigenes Poster per Link: POST poster {art: film|serie|staffel, id, staffel?, url}
+            admin_noetig();
+            if ($methode === 'POST') {
+                require_once __DIR__ . '/../includes/poster.php';
+                $e = eingabe();
+                @set_time_limit(120);
+                try {
+                    bw_json(['ok' => true] + poster_setzen((string) ($e['art'] ?? ''), (int) ($e['id'] ?? 0), (int) ($e['staffel'] ?? 0), (string) ($e['url'] ?? '')));
+                } catch (RuntimeException $x) {
+                    fehler($x->getMessage());
+                }
             }
             break;
 

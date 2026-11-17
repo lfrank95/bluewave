@@ -5,6 +5,7 @@ services:
     environment:
       TMDB_URL: http://tmdbfake/3
       TMDB_BILD_URL: http://tmdbfake/t/p
+      BILD_URL_PRIVAT_ERLAUBT: "1"
   tmdbfake:
     image: ${BLUEWAVE_IMAGE}
     command: ["php", "-S", "0.0.0.0:80", "/fake/index.php"]
