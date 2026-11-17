@@ -668,12 +668,13 @@ ipcMain.handle('diagnose-erstellen', (e) => {
 const clientEinst = () => {
   let autostart = false;
   try { autostart = !!app.getLoginItemSettings({ args: ['--versteckt'] }).openAtLogin; } catch (e) { /* Linux-Test */ }
-  return { tray: einst.tray !== false, autostart };
+  return { tray: einst.tray !== false, autostart, update_quelle: updateQuelle(), update_repo: UPDATE_REPO };
 };
 ipcMain.handle('client-einst', (e) => (vonSeite(e) ? clientEinst() : null));
 ipcMain.handle('client-einst-setzen', (e, w) => {
   if (!vonSeite(e) || !w || typeof w !== 'object') return null;
   if (typeof w.tray === 'boolean') { einst.tray = w.tray; einstSpeichern(); }
+  if (w.update_quelle === 'github' || w.update_quelle === 'server') { einst.update_quelle = w.update_quelle; einstSpeichern(); neueVersion = null; aufNeueVersionPruefen(true); }
   if (typeof w.autostart === 'boolean') {
     try { app.setLoginItemSettings({ openAtLogin: w.autostart, args: ['--versteckt'] }); } catch (x) { /* Linux-Test */ }
   }
@@ -685,7 +686,7 @@ ipcMain.handle('update-installieren', async (e) => {
   if (!vonSeite(e)) return false;
   // Aus der Web-Oberfläche (also vom Server) angestoßen: der Nutzer bestätigt am Client selbst, bevor sich dieser beendet
   const a = await dialog.showMessageBox(fenster || undefined, { type: 'question', title: 'Bluewave', message: `Neue Version ${neueVersion?.version || ''}`,
-    detail: 'Bluewave lädt die neue Version vom Server, schließt sich, installiert sie und startet von selbst wieder – deine Einstellungen bleiben.',
+    detail: `Bluewave lädt die neue Version ${neueVersion?.quelle === 'github' ? 'von GitHub' : 'vom Server'}, schließt sich, installiert sie und startet von selbst wieder – deine Einstellungen bleiben.`,
     buttons: ['Jetzt aktualisieren', 'Später'], defaultId: 0, cancelId: 1 }).catch(() => ({ response: 1 }));
   return a.response === 0 ? updateInstallieren() : false;
 });
@@ -790,35 +791,76 @@ function versionVergleich(a, b) {
   return va.localeCompare(vb, undefined, { numeric: true });
 }
 
-let neueVersion = null;   // { version, installer, pruefsumme, groesse }
-/** Beim eigenen Server nach einer neueren Client-Version schauen (das Server-Image bringt den Installer mit) */
-async function aufNeueVersionPruefen(vonHand = false) {
-  if (!basis) return { ok: false, version: VERSION };
-  try {
-    const r = await fetch(`${basis}/api/v1/client/version`, { headers: { 'User-Agent': UA_ZUSATZ }, signal: AbortSignal.timeout(15000), cache: 'no-store' });
-    if (!r.ok) return { ok: false, version: VERSION };
-    const j = await r.json();
-    const v = String(j?.version || '');
-    if (/^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$/.test(v) && /^[0-9a-f]{64}$/.test(String(j.sha256 || '')) && versionVergleich(v, VERSION) > 0) {
-      if (v !== neueVersion?.version) {
-        neueVersion = { version: v, installer: `${basis}/api/v1/client/download`, pruefsumme: j.sha256, groesse: Number(j.groesse) || 0 };
-        log.schreiben('INFO', `Neue Version verfügbar: ${v}`);
-        trayAktualisieren();
-        senden('update', updateInfo());
-        if (!vonHand) try { tray?.displayBalloon({ title: `Bluewave ${v}`, content: 'Neue Version des Windows-Clients – Profil › Windows-Client › Jetzt aktualisieren.', iconType: 'info' }); } catch (e) { /* nur Windows */ }
-      }
-    } else if (versionVergleich(v || '0.0.0', VERSION) <= 0) neueVersion = null;
-    return { ok: true, version: VERSION, update: updateInfo() };
-  } catch (e) {
-    return { ok: false, version: VERSION };
+let neueVersion = null;   // { version, installer, pruefsumme, groesse, quelle }
+// Updates kommen von GitHub (Releases „client-v…“ im öffentlichen Repo) oder vom eigenen Server (Image bringt den Installer mit)
+const UPDATE_REPO = /^[\w.-]+\/[\w.-]+$/.test(process.env.BW_UPDATE_REPO || '') ? process.env.BW_UPDATE_REPO : 'lfrank95/bluewave';
+const updateQuelle = () => (einst.update_quelle === 'server' ? 'server' : 'github');
+const VERSION_OK = /^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$/;
+
+/** Neueste Client-Version auf GitHub: { version, installer, pruefsumme, groesse } oder null */
+async function vonGithub() {
+  const kopf = { 'User-Agent': UA_ZUSATZ, Accept: 'application/vnd.github+json' };
+  const r = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases?per_page=20`, { headers: kopf, signal: AbortSignal.timeout(15000), cache: 'no-store' });
+  if (!r.ok) throw new Error(`GitHub: HTTP ${r.status}`);
+  let beste = null;
+  for (const rel of await r.json()) {
+    if (rel.draft || !/^client-v/.test(rel.tag_name || '')) continue;
+    const v = rel.tag_name.replace(/^client-v/, '');
+    if (!VERSION_OK.test(v) || (beste && versionVergleich(v, beste.version) <= 0)) continue;
+    const exe = (rel.assets || []).find((a) => /^Bluewave-Windows-Client-.*\.exe$/.test(a.name));
+    if (!exe) continue;
+    beste = { version: v, exe, rel };
   }
+  if (!beste) return null;
+  // Prüfsumme: aus der GitHub-API (digest) oder aus version.json im selben Release
+  let summe = /^sha256:[0-9a-f]{64}$/i.test(beste.exe.digest || '') ? beste.exe.digest.slice(7).toLowerCase() : '';
+  if (!summe) {
+    const vj = beste.rel.assets.find((a) => a.name === 'version.json');
+    if (vj) {
+      const j = await (await fetch(vj.browser_download_url, { headers: { 'User-Agent': UA_ZUSATZ }, signal: AbortSignal.timeout(15000) })).json().catch(() => null);
+      if (j?.version === beste.version && /^[0-9a-f]{64}$/.test(String(j.sha256 || ''))) summe = j.sha256;
+    }
+  }
+  if (!summe) throw new Error('GitHub: keine Prüfsumme zum Installer');
+  return { version: beste.version, installer: beste.exe.browser_download_url, pruefsumme: summe, groesse: beste.exe.size || 0, quelle: 'github' };
+}
+
+/** Neueste Client-Version beim eigenen Server */
+async function vomServer() {
+  if (!basis) return null;
+  const r = await fetch(`${basis}/api/v1/client/version`, { headers: { 'User-Agent': UA_ZUSATZ }, signal: AbortSignal.timeout(15000), cache: 'no-store' });
+  if (!r.ok) throw new Error(`Server: HTTP ${r.status}`);
+  const j = await r.json();
+  const v = String(j?.version || '');
+  if (!VERSION_OK.test(v) || !/^[0-9a-f]{64}$/.test(String(j.sha256 || ''))) return null;
+  return { version: v, installer: `${basis}/api/v1/client/download`, pruefsumme: j.sha256, groesse: Number(j.groesse) || 0, quelle: 'server' };
+}
+
+/** Nach einer neueren Client-Version schauen – GitHub oder Server je nach Einstellung, die andere Quelle als Rückfall */
+async function aufNeueVersionPruefen(vonHand = false) {
+  const reihe = updateQuelle() === 'server' ? [vomServer, vonGithub] : [vonGithub, vomServer];
+  let gefunden = null, erreicht = false;
+  for (const f of reihe) {
+    try { gefunden = await f(); erreicht = true; break; } catch (e) { log.schreiben('INFO', `Update-Prüfung: ${e.message}`); }
+  }
+  if (!erreicht) return { ok: false, version: VERSION };
+  if (gefunden && versionVergleich(gefunden.version, VERSION) > 0) {
+    if (gefunden.version !== neueVersion?.version || gefunden.quelle !== neueVersion?.quelle) {
+      neueVersion = gefunden;
+      log.schreiben('INFO', `Neue Version verfügbar: ${gefunden.version} (${gefunden.quelle === 'github' ? 'GitHub' : 'Server'})`);
+      trayAktualisieren();
+      senden('update', updateInfo());
+      if (!vonHand) try { tray?.displayBalloon({ title: `Bluewave ${gefunden.version}`, content: 'Neue Version des Windows-Clients – Profil › Windows-Client › Jetzt aktualisieren.', iconType: 'info' }); } catch (e) { /* nur Windows */ }
+    }
+  } else neueVersion = null;
+  return { ok: true, version: VERSION, update: updateInfo() };
 }
 
 /* ---------- Update in der App: vom Server laden, prüfen, still installieren, in der neuen Version weiter ---------- */
 let updateLaeuft = null;   // { stand: 'laedt'|'startet'|'fehler', prozent, fehler }
 function updateInfo() {
   if (!neueVersion) return null;
-  return { version: neueVersion.version, installierbar: true, ...(updateLaeuft || {}) };
+  return { version: neueVersion.version, quelle: neueVersion.quelle, installierbar: true, ...(updateLaeuft || {}) };
 }
 function updateStand(w) {
   updateLaeuft = { ...(updateLaeuft || {}), ...w };
@@ -832,7 +874,8 @@ async function updateInstallieren() {
   updateStand({ stand: 'laedt', prozent: 0, fehler: '' });
   try {
     const u = new URL(neueVersion.installer);
-    if (u.origin !== basis || u.pathname !== '/api/v1/client/download') throw new Error('Unerwartete Download-Adresse.');
+    const vomGithub = u.origin === 'https://github.com' && u.pathname.startsWith(`/${UPDATE_REPO}/releases/download/client-v`);
+    if (!vomGithub && (u.origin !== basis || u.pathname !== '/api/v1/client/download')) throw new Error('Unerwartete Download-Adresse.');
     const r = await fetch(u, { headers: { 'User-Agent': UA_ZUSATZ }, signal: AbortSignal.timeout(10 * 60 * 1000), cache: 'no-store' });
     if (!r.ok || !r.body) throw new Error(`Download fehlgeschlagen (HTTP ${r.status}).`);
     const gesamt = Number(r.headers.get('content-length')) || neueVersion.groesse || 0;

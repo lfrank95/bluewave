@@ -74,6 +74,7 @@ jobs:
       - name: RIFE testen (Einbindung, VapourSynth-Skript gegen Attrappe)
         run: |
           node windows-client/tests/rife_test.js
+          node windows-client/tests/update_test.js
           python3 windows-client/tests/rife_skript_test.py
       - name: Oberfläche des Clients testen (Chrome, nachgebaute Client-Brücke)
         run: |
@@ -120,6 +121,42 @@ jobs:
       - name: Prüfen
         shell: pwsh
         run: '& windows-client/tests/windows_pruefen.ps1 -Ordner "$env:RUNNER_TEMP\ordner" -Paket (Get-ChildItem "$env:RUNNER_TEMP\a\*.exe" | Select-Object -First 1).FullName'
+
+  # Installer als GitHub-Release „client-v<Version>“ (main: Vorabversion, Tag v*: fertige Version) – daraus holt sich der
+  # Client seine Updates (Profil › Windows-Client › Update-Quelle „GitHub“); ältere Vorabversionen werden aufgeräumt
+  client_release:
+    needs: [client, client_pruefen]
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: client-dist
+          path: client-dist
+      - name: Release anlegen
+        run: |
+          set -euo pipefail
+          V="$(jq -r .version client-dist/version.json)"
+          T="client-v$V"
+          VOR="--prerelease"
+          case "$GITHUB_REF" in refs/tags/v*) case "$V" in *-*) ;; *) VOR="--latest" ;; esac ;; esac
+          printf 'Bluewave Windows-Client %s\n\nCommit %s. Installer herunterladen und starten; danach aktualisiert sich der Client selbst (Profil › Windows-Client › Updates).\n\nSHA-256: %s\n' \
+            "$V" "${GITHUB_SHA::12}" "$(jq -r .sha256 client-dist/version.json)" > notizen.md
+          if gh release view "$T" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$T" client-dist/*.exe client-dist/version.json --clobber -R "$GITHUB_REPOSITORY"
+          else
+            gh release create "$T" client-dist/*.exe client-dist/version.json $VOR --target "$GITHUB_SHA" \
+              --title "Windows-Client $V" --notes-file notizen.md -R "$GITHUB_REPOSITORY"
+          fi
+          echo "::notice title=Release::$T"
+      - name: Alte Vorabversionen aufräumen (die letzten 5 bleiben)
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '[.[] | select(.prerelease and (.tag_name | startswith("client-v")))] | sort_by(.created_at) | reverse | .[5:] | .[].tag_name' |
+            while read -r t; do gh release delete "$t" --cleanup-tag --yes -R "$GITHUB_REPOSITORY" || true; done
 
   bauen:
     needs: [client, client_pruefen]

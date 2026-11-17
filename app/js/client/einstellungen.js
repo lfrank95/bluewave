@@ -23,7 +23,8 @@ async function downloadKarte() {
         el('p.leise', 'Spielt jede Datei unverändert mit mpv ab – ohne Umwandeln, mit allen Ton- und Untertitelspuren, HDR und Ton über WASAPI exklusiv, ASIO oder als Bitstream zum AV-Receiver. Updates kommen später direkt über diesen Server.'),
         el('div.client-download',
             el('a.knopf.haupt', { href: '/api/v1/client/download', download: info.datei }, `Herunterladen (${info.version})`),
-            el('span.leise', `${(info.groesse / 1048576).toFixed(0)} MB · Windows 10/11 (64 Bit)`)));
+            el('span.leise', `${(info.groesse / 1048576).toFixed(0)} MB · Windows 10/11 (64 Bit)`),
+            el('a.leise', { href: 'https://github.com/lfrank95/bluewave/releases', target: '_blank', rel: 'noopener' }, 'oder bei GitHub')));
 }
 
 /** Zustand der Engine-Ausgabe für die übernommene Amberwave-Sektion (Format, Anlauf, Aussetzer) */
@@ -155,13 +156,20 @@ async function clientKarten() {
     tray.addEventListener('change', () => nativ.clientEinstSetzen({ tray: tray.checked }));
     autostart.addEventListener('change', () => nativ.clientEinstSetzen({ autostart: autostart.checked }));
     const updateText = el('span.leise');
+    const quelle = el('select.eingabe', {}, el('option', { value: 'github' }, 'GitHub (neueste Version sofort)'), el('option', { value: 'server' }, 'Bluewave-Server (passend zum Server)'));
+    quelle.value = ce?.update_quelle === 'server' ? 'server' : 'github';
+    quelle.addEventListener('change', async () => {
+        await nativ.clientEinstSetzen({ update_quelle: quelle.value });
+        meldung(quelle.value === 'github' ? 'Updates kommen jetzt von GitHub.' : 'Updates kommen jetzt vom Bluewave-Server.');
+        setTimeout(async () => updateZeigen(await nativ.update.info()), 2500);
+    });
     const updateKnopf = el('button.knopf.klein', 'Nach Updates suchen');
     const updateZeigen = (u) => {
         if (u?.stand === 'laedt') { updateText.textContent = `Lade Version ${u.version} … ${u.prozent || 0} %`; updateKnopf.disabled = true; return; }
         if (u?.stand === 'startet') { updateText.textContent = 'Installiere – der Client startet gleich neu …'; updateKnopf.disabled = true; return; }
         updateKnopf.disabled = false;
         if (u?.version) {
-            updateText.textContent = u.stand === 'fehler' ? `Update fehlgeschlagen: ${u.fehler}` : `Neue Version ${u.version} verfügbar.`;
+            updateText.textContent = u.stand === 'fehler' ? `Update fehlgeschlagen: ${u.fehler}` : `Neue Version ${u.version} verfügbar${u.quelle === 'github' ? ' (GitHub)' : u.quelle === 'server' ? ' (Server)' : ''}.`;
             updateKnopf.textContent = 'Jetzt aktualisieren';
             updateKnopf.onclick = () => nativ.update.installieren();
         } else {
@@ -181,7 +189,8 @@ async function clientKarten() {
     const updateAus = nativ.update.auf(updateZeigen);
     steuer.signal.addEventListener('abort', updateAus);
     karten.push(el('section.karte.glass-panel.client-karte', el('h2', 'Windows-Client'),
-        zeile('Updates', 'Neue Versionen bringt der Bluewave-Server mit – nach einem Server-Update erscheint hier der passende Client.', el('div.client-download', updateText, updateKnopf)),
+        zeile('Updates', 'Neue Versionen kommen von GitHub (Releases im Bluewave-Repo) oder vom eigenen Bluewave-Server, der sie mit jedem Server-Update mitbringt. Ist die gewählte Quelle nicht erreichbar, fragt der Client die andere.', el('div.client-download', updateText, updateKnopf)),
+        zeile('Update-Quelle', null, quelle),
         zeile('Im Infobereich weiterlaufen', 'Schließen versteckt das Fenster nur; Beenden über das Symbol im Infobereich.', el('label.schalter', tray, 'An')),
         zeile('Mit Windows starten', 'Startet unsichtbar im Infobereich.', el('label.schalter', autostart, 'An')),
         zeile('Server', 'Anderen Bluewave-Server wählen oder die Adresse ändern.', el('button.knopf.klein', { onclick: async () => {
