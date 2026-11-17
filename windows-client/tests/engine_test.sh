@@ -43,7 +43,7 @@ ffmpeg -hide_banner -version | head -n1
 ffmpeg -hide_banner -version | head -n1
 echo "== Engine (Linux, Testgerät) bauen"
 gcc -O2 -I"$WC/dsp" -o "$ARBEIT/engine" "$WC/engine/engine.c" "$WC/engine/geraet.c" "$WC/engine/klang.c" "$WC/engine/ausgabe_test.c" \
-  "$WC/engine/ausgabe_asio.c" "$WC/engine/asio_attrappe.c" "$WC/engine/netz_posix.c" "$WC/engine/vstanbindung.c" "$WC"/dsp/*.c -lpthread -lm 2>&1 | grep -E "error" && exit 1 || true
+  "$WC/engine/ausgabe_asio.c" "$WC/engine/asio_attrappe.c" "$WC/engine/netz_posix.c" "$WC"/dsp/*.c -lpthread -lm 2>&1 | grep -E "error" && exit 1 || true
 
 echo "== Testmedien"
 ffmpeg -loglevel error -y -f lavfi -i testsrc=size=320x240:rate=25 -f lavfi -i "sine=f=440:r=48000" -t 20 \

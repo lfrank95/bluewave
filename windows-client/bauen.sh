@@ -31,7 +31,7 @@ echo "Engine …"
 rc_bauen "$HIER/engine/engine.rc" "$HIER/build/engine_res.o"
 D="$HIER/dsp"
 "$CC" -O2 -Wall -static -I"$D" -o "$HIER/build/bluewave-engine.exe" "$HIER/build/engine_res.o" \
-  "$HIER/engine/engine.c" "$HIER/engine/klang.c" "$HIER/engine/vstanbindung.c" "$HIER/engine/ausgabe_wasapi.c" "$HIER/engine/ausgabe_asio.c" "$HIER/engine/geraet.c" "$HIER/engine/netz_win.c" \
+  "$HIER/engine/engine.c" "$HIER/engine/klang.c" "$HIER/engine/ausgabe_wasapi.c" "$HIER/engine/ausgabe_asio.c" "$HIER/engine/geraet.c" "$HIER/engine/netz_win.c" \
   "$D/gemeinsam.c" "$D/glow.c" "$D/iron.c" "$D/silk.c" "$D/eq.c" "$D/schwerpunkt.c" "$D/upmix.c" "$D/faltung.c" "$D/raumgraph.c" "$D/umrechner.c" \
   -lpthread -lole32 -lwinhttp -lavrt -luuid -lksuser -luser32 -ladvapi32 2>&1 | grep -v "dr_flac.h\|dr_wav.h" | grep -E "warning|error" || true
 [ -f "$HIER/build/bluewave-engine.exe" ] || { echo "FEHLER: Engine wurde nicht gebaut" >&2; exit 1; }

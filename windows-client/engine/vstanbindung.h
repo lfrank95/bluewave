@@ -3,7 +3,7 @@
 // Stelle unverändert weiter (und die Web-App erfährt es).
 #pragma once
 #define VST_SLOTS 8
-#ifdef _WIN32
+#ifdef BW_MIT_VST   /* Bluewave: ohne VST-Host – Platzhalter, die Klangkette bleibt unverändert */
 int vst_an(int slot, const char *shm, const char *ein, const char *aus);
 void vst_ab(int slot);
 /** Block in place durch das Plug-in; 0 = nicht bearbeitet (Slot leer, kein Stereo, ausgefallen) */
