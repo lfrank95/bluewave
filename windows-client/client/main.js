@@ -12,6 +12,7 @@ const { spawn } = require('child_process');
 const { suchen, pingen, adresseNormal, ausweisPruefen } = require('./suche');
 const log = require('./log');
 const { t, tm, tmMeldung } = require('./i18n');
+const { Rife, MODELLE } = require('./rife');
 const { Spieler } = require('./spieler');
 const { mpvGeraete } = require('./mpv');
 
@@ -40,7 +41,9 @@ if (!app.requestSingleInstanceLock()) {
 const EINST_DATEI = path.join(app.getPath('userData'), 'einstellungen.json');
 const VIDEO_STANDARD = { ton_weg: 'engine', mpv_geraet: 'auto', mpv_exklusiv: false, spdif: ['ac3', 'dts'], versatz_ms: 0, hwdec: 'auto-safe', vollbild: false, lfe_front: false, lfe_db: 0,
   // flüssige Bewegung (Test): NVIDIA Smooth Motion über das Treiber-Profil von bluewave-mpv.exe, dazu Renderer und Takt von mpv
-  bewegung: 'aus', renderer: 'd3d11', vsync: true, mpv_sync: 'audio', mpv_interpolation: false, sm_balken: false, sm_log: 0 };
+  bewegung: 'aus', renderer: 'd3d11', vsync: true, mpv_sync: 'audio', mpv_interpolation: false, sm_balken: false, sm_log: 0,
+  // RIFE (KI-Zwischenbilder über VapourSynth/vs-mlrt): Faktor, Modell, schnelle v2-Fassung, Bewegung in voller/halber Auflösung, Szenenwechsel
+  rife_faktor: 2, rife_modell: 'v4_6', rife_v2: false, rife_skala: 1, rife_szene: 0.12, rife_max_fps: 31 };
 let einst = { server: null, port: STANDARD_PORT, ausgabe: { geraet: '', exklusiv: false, rate: 0, aufschlag_je: {} }, fenster: null, video: { ...VIDEO_STANDARD } };
 const RATEN = [0, 44100, 48000, 88200, 96000, 176400, 192000];   // 0 = folgt der Datei
 const rateNormal = (r) => (RATEN.includes(Number(r)) ? Number(r) : 0);
@@ -238,7 +241,13 @@ function videoPruefen(v) {
     // LFE ohne Subwoofer auf die Front: Pegel gegenüber der Norm (0 dB = wie mit Sub, je Front +4 dB)
     lfe_front: !!x.lfe_front,
     lfe_db: Math.max(-20, Math.min(6, Math.round(Number(x.lfe_db) || 0))),
-    bewegung: x.bewegung === 'smooth' ? 'smooth' : 'aus',
+    bewegung: ['smooth', 'rife'].includes(x.bewegung) ? x.bewegung : 'aus',
+    rife_faktor: Math.max(2, Math.min(5, Math.round(Number(x.rife_faktor) || 2))),
+    rife_modell: MODELLE[x.rife_modell] ? x.rife_modell : 'v4_6',
+    rife_v2: !!x.rife_v2,
+    rife_skala: Number(x.rife_skala) === 0.5 ? 0.5 : 1,
+    rife_szene: Math.max(0, Math.min(0.5, Number(x.rife_szene ?? 0.12) || 0)),
+    rife_max_fps: Number(x.rife_max_fps) === 61 ? 61 : 31,
     renderer: x.renderer === 'vulkan' ? 'vulkan' : 'd3d11',
     vsync: x.vsync !== false,
     mpv_sync: x.mpv_sync === 'display-resample' ? 'display-resample' : 'audio',
@@ -344,8 +353,17 @@ async function cookieKopf(url) {
   } catch (e) { return ''; }
 }
 
+/* ---------- RIFE (KI-Zwischenbilder) ---------- */
+const rife = new Rife({
+  log: (stufe, text) => log.schreiben(stufe, text),
+  appOrdner: __dirname,
+  siebenZip: path.join(__dirname, 'engine', '7zr.exe'),
+  melden: (stand) => senden('rife', stand),
+});
+
 /* ---------- Videowiedergabe (mpv) ---------- */
 const spieler = new Spieler({
+  rife,
   electron: { BrowserWindow, screen },
   mpvExe: process.env.BW_MPV || path.join(__dirname, 'mpv', process.platform === 'win32' ? 'bluewave-mpv.exe' : 'mpv'),
   userData: app.getPath('userData'),
@@ -473,10 +491,24 @@ ipcMain.handle('bewegung-eintragen', async (e) => {
   const erg = await nvEintragen(einst.video.bewegung === 'smooth');
   return { ...erg, nv: await nvStatus(true) };
 });
+// RIFE: Stand, Einrichten (Download), Modelle, Vorbereiten (TensorRT-Engines), Messen, Entfernen – Fortschritt kommt als Ereignis 'rife'
+const rifeAufruf = (fn) => async (e, ...a) => {
+  if (!vonSeite(e)) return null;
+  try { return { ok: true, stand: await fn(...a) }; } catch (x) { return { ok: false, fehler: x.message || String(x), stand: rife.stand() }; }
+};
+ipcMain.handle('rife-stand', rifeAufruf(async () => rife.stand()));
+ipcMain.handle('rife-einrichten', rifeAufruf(async () => rife.einrichten({ mlrt: true })));
+ipcMain.handle('rife-modell', rifeAufruf(async (name) => rife.modellLaden(String(name))));
+ipcMain.handle('rife-vorbereiten', rifeAufruf(async (groessen) => {
+  const liste = (Array.isArray(groessen) ? groessen : []).filter((g) => Array.isArray(g) && g[0] >= 320 && g[0] <= 7680 && g[1] >= 240 && g[1] <= 4320).slice(0, 6);
+  return rife.vorbereiten(einst.video, liste.length ? liste : [[3840, 2160], [1920, 1080]]);
+}));
+ipcMain.handle('rife-messen', rifeAufruf(async (b, h) => rife.messen(einst.video, Math.round(Number(b) || 3840), Math.round(Number(h) || 2160))));
+ipcMain.handle('rife-entfernen', rifeAufruf(async () => rife.entfernen()));
 ipcMain.handle('video-monitor', async (e) => {
   if (!vonSpieler(e)) return null;
   const [mpv, gpu, nv] = await Promise.all([spieler.monitor(), gpuWerte(), nvStatus()]);
-  return { mpv, gpu, nv, log: einst.video.sm_log > 0 ? nvLog() : [], einst: einst.video };
+  return { mpv, gpu, nv, log: einst.video.sm_log > 0 ? nvLog() : [], einst: einst.video, rife: einst.video.bewegung === 'rife' ? { bereit: rife.bereit(einst.video), zustand: rife.zustand() } : null };
 });
 
 // Was eine Seite der Engine selbst schicken darf: nur das Treiberfenster des ASIO-Herstellers öffnen. Wiedergabe,
@@ -996,9 +1028,34 @@ async function selbsttestVideo() {
   } catch (x) { ergebnis(`FEHLER ${x.message}`); }
 }
 
+/** Selbsttest RIFE (CI ohne NVIDIA-Karte): Python + VapourSynth einrichten, Skript mit VSPipe, dann mpv mit
+ *  --vf=vapoursynth (Bilder verdoppeln statt RIFE) – prüft Einrichtung, Einbindung und Takt (24 → 48 fps) */
+async function selbsttestRife() {
+  const ergebnis = (text) => { log.schreiben('INFO', `SELBSTTEST RIFE ${text}`); setTimeout(() => { beenden = true; app.quit(); }, 500); };
+  try {
+    rife.test = true;
+    await rife.einrichten({ mlrt: false });
+    await rife.vorbereiten({ ...einst.video, bewegung: 'rife' }, [[1280, 720]]);
+    const z1 = rife.zustand();
+    if (!z1?.aktiv) { ergebnis(`FEHLER VSPipe: ${JSON.stringify(z1)}`); return; }
+    einst.video = { ...einst.video, bewegung: 'rife', rife_faktor: 2, ton_weg: 'engine' };
+    spieler.video = new BrowserWindow({ width: 640, height: 360, frame: false, backgroundColor: '#000000', show: true });
+    await spieler.video.loadURL('data:text/html,<body style="margin:0;background:#000">');
+    await spieler.mpvStarten();
+    const m = spieler.mpv;
+    await m.befehl(['loadfile', process.env.BW_TEST_RIFE, 'replace']);
+    await new Promise((r) => setTimeout(r, 7000));
+    const mon = await spieler.monitor();
+    const z = rife.zustand();
+    const ok = z?.aktiv && mon.filter_fps > 44 && mon.filter_fps < 52 && mon.quelle_fps > 23 && mon.quelle_fps < 25;
+    ergebnis(`${ok ? 'OK' : 'FEHLER'} quelle=${mon.quelle_fps} gefiltert=${mon.filter_fps} vf=${JSON.stringify(mon.vf)} zustand=${JSON.stringify(z)}`);
+  } catch (x) { ergebnis(`FEHLER ${x.stack || x.message}`); }
+}
+
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   if (process.env.BW_TEST_VIDEO) { engineStarten(); selbsttestVideo(); return; }
+  if (process.env.BW_TEST_RIFE) { selbsttestRife(); return; }
   // Die Web-App braucht im Client nur Zwischenablage und Vollbild – Kamera, Mikrofon, Standort, Benachrichtigungen usw.
   // bekommt keine Seite, auch nicht die des eigenen Servers
   const RECHTE = new Set(['clipboard-sanitized-write', 'fullscreen']);

@@ -8,7 +8,12 @@
 | dr_flac, dr_wav (David Reid) | Ton-Engine: FLAC/WAV lesen | Public Domain / MIT-0 | https://github.com/mackron/dr_libs |
 | XZ Embedded | Entpacken im Installer | Public Domain (0BSD) | https://tukaani.org/xz/embedded.html |
 | ASIO-Schnittstelle | Ton-Engine: ASIO-Treiber ansprechen | ASIO ist eine Marke der Steinberg Media Technologies GmbH; nur die Schnittstellen-Definition | https://www.steinberg.net |
+| 7-Zip (7zr.exe, Igor Pavlov) | Auspacken der RIFE-Pakete | GNU LGPL 2.1 | https://www.7-zip.org |
 | Space Grotesk, Manrope | Schriften im Installer | SIL Open Font License 1.1 | https://fonts.google.com |
+
+Nur bei „RIFE einrichten“ lädt der Client weitere Komponenten direkt von deren Projektseiten in einen eigenen Ordner
+(sie gehören nicht zum Installer): Python (PSF-Lizenz), VapourSynth (LGPL-2.1), vs-mlrt (GPL-3.0) mit NVIDIA TensorRT
+und CUDA (NVIDIA-Lizenzen) sowie die RIFE-Modelle (MIT).
 
 mpv und FFmpeg werden unverändert als fertige Programme mitgeliefert (mpv.exe im Ordner resources\app\mpv). Den
 Quellcode genau dieser Fassung gibt es beim Projekt mpv-winbuild-cmake (Build-Nummer in mpv-version.txt); auf Anfrage

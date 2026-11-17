@@ -49,6 +49,11 @@ jobs:
           [ -n "$MPV" ] || { echo "::error title=mpv::kein mpv-Build gefunden"; exit 1; }
           curl -fsSL -o "$W/$(basename "$MPV")" "$MPV"
           echo "MPV_7Z=$W/$(basename "$MPV")" >> "$GITHUB_ENV"
+          # 7zr.exe (7-Zip, nur .7z, LGPL) für die RIFE-Einrichtung im Client
+          Z="$(gh api repos/ip7z/7zip/releases/latest --jq '.assets[] | select(.name == "7zr.exe") | .browser_download_url' 2>/dev/null | head -1 || true)"
+          [ -n "$Z" ] || Z=https://www.7-zip.org/a/7zr.exe
+          curl -fsSL -o "$W/7zr.exe" "$Z" || curl -fsSL -o "$W/7zr.exe" https://www.7-zip.org/a/7zr.exe
+          echo "SIEBEN_ZR=$W/7zr.exe" >> "$GITHUB_ENV"
           curl -fsSL -o "$W/gpl-2.0.txt" https://www.gnu.org/licenses/old-licenses/gpl-2.0.txt && echo "GPL_TEXT=$W/gpl-2.0.txt" >> "$GITHUB_ENV" || true
           pip install --quiet --break-system-packages pillow fonttools brotli
           echo "mpv: $(basename "$MPV")"
@@ -66,6 +71,10 @@ jobs:
         run: bash windows-client/tests/lage_test.sh
       - name: Spieler-Logik testen (mpv-Attrappe, Engine-Uhr)
         run: node windows-client/tests/spieler_test.js
+      - name: RIFE testen (Einbindung, VapourSynth-Skript gegen Attrappe)
+        run: |
+          node windows-client/tests/rife_test.js
+          python3 windows-client/tests/rife_skript_test.py
       - name: Oberfläche des Clients testen (Chrome, nachgebaute Client-Brücke)
         run: |
           python3 -m pip install --quiet --break-system-packages playwright

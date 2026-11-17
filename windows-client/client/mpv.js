@@ -9,9 +9,10 @@ const EventEmitter = require('events');
 let zaehler = 0;
 
 class Mpv extends EventEmitter {
-  constructor(exe, args, log) {
+  constructor(exe, args, log, env) {
     super();
     this.exe = exe;
+    this.env = env || null;   // zusätzliche Umgebung (z. B. PATH zu VapourSynth für RIFE)
     this.args = args;
     this.log = log || (() => {});
     this.nr = 1;
@@ -28,7 +29,7 @@ class Mpv extends EventEmitter {
   async starten() {
     const args = [...this.args, `--input-ipc-server=${this.pipe}`];
     this.log('INFO', `mpv startet: ${path.basename(this.exe)} ${args.filter((a) => !/^--http-header-fields/.test(a)).join(' ')}`);
-    this.proc = spawn(this.exe, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    this.proc = spawn(this.exe, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, env: this.env ? { ...process.env, ...this.env } : process.env });
     const zeilen = (art) => (d) => { for (const z of String(d).split(/\r?\n/)) if (z.trim()) this.log(art, `[mpv] ${z.trim().slice(0, 500)}`); };
     this.proc.stdout.on('data', zeilen('INFO'));
     this.proc.stderr.on('data', zeilen('WARN'));

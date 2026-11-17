@@ -6,9 +6,9 @@
 import { el } from '../ui.js';
 
 /** Passt die Ziel-Bildrate zur Bildwiederholrate? (gleichmäßig = ganzzahliges Verhältnis, sonst Ruckeln/verworfene Bilder) */
-export function bewertung(quelleFps, hz, smooth) {
+export function bewertung(quelleFps, hz, faktor) {
     if (!(quelleFps > 0) || !(hz > 0)) return { ziel: null, stufe: 'unbekannt', text: 'Noch keine Werte' };
-    const ziel = quelleFps * (smooth ? 2 : 1);
+    const ziel = quelleFps * (faktor === true ? 2 : Number(faktor) || 1);
     const v = hz / ziel;
     if (v < 0.985) return { ziel, stufe: 'schlecht', text: `${hz.toFixed(0)} Hz reichen nicht für ${ziel.toFixed(2)} fps – Bilder fallen weg` };
     const n = Math.round(v);
@@ -38,7 +38,23 @@ export function bildmonitor(wurzel, brücke) {
         const smooth = e.bewegung === 'smooth';
         const nv = s.nv || {};
         const g = s.gpu;
-        const b = bewertung(m.quelle_fps, m.anzeige_hz, smooth && nv.an);
+        const rifeWahl = e.bewegung === 'rife';
+        const rz = s.rife?.zustand;
+        const rifeAktiv = rifeWahl && m.rife && rz?.aktiv;
+        const b = bewertung(m.quelle_fps, m.anzeige_hz, rifeAktiv ? rz.faktor : (smooth && nv.an ? 2 : 1));
+        let rifeBlock = null;
+        if (rifeWahl) {
+            const soll = rifeAktiv ? m.quelle_fps * rz.faktor : null;
+            const ist = m.filter_fps;
+            const haelt = soll && ist ? ist / soll : null;
+            rifeBlock = block('RIFE',
+                zeile('Stand', !s.rife?.bereit ? 'Nicht eingerichtet' : !m.rife ? 'Aus (startet mit dem nächsten Film)' : rz?.fehler ? 'Fehler – läuft ohne' : rz?.aktiv ? `${rz.art} · ${rz.faktor}×` : rz?.grund || 'Startet …',
+                    rz?.fehler ? 'schlecht' : rifeAktiv ? 'gut' : 'mittel'),
+                rifeAktiv ? zeile('Ausgabe', `${zahl(ist, 2)} von ${zahl(soll, 2)} fps`, haelt == null ? null : haelt > 0.97 ? 'gut' : haelt > 0.85 ? 'mittel' : 'schlecht') : null,
+                rifeAktiv && haelt != null ? zeile('Hält mit', haelt > 0.97 ? 'Ja' : `Nein – ${Math.round(haelt * 100)} % (Faktor, Modell oder halbe Auflösung probieren)`, haelt > 0.97 ? 'gut' : 'schlecht') : null,
+                rz?.fehler ? el('pre.bm-log', rz.fehler) : null,
+                rifeAktiv && rz.vorbereitet_s > 20 ? el('p.bm-hinweis', `Die Engine wurde beim Start gebaut (${Math.round(rz.vorbereitet_s)} s) – mit „Vorbereiten“ geht das künftig sofort.`) : null);
+        }
         const neuVerworfen = altVerworfen == null ? 0 : Math.max(0, (m.verworfen || 0) - altVerworfen);
         altVerworfen = m.verworfen || 0;
 
@@ -53,11 +69,12 @@ export function bildmonitor(wurzel, brücke) {
             el('div.bm-kopf', el('h3', 'Bildmonitor'), el('span.leise', 'Taste B')),
             block('Bewegung',
                 zeile('Quelle', `${zahl(m.quelle_fps, 3)} fps`),
-                zeile('Smooth Motion', smText, smStufe),
+                rifeWahl ? null : zeile('Smooth Motion', smText, smStufe),
                 zeile('Ziel', b.ziel ? `${zahl(b.ziel, 2)} fps` : '–'),
                 zeile('Bildschirm', m.anzeige_hz ? `${zahl(m.anzeige_hz, 2)} Hz` : '–'),
                 zeile('Takt', b.text, b.stufe === 'unbekannt' ? null : b.stufe),
                 zeile('mpv-Takt', `${m.sync || '–'}${m.interpolation ? ' + Interpolation' : ''}${e.vsync === false ? ' · VSync aus' : ''}`)),
+            rifeBlock,
             block('Aussetzer',
                 zeile('Verworfen', `${m.verworfen ?? 0}${neuVerworfen ? ` (+${neuVerworfen})` : ''}`, neuVerworfen ? 'schlecht' : null),
                 zeile('Verspätet', String(m.verspaetet ?? 0), m.verspaetet ? 'mittel' : null),

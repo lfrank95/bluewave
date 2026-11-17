@@ -198,7 +198,7 @@ async function clientKarten() {
 function bewegungKarte(v) {
     const auswahl = (paare, wert) => { const s = el('select.eingabe', {}, paare.map(([w, t]) => el('option', { value: w }, t))); s.value = String(wert); return s; };
     const haken = (an) => el('input', { type: 'checkbox', checked: !!an });
-    const modus = auswahl([['aus', 'Aus'], ['smooth', 'NVIDIA Smooth Motion']], v.bewegung);
+    const modus = auswahl([['aus', 'Aus'], ['smooth', 'NVIDIA Smooth Motion (Treiber, 2×)'], ['rife', 'RIFE (KI, 2× bis 5×)']], v.bewegung);
     const renderer = auswahl([['d3d11', 'Direct3D 11 (empfohlen)'], ['vulkan', 'Vulkan (Smooth Motion erst ab RTX 50)']], v.renderer);
     const vsync = haken(v.vsync);
     const sync = auswahl([['audio', 'Nach dem Ton (Standard)'], ['display-resample', 'Nach dem Bildschirm (display-resample)']], v.mpv_sync);
@@ -224,11 +224,15 @@ function bewegungKarte(v) {
     const speichern = async (w, text) => {
         Object.assign(v, await nativ.video.einstSetzen(w));
         optionen.hidden = v.bewegung !== 'smooth';
+        rifeBox.hidden = v.bewegung !== 'rife';
         interp.disabled = v.mpv_sync !== 'display-resample';
         pruefen(false);
         meldung(text || 'Übernommen – gilt ab dem nächsten Abspielen.');
     };
-    modus.addEventListener('change', () => speichern({ bewegung: modus.value }, modus.value === 'smooth' ? 'Smooth Motion gewählt – jetzt noch „Im Treiber eintragen“.' : 'Aus – trage es auch im Treiber aus.'));
+    modus.addEventListener('change', () => speichern({ bewegung: modus.value }, {
+        smooth: 'Smooth Motion gewählt – jetzt noch „Im Treiber eintragen“.',
+        rife: 'RIFE gewählt – falls noch nicht geschehen: einrichten und vorbereiten. Smooth Motion im Treiber dann ausschalten.',
+    }[modus.value] || 'Aus – trage Smooth Motion gegebenenfalls auch im Treiber aus.'));
     renderer.addEventListener('change', () => speichern({ renderer: renderer.value }));
     vsync.addEventListener('change', () => speichern({ vsync: vsync.checked }));
     sync.addEventListener('change', () => speichern({ mpv_sync: sync.value }));
@@ -243,7 +247,9 @@ function bewegungKarte(v) {
         else meldung(r?.fehler || 'Eintragen fehlgeschlagen', true);
         statusZeigen(r);
     });
+    const rifeBox = rifeBereich(v, speichern);
     optionen.hidden = v.bewegung !== 'smooth';
+    rifeBox.hidden = v.bewegung !== 'rife';
     interp.disabled = v.mpv_sync !== 'display-resample';
     optionen.append(
         zeile('Faktor', 'Smooth Motion erzeugt immer genau ein Zwischenbild zwischen zwei echten Bildern – 2× ist fest vom Treiber vorgegeben. 3× oder 4× gibt es nur bei DLSS-Multi-Frame-Generation, und die muss ein Spiel selbst einbauen; für Videos ist sie nicht verfügbar.', el('b', '2× (fest)')),
@@ -253,12 +259,111 @@ function bewegungKarte(v) {
         zeile('Treiber-Log', 'Schreibt nach C:\\NvPresent\\; die letzten Zeilen zeigt der Bildmonitor.', logStufe));
     pruefen(true);
     return el('section.karte.glass-panel.client-karte', el('h2', 'Flüssige Bewegung (Test)'),
-        el('p.leise', 'Versuch: Die Grafikkarte rechnet Zwischenbilder, aus 24 fps werden 48 fps. Das wirkt flüssiger, kann aber den „Seifenoper-Effekt“ und bei schnellen Szenen Artefakte bringen. Im Player zeigt Taste B den Bildmonitor.'),
-        zeile('Modus', 'Smooth Motion wird im NVIDIA-Treiber für den Bluewave-Player eingetragen (Profil „Bluewave Wiedergabe“). Dafür fragt Windows einmal nach Admin-Rechten.', modus),
-        zeile('Treiber', null, el('div.client-download', status, eintragen)),
+        el('p.leise', 'Versuch: Die Grafikkarte rechnet Zwischenbilder, aus 24 fps werden z. B. 48 oder 120 fps. Das wirkt flüssiger, kann aber den „Seifenoper-Effekt“ und bei schnellen Szenen Artefakte bringen. Im Player zeigt Taste B den Bildmonitor.'),
+        zeile('Modus', 'Smooth Motion steckt im NVIDIA-Treiber (fest 2×, Profil „Bluewave Wiedergabe“, Eintragen braucht Admin-Rechte). RIFE rechnet mit einem KI-Modell über TensorRT, in mpv eingebunden, mit wählbarem Faktor.', modus),
+        zeile('Smooth Motion im Treiber', null, el('div.client-download', status, eintragen)),
         optionen,
+        rifeBox,
         zeile('mpv-Takt', 'Nach dem Bildschirm passt mpv das Tempo minimal an die Bildwiederholrate an – Voraussetzung für die eigene Interpolation von mpv.', sync),
         zeile('mpv-Interpolation', 'Glättet nur das Ruckeln durch unpassende Bildwiederholraten (z. B. 24 fps auf 60 Hz) – erzeugt keine echten Zwischenbilder. Nur mit „Nach dem Bildschirm“.', el('label.schalter', interp, 'An')));
+}
+
+/** RIFE: Einrichten (Download ≈ 3 GB), Vorbereiten (TensorRT-Engines), Messen und die Einstellungen */
+function rifeBereich(v, speichern) {
+    const r = nativ.video.rife;
+    const box = el('div.rife-box');
+    if (!r) { box.append(el('p.leise', 'Dieser Client kann noch kein RIFE.')); return box; }
+    const auswahl = (paare, wert) => { const s = el('select.eingabe', {}, paare.map(([w, t]) => el('option', { value: w }, t))); s.value = String(wert); return s; };
+    const MODELLE = [['v4_6', 'RIFE 4.6 – schnell, Standard'], ['v4_25_lite', 'RIFE 4.25 lite – neuer, schnell'], ['v4_25', 'RIFE 4.25 – beste Qualität, schwer'], ['v4_26', 'RIFE 4.26 – beste Qualität, schwer']];
+    const standText = el('span.leise', 'Prüfe …');
+    const fortschritt = el('progress', { max: 100, value: 0, hidden: true, style: { width: '100%' } });
+    const arbeitText = el('p.leise.rife-arbeit', { hidden: true });
+    const einrichten = el('button.knopf.klein.haupt', 'RIFE einrichten (ca. 3 GB)');
+    const vorbereiten = el('button.knopf.klein', 'Vorbereiten');
+    const messen = el('button.knopf.klein', 'Messen (4K)');
+    const entfernen = el('button.knopf.klein', 'Entfernen');
+    const messung = el('span.leise');
+    const faktor = auswahl([[2, '2× (24 → 48 fps)'], [3, '3× (24 → 72 fps)'], [4, '4× (24 → 96 fps)'], [5, '5× (24 → 120 fps)']], v.rife_faktor ?? 2);
+    const modell = auswahl(MODELLE, v.rife_modell || 'v4_6');
+    const modellLaden = el('button.knopf.klein', { hidden: true }, 'Modell laden');
+    const v2 = el('input', { type: 'checkbox', checked: !!v.rife_v2 });
+    const skala = auswahl([[1, 'Volle Auflösung (beste Qualität)'], [0.5, 'Halbe Auflösung (deutlich schneller, für 4K mit hohem Faktor)']], v.rife_skala ?? 1);
+    const szene = auswahl([[0, 'Aus'], [0.08, 'Empfindlich'], [0.12, 'Normal'], [0.2, 'Unempfindlich']], v.rife_szene ?? 0.12);
+    const maxFps = auswahl([[31, 'Bis 30 fps (Filme, Serien)'], [61, 'Bis 60 fps (auch 50/60-fps-Videos)']], v.rife_max_fps ?? 31);
+    let laeuft = false;
+
+    const zeigen = (st) => {
+        if (!st) return;
+        const a = st.arbeit;
+        laeuft = !!(a && !a.fertig);
+        fortschritt.hidden = !laeuft;
+        fortschritt.value = a?.prozent || 0;
+        arbeitText.hidden = !a;
+        arbeitText.textContent = a ? (a.fehler ? `Fehler: ${a.fehler}` : a.text || '') : '';
+        arbeitText.classList.toggle('fehler', !!a?.fehler);
+        const bereit = st.vs && st.mlrt;
+        standText.textContent = bereit
+            ? `Eingerichtet · ${(st.groesse / 1073741824).toFixed(1).replace('.', ',')} GB · ${st.engines} Engine${st.engines === 1 ? '' : 's'} vorbereitet`
+            : st.vs ? 'Teilweise eingerichtet – bitte fertig einrichten' : 'Nicht eingerichtet';
+        einrichten.hidden = bereit;
+        einrichten.disabled = laeuft;
+        vorbereiten.hidden = messen.hidden = entfernen.hidden = !bereit;
+        vorbereiten.disabled = messen.disabled = entfernen.disabled = laeuft;
+        const m = st.modelle?.[modell.value];
+        modellLaden.hidden = !bereit || !!m?.da;
+        modellLaden.disabled = laeuft;
+        if (a?.ergebnisse?.length && a.art === 'vorbereiten' && a.fertig && !a.fehler) arbeitText.textContent = 'Vorbereitet: ' + a.ergebnisse.map((x) => `${x.groesse.replace('x', '×')} in ${x.sekunden} s`).join(', ');
+    };
+    const ausfuehren = async (fn, ok) => {
+        const e = await fn();
+        if (e?.stand && 'vs' in e.stand) zeigen(e.stand);
+        if (e?.ok) { if (ok) meldung(ok); } else meldung(e?.fehler || 'Fehlgeschlagen', true);
+        return e;
+    };
+    einrichten.addEventListener('click', () => {
+        einrichten.disabled = true;
+        ausfuehren(() => r.einrichten(), 'RIFE ist eingerichtet – jetzt „Vorbereiten“.');
+    });
+    vorbereiten.addEventListener('click', () => ausfuehren(() => r.vorbereiten([[3840, 2160], [3840, 1600], [1920, 1080], [1920, 800]]), 'Vorbereitet für 4K und 1080p (auch Breitbild).'));
+    messen.addEventListener('click', async () => {
+        messung.textContent = 'Messe 4K … (beim ersten Mal inklusive Vorbereiten)';
+        messen.disabled = true;
+        const e = await ausfuehren(() => r.messen(3840, 2160));
+        messen.disabled = false;
+        const x = e?.stand;
+        messung.textContent = e?.ok && x?.fps ? `4K: ${String(x.fps).replace('.', ',')} fps gerechnet, nötig ${String(x.ziel).replace('.', ',')} fps – ${x.fps >= x.ziel * 1.05 ? 'reicht' : 'zu langsam für Echtzeit'}` : '';
+        if (e?.ok) r.stand().then((s2) => zeigen(s2.stand));
+    });
+    entfernen.addEventListener('click', async () => {
+        if (!(await bestaetigen('RIFE entfernen?', 'Löscht Python, VapourSynth, vs-mlrt, Modelle und Engines aus dem RIFE-Ordner.', 'Entfernen'))) return;
+        ausfuehren(() => r.entfernen(), 'RIFE entfernt.');
+    });
+    modellLaden.addEventListener('click', () => ausfuehren(() => r.modell(modell.value), 'Modell geladen – danach neu vorbereiten.'));
+    faktor.addEventListener('change', () => speichern({ rife_faktor: Number(faktor.value) }));
+    modell.addEventListener('change', async () => { await speichern({ rife_modell: modell.value }, 'Modell gewählt – neu „Vorbereiten“, sonst baut der erste Film die Engine (dauert Minuten).'); r.stand().then((e) => zeigen(e?.stand)); });
+    v2.addEventListener('change', () => speichern({ rife_v2: v2.checked }, 'Übernommen – neu „Vorbereiten“.'));
+    skala.addEventListener('change', () => speichern({ rife_skala: Number(skala.value) }, 'Übernommen – neu „Vorbereiten“.'));
+    szene.addEventListener('change', () => speichern({ rife_szene: Number(szene.value) }));
+    maxFps.addEventListener('change', () => speichern({ rife_max_fps: Number(maxFps.value) }));
+
+    const aus = r.auf(zeigen);
+    let warDa = false;
+    const wache = setInterval(() => { if (box.isConnected) { warDa = true; return; } if (warDa) { aus(); clearInterval(wache); } }, 2000);
+    r.stand().then((e) => zeigen(e?.stand));
+
+    box.append(
+        zeile('RIFE', 'Lädt Python, VapourSynth, vs-mlrt mit NVIDIA TensorRT und die RIFE-Modelle direkt von den Projektseiten (ca. 3 GB, ausgepackt mehr). Danach einmal „Vorbereiten“: TensorRT optimiert das Modell für deine Karte, pro Auflösung einige Minuten.',
+            el('div.client-download', standText, einrichten, vorbereiten, messen, entfernen)),
+        fortschritt, arbeitText,
+        messung,
+        zeile('Faktor', 'Auf deinem 240-Hz-Bildschirm passen alle gleichmäßig (48, 72, 96, 120 fps). Mehr Zwischenbilder = flüssiger, aber mehr Rechenlast und mehr „Video-Look“. 4K mit 5× schafft auch eine schnelle Karte wohl nur mit halber Auflösung bei der Bewegung.', faktor),
+        zeile('Modell', 'Neuere Modelle liefern sauberere Kanten, rechnen aber länger. 4.6 ist im Paket, die anderen werden einzeln geladen (je ca. 20–50 MB).', el('div.client-download', modell, modellLaden)),
+        zeile('Schnellere Umsetzung (v2)', 'Andere Umsetzung desselben Modells, laut Nutzern etwa 15–25 % schneller. Falls es Fehler gibt: aus.', el('label.schalter', v2, 'An')),
+        zeile('Bewegung schätzen in', 'Das Bild bleibt immer in voller Auflösung; nur die Bewegungsschätzung läuft halb so groß.', skala),
+        zeile('Szenenwechsel', 'An harten Schnitten statt eines verschmierten Zwischenbilds das echte Bild wiederholen.', szene),
+        zeile('Anwenden auf', 'Videos mit mehr Bildern pro Sekunde bleiben unverändert.', maxFps),
+        el('p.leise', 'Hinweis: Mit RIFE dekodiert mpv mit Rückkopie in den Arbeitsspeicher; Smooth Motion im Treiber sollte dabei aus sein. Der Bildmonitor (Taste B) zeigt, ob RIFE mithält.'));
+    return box;
 }
 
 /** Abschnitte für das Profil: im Client die Einstellungen, im Browser der Download (oder nichts) */

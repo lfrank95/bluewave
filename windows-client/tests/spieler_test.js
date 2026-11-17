@@ -164,6 +164,27 @@ function neuerSpieler(weg) {
   d.eng.stopp();
   d.sp.aufraeumen();
 
+  console.log('== RIFE: Filter, Dekodieren mit Rückkopie, Umgebung');
+  const g = neuerSpieler('engine');
+  let gefragt = null;
+  g.sp.ctx.rife = { mpvZusatz: (ein) => { gefragt = ein; return { args: ['--vf=vapoursynth=file=%9%/x/y.vpy:buffered-frames=8'], env: { BW_RIFE_CFG: '/x/rife.json' } }; } };
+  Object.assign(g.einst, { bewegung: 'rife', rife_faktor: 2, rife_modell: 'v4_6' });
+  await g.sp.laden({ url: 'http://bluewave.test:9960/api/v1/datei/12/inhalt', start: 0, ton: 0, modus: 'direkt', ton_quelle: '12', dauer: 120 });
+  await warte(200);
+  pruefe(gefragt?.bewegung === 'rife' && g.sp.mpv.args.includes('--hwdec=auto-copy-safe') && g.sp.mpv.args.includes('--vf=vapoursynth=file=%9%/x/y.vpy:buffered-frames=8'), 'RIFE: vapoursynth-Filter, hwdec mit Rückkopie');
+  pruefe(g.sp.mpv.env?.BW_RIFE_CFG === '/x/rife.json' && g.sp.rifeAn, 'Umgebung für VapourSynth an mpv');
+  pruefe((await g.sp.monitor()).rife === true, 'Bildmonitor weiß von RIFE');
+  g.eng.stopp();
+  g.sp.aufraeumen();
+  const h = neuerSpieler('engine');
+  h.sp.ctx.rife = { mpvZusatz: () => null };
+  Object.assign(h.einst, { bewegung: 'rife' });
+  await h.sp.laden({ url: 'http://bluewave.test:9960/api/v1/datei/12/inhalt', start: 0, ton: 0, modus: 'direkt', ton_quelle: '12', dauer: 120 });
+  await warte(200);
+  pruefe(!h.sp.mpv.args.some((x) => x.startsWith('--vf=')) && h.sp.mpv.args.includes('--hwdec=auto-safe') && h.meldungen.some(([k, d]) => k === 'video' && d.e === 'hinweis' && /RIFE/.test(d.text)), 'RIFE nicht eingerichtet: ohne Filter, mit Hinweis');
+  h.eng.stopp();
+  h.sp.aufraeumen();
+
   console.log('== Bitstream');
   const c = neuerSpieler('bitstream');
   c.einst.spdif = ['ac3', 'truehd', 'quatsch'];

@@ -38,6 +38,16 @@ if (info && info.erlaubt) {
       // Flüssige Bewegung (Test): Treiber-Profil lesen bzw. (mit Admin-Bestätigung) schreiben
       bewegungStatus: (frisch) => ipcRenderer.invoke('bewegung-status', !!frisch),
       bewegungEintragen: () => ipcRenderer.invoke('bewegung-eintragen'),
+      // RIFE (KI-Zwischenbilder): Einrichten lädt Python, VapourSynth, vs-mlrt/TensorRT und Modelle; Vorbereiten baut die Engines
+      rife: {
+        stand: () => ipcRenderer.invoke('rife-stand'),
+        einrichten: () => ipcRenderer.invoke('rife-einrichten'),
+        modell: (name) => ipcRenderer.invoke('rife-modell', name),
+        vorbereiten: (groessen) => ipcRenderer.invoke('rife-vorbereiten', groessen),
+        messen: (b, h) => ipcRenderer.invoke('rife-messen', b, h),
+        entfernen: () => ipcRenderer.invoke('rife-entfernen'),
+        auf: verteiler('rife'),
+      },
     };
   contextBridge.exposeInMainWorld('bluewaveNativ', {
     version: info.version,

@@ -195,7 +195,23 @@ class Spieler {
   async mpvStarten() {
     if (this.mpv && !this.mpv.zu) return;
     this.weg = this.tonWeg();
-    const m = new Mpv(this.ctx.mpvExe, this.mpvArgs(), this.ctx.log);
+    const args = this.mpvArgs();
+    // RIFE: Bilder laufen durch VapourSynth (CPU-Speicher) → Dekodieren mit Rückkopie, Skript und Umgebung dazu
+    let env = null;
+    const e = this.ctx.einst();
+    const rz = e.bewegung === 'rife' ? this.ctx.rife?.mpvZusatz(e) : null;
+    this.rifeAn = !!rz;
+    if (rz) {
+      const i = args.findIndex((x) => x.startsWith('--hwdec='));
+      if (i >= 0 && args[i] !== '--hwdec=no') args[i] = '--hwdec=auto-copy-safe';
+      args.push(...rz.args);
+      env = rz.env;
+      this.ctx.log('INFO', `RIFE an: ${e.rife_faktor}× ${e.rife_modell}${e.rife_v2 ? ' v2' : ''}, Bewegung ${e.rife_skala === 0.5 ? 'halbe' : 'volle'} Auflösung`);
+    } else if (e.bewegung === 'rife') {
+      this.ctx.log('WARN', 'RIFE gewählt, aber nicht eingerichtet – spiele ohne');
+      this.melden({ e: 'hinweis', text: 'RIFE ist gewählt, aber noch nicht eingerichtet – der Film läuft ohne Zwischenbilder.' });
+    }
+    const m = new Mpv(this.ctx.mpvExe, args, this.ctx.log, env);
     this.mpv = m;
     m.on('eigenschaft', (n, w) => { if (this.mpv === m) this.eigenschaft(n, w); });
     m.on('ereignis', (x) => { if (this.mpv === m) this.ereignis(x); });
@@ -382,7 +398,7 @@ class Spieler {
     const m = this.mpv;
     if (!m || m.zu) return { laeuft: false };
     const namen = ['container-fps', 'estimated-vf-fps', 'display-fps', 'estimated-display-fps', 'frame-drop-count', 'decoder-frame-drop-count',
-      'vo-delayed-frame-count', 'mistimed-frame-count', 'hwdec-current', 'current-gpu-context', 'video-params', 'video-out-params', 'speed', 'video-sync', 'interpolation', 'width', 'height'];
+      'vo-delayed-frame-count', 'mistimed-frame-count', 'hwdec-current', 'current-gpu-context', 'video-params', 'video-out-params', 'speed', 'video-sync', 'interpolation', 'width', 'height', 'vf'];
     const w = await Promise.all(namen.map((n) => m.lesen(n)));
     const x = Object.fromEntries(namen.map((n, i) => [n, w[i]]));
     const vp = x['video-params'] || {};
@@ -397,7 +413,7 @@ class Spieler {
       hwdec: x['hwdec-current'] || 'no', gpu: x['current-gpu-context'] || '', sync: x['video-sync'], interpolation: x.interpolation,
       breite: vp.w || x.width, hoehe: vp.h || x.height, pixel: vp.hw_pixelformat || vp.pixelformat || '',
       gamma: vp.gamma || '', primaer: vp.primaries || '', spitze: vp['sig-peak'] || null, ausgabe_gamma: op.gamma || '',
-      tempo: x.speed, weg: this.weg, engine_diff: diff,
+      tempo: x.speed, weg: this.weg, engine_diff: diff, rife: !!this.rifeAn, vf: x.vf,
     };
   }
 

@@ -50,6 +50,26 @@ HAUPT = """
       einst: async () => ({ ...v, mpv_geraete: MPV }),
       einstSetzen: async (w) => { merk('einstSetzen', w); Object.assign(v, w); return { ...v, mpv_geraete: MPV }; },
       bewegungStatus: async () => ({ nv, gpu: GPU }),
+      rife: (() => {
+        const hoerer = new Set();
+        let st = { ordner: 'C:/x', vs: false, mlrt: false, groesse: 0, engines: 0, modelle: { v4_6: { da: false }, v4_25: { da: false } }, arbeit: null };
+        const senden = () => hoerer.forEach((f) => f(st));
+        return {
+          stand: async () => ({ ok: true, stand: st }),
+          einrichten: async () => {
+            merk('rifeEinrichten');
+            st = { ...st, arbeit: { art: 'einrichten', text: 'Lade vs-mlrt mit TensorRT (2,4 GB) …', prozent: 40 } }; senden();
+            await new Promise((r) => setTimeout(r, 150));
+            st = { ...st, vs: true, mlrt: true, groesse: 4.2 * 1073741824, modelle: { v4_6: { da: true }, v4_25: { da: false } }, arbeit: { art: 'einrichten', text: 'Fertig eingerichtet.', prozent: 100, fertig: true } };
+            return { ok: true, stand: st };
+          },
+          vorbereiten: async (g) => { merk('rifeVorbereiten', g); st = { ...st, engines: g.length, arbeit: { art: 'vorbereiten', fertig: true, ergebnisse: g.map(([b, h]) => ({ groesse: `${b}x${h}`, sekunden: 190 })) } }; return { ok: true, stand: st }; },
+          messen: async (b, h) => ({ ok: true, stand: { breite: b, hoehe: h, fps: 61.3, ziel: 48 } }),
+          modell: async (n) => { merk('rifeModell', n); st = { ...st, modelle: { ...st.modelle, [n]: { da: true } } }; return { ok: true, stand: st }; },
+          entfernen: async () => ({ ok: true, stand: st }),
+          auf: (f) => { hoerer.add(f); return () => hoerer.delete(f); },
+        };
+      })(),
       bewegungEintragen: async () => { merk('bewegungEintragen', { ...v }); nv = { nvidia: true, profil: true, an: v.bewegung === 'smooth', balken: v.sm_balken, log: v.sm_log }; return { ok: true, nv, gpu: GPU }; },
     },
     senden: (b) => merk('senden', b), auf: () => () => {}, aufTaste: () => () => {},
@@ -169,10 +189,10 @@ async def main():
             bw = page.locator('.client-karte', has_text='Flüssige Bewegung (Test)')
             await page.wait_for_function("document.body.innerText.includes('Treiber-Profil: noch nicht angelegt')", timeout=5000)
             pruefe('RTX 5080' in await bw.inner_text(), 'Grafikkarte und Profilstand angezeigt')
-            pruefe(not await bw.locator('.client-zeile', has_text='Faktor').is_visible(), 'Optionen erst mit Smooth Motion sichtbar')
+            pruefe(not await bw.locator('.client-zeile', has_text='Smooth Motion erzeugt').is_visible(), 'Optionen erst mit Smooth Motion sichtbar')
             await bw.locator('.client-zeile', has_text='Modus').locator('select').select_option('smooth')
             await page.wait_for_timeout(200)
-            faktor = await bw.locator('.client-zeile', has_text='Faktor').inner_text()
+            faktor = await bw.locator('.client-zeile', has_text='Smooth Motion erzeugt').inner_text()
             pruefe('2× (fest)' in faktor and '3×' in faktor, f'Faktor 2× fest, mit Erklärung zu 3×/4×')
             await bw.locator('.client-zeile', has_text='Testbalken').locator('input').check()
             await bw.locator('.client-zeile', has_text='Treiber-Log').locator('select').select_option('2')
@@ -183,6 +203,32 @@ async def main():
             ein = [x for x in await page.evaluate('window.__aufrufe') if x[0] == 'bewegungEintragen']
             pruefe(ein and ein[-1][1]['bewegung'] == 'smooth' and ein[-1][1]['sm_balken'] and ein[-1][1]['sm_log'] == 2, f'Eintragen mit Testbalken und Log: {ein[-1:]}')
             pruefe('Smooth Motion an' in await bw.inner_text() and 'weicht ab' not in await bw.inner_text(), 'Profil danach aktuell')
+            # RIFE: einrichten, vorbereiten, messen, Faktor, Modell nachladen
+            await bw.locator('.client-zeile', has_text='Modus').first.locator('select').select_option('rife')
+            await page.wait_for_timeout(200)
+            rb = bw.locator('.rife-box')
+            pruefe(await rb.is_visible() and not await bw.locator('.client-zeile', has_text='Testbalken').is_visible(), 'RIFE-Bereich statt Smooth-Motion-Optionen')
+            pruefe('Nicht eingerichtet' in await rb.inner_text(), 'Stand: nicht eingerichtet')
+            await rb.get_by_role('button', name='RIFE einrichten (ca. 3 GB)').click()
+            await page.wait_for_timeout(60)
+            pruefe('2,4 GB' in await rb.inner_text(), 'Fortschritt der Einrichtung sichtbar')
+            await page.wait_for_function("document.querySelector('.rife-box').innerText.includes('Eingerichtet')", timeout=3000)
+            await rb.get_by_role('button', name='Vorbereiten').click()
+            await page.wait_for_timeout(200)
+            vb = [x for x in await page.evaluate('window.__aufrufe') if x[0] == 'rifeVorbereiten']
+            pruefe(vb and [3840, 2160] in vb[-1][1] and [1920, 800] in vb[-1][1], f'Vorbereiten für 4K und 1080p: {vb[-1:]}')
+            pruefe('3840×2160 in 190 s' in await rb.inner_text() and '4 Engines' in await rb.inner_text(), 'Ergebnis des Vorbereitens angezeigt')
+            await rb.get_by_role('button', name='Messen (4K)').click()
+            await page.wait_for_timeout(200)
+            pruefe('61,3 fps gerechnet' in await rb.inner_text() and 'reicht' in await rb.inner_text(), 'Messung angezeigt')
+            await rb.locator('.client-zeile', has_text='240-Hz').locator('select').select_option('5')
+            await rb.locator('.client-zeile', has_text='Neuere Modelle').locator('select').select_option('v4_25')
+            await page.wait_for_timeout(200)
+            await rb.get_by_role('button', name='Modell laden').click()
+            await page.wait_for_timeout(200)
+            gs = [x for x in await page.evaluate('window.__aufrufe') if x[0] in ('einstSetzen', 'rifeModell')]
+            pruefe(['einstSetzen', {'rife_faktor': 5}] in gs and ['rifeModell', 'v4_25'] in gs, 'Faktor 5× gespeichert, Modell 4.25 geladen')
+            pruefe(not await rb.get_by_role('button', name='Modell laden').is_visible(), 'Modell danach vorhanden')
             await page.wait_for_timeout(300)
             await page.screenshot(path=os.path.join(tempfile.gettempdir(), 'bw_client_profil.png'), full_page=True)
             # Abspielen geht an den Client

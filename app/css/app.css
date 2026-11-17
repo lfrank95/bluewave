@@ -1077,3 +1077,5 @@ html.bw-spieler .player .oben button { -webkit-app-region: no-drag; app-region: 
 .bildmonitor .bm-hinweis { margin: 10px 0 0; color: var(--text-secondary, #9fb3cf); line-height: 1.45; }
 .bildmonitor .bm-log { margin: 0; font: 11px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; color: #cfe8ff; }
 .client-karte .bm-status { display: inline-flex; gap: 8px; align-items: center; }
+.client-karte .rife-box .fehler { color: #ff7a7a; }
+.client-karte .rife-box progress { height: 6px; accent-color: var(--accent-a); }

@@ -55,7 +55,10 @@ rm -f "$ZIEL/dxcompiler.dll" "$ZIEL/dxil.dll" "$ZIEL/vk_swiftshader.dll" "$ZIEL/
 python3 "$HIER/werkzeug/pe_symbol.py" "$ZIEL/Bluewave Client.exe" "$HIER/build/symbol.ico" "$VERSION" "Bluewave Windows-Client" "Bluewave Client.exe"
 APPD="$ZIEL/resources/app"
 mkdir -p "$APPD/engine" "$APPD/mpv"
-cp "$HIER/client/"{main.js,preload.js,suche.js,log.js,i18n.js,mpv.js,spieler.js,einrichtung.html,package.json} "$APPD/"
+cp "$HIER/client/"{main.js,preload.js,suche.js,log.js,i18n.js,mpv.js,spieler.js,rife.js,einrichtung.html,package.json} "$APPD/"
+mkdir -p "$APPD/rife" && cp "$HIER/client/rife/bluewave_rife.vpy" "$APPD/rife/"
+# 7-Zip (nur .7z) zum Auspacken von vs-mlrt bei der RIFE-Einrichtung
+if [ -n "${SIEBEN_ZR:-}" ] && [ -f "$SIEBEN_ZR" ]; then cp "$SIEBEN_ZR" "$APPD/engine/7zr.exe"; else echo "WARNUNG: 7zr.exe fehlt (SIEBEN_ZR) – RIFE-Einrichtung geht dann nicht" >&2; fi
 cp -r "$HIER/client/bilder" "$APPD/"
 cp "$HIER/build/bluewave-engine.exe" "$HIER/build/bluewave-nvprofil.exe" "$APPD/engine/"
 

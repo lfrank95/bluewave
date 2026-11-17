@@ -53,6 +53,29 @@ if ($log -match 'ABSTURZ') { Write-Host "::error title=Selbsttest::Absturz im Cl
 if ("$zeile" -notmatch 'SELBSTTEST OK') { Write-Host "::error title=Selbsttest::mpv im Videofenster: $zeile"; Write-Host $log; exit 1 }
 Write-Host "::notice title=Selbsttest::$zeile"
 
+Write-Host '== RIFE: 7-Zip, VapourSynth in mpv, Einrichtung und Einbindung (ohne NVIDIA-Karte: Bilder verdoppeln)'
+$z = Join-Path $app 'engine\7zr.exe'
+if (-not (Test-Path $z)) { Write-Host "::error title=RIFE::7zr.exe fehlt"; exit 1 }
+$zaus = (& $z 2>&1 | Out-String)
+if ($zaus -notmatch '7-Zip') { Write-Host "::error title=RIFE::7zr.exe antwortet nicht"; exit 1 }
+$vfh = (& (Join-Path $app 'mpv\bluewave-mpv.exe') --vf=help 2>&1 | Out-String)
+if ($vfh -notmatch 'vapoursynth') { Write-Host "::error title=RIFE::mpv kennt den Filter vapoursynth nicht" } else { Write-Host '  mpv: Filter vapoursynth vorhanden' }
+Remove-Item -Recurse -Force (Join-Path $daten 'log') -ErrorAction SilentlyContinue
+$env:BW_RIFE_ORDNER = Join-Path $env:RUNNER_TEMP 'bwrife'
+$env:BW_TEST_RIFE = 'av://lavfi:testsrc2=duration=60:size=1280x720:rate=24000/1001'
+$p = Start-Process -FilePath (Join-Path $Ordner 'Bluewave Client.exe') -PassThru
+if (-not $p.WaitForExit(240000)) { $p | Stop-Process -Force; Write-Host "::error title=RIFE::Selbsttest nach 4 min nicht fertig" }
+Remove-Item Env:\BW_TEST_RIFE
+$log = Get-Content (Join-Path $daten 'log\client.log') -Raw
+$zeile = ($log -split "`n" | Select-String 'SELBSTTEST RIFE' | Select-Object -Last 1)
+Write-Host "  $zeile"
+($log -split "`n" | Select-String 'RIFE' | Select-Object -Last 12) | ForEach-Object { Write-Host "  $_" }
+if (Test-Path (Join-Path $daten 'log\mpv.log')) { Get-Content (Join-Path $daten 'log\mpv.log') | Select-Object -Last 10 | ForEach-Object { Write-Host "  mpv: $_" } }
+Get-ChildItem $env:BW_RIFE_ORDNER -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  rife: $($_.Name)" }
+if ("$zeile" -notmatch 'SELBSTTEST RIFE OK') { Write-Host "::error title=RIFE::$zeile"; exit 1 }
+Write-Host "::notice title=RIFE::$zeile"
+Get-Process -Name 'bluewave-mpv' -ErrorAction SilentlyContinue | Stop-Process -Force
+
 Write-Host '== Client startet (Einrichtung, ohne Server)'
 Remove-Item -Recurse -Force (Join-Path $daten 'log') -ErrorAction SilentlyContinue
 $p = Start-Process -FilePath (Join-Path $Ordner 'Bluewave Client.exe') -PassThru
