@@ -353,6 +353,29 @@ class Spieler {
     }
   }
 
+  /** RIFE-Wächter: meldet das Skript einen Fehler oder kommt nach einigen Sekunden kein Bild aus dem Filter, nimmt mpv
+   *  den Filter heraus und spielt ohne Zwischenbilder weiter (statt nur Ton mit schwarzem Bild) */
+  rifeWache(m) {
+    clearTimeout(this.rifeTimer);
+    const start = Date.now();
+    const pruefen = async () => {
+      if (this.mpv !== m || m.zu || !this.rifeAn) return;
+      const z = this.ctx.rife?.zustand?.();
+      const [fps, pos, pause] = await Promise.all([m.lesen('estimated-vf-fps'), m.lesen('time-pos'), m.lesen('pause')]);
+      const ohneBild = !(fps > 0) && !pause && pos > 0;
+      if (z?.fehler || (ohneBild && Date.now() - start > 12000)) {
+        const grund = z?.fehler ? z.fehler.split(/\r?\n/).pop().slice(0, 160) : 'kein Bild aus dem Filter';
+        this.ctx.log('WARN', `RIFE aus (${grund}) – spiele ohne Zwischenbilder weiter`);
+        await m.leise(['vf', 'remove', '@bwrife']);
+        this.rifeAn = false;
+        this.melden({ e: 'hinweis', text: `RIFE läuft nicht (${grund}) – der Film spielt ohne Zwischenbilder weiter.`, fehler: true });
+        return;
+      }
+      if (Date.now() - start < 30000) this.rifeTimer = setTimeout(pruefen, 2000);
+    };
+    this.rifeTimer = setTimeout(pruefen, 3000);
+  }
+
   async ereignis(x) {
     const m = this.mpv;
     if (!m) return;
@@ -361,6 +384,7 @@ class Spieler {
       if (dauer) this.zustand.dauer = dauer;
       this.melden({ e: 'geladen', dauer: dauer || this.zustand.dauer, breite: br || 0, hoehe: ho || 0, ton_weg: this.engPlan ? 'engine' : this.weg });
       if (this.untertitelWunsch) this.untertitel(this.untertitelWunsch);
+      if (this.rifeAn) this.rifeWache(m);
       if (this.engPlan) {
         const pos = (await m.lesen('time-pos')) ?? (Number(this.datei?.start) || 0);
         this.engineStarten(pos);

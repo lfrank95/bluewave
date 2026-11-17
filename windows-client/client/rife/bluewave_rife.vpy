@@ -52,6 +52,17 @@ def bildrate(fps):
 
 
 def interpolieren(rgb, m):
+    # RIFE rechnet in Kacheln von 32 Pixeln: rechts/unten auffüllen (z. B. 2160 → 2176) und danach wieder abschneiden
+    pr, pu = -rgb.width % 32, -rgb.height % 32
+    if pr or pu:
+        rgb = core.std.AddBorders(rgb, right=pr, bottom=pu)
+    neu, art = _interpolieren(rgb, m)
+    if pr or pu:
+        neu = core.std.Crop(neu, right=pr, bottom=pu)
+    return neu, art
+
+
+def _interpolieren(rgb, m):
     if CFG.get('test'):
         # Prüflauf ohne NVIDIA-Karte (CI): Bilder wiederholen statt RIFE – prüft Einbindung, Takt und Rückwandlung
         return core.std.Interleave([rgb] * m), 'test'

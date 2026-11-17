@@ -330,7 +330,7 @@ class Rife {
     } catch (x) { this.log('WARN', `Vorbereitung für mpv: ${x.message}`); return null; }
     const datei = this.skript;
     return {
-      args: [`--vf=vapoursynth=file=%${Buffer.byteLength(datei)}%${datei}:buffered-frames=8`],
+      args: [`--vf=@bwrife:vapoursynth=file=%${Buffer.byteLength(datei)}%${datei}:buffered-frames=8`],
       env: this.pfadUmgebung(),
     };
   }

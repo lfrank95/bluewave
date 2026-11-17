@@ -24,7 +24,7 @@ pruefe(r.bereit(e), 'bereit mit Modell 4.6');
 pruefe(!r.bereit({ ...e, rife_modell: 'v4_25' }), '4.25 fehlt → nicht bereit');
 const z = r.mpvZusatz(e);
 const datei = path.join(ORDNER, 'bluewave_rife.vpy');
-pruefe(z && z.args[0] === `--vf=vapoursynth=file=%${Buffer.byteLength(datei)}%${datei}:buffered-frames=8`, `mpv-Filter mit Längenangabe: ${z && z.args[0]}`);
+pruefe(z && z.args[0] === `--vf=@bwrife:vapoursynth=file=%${Buffer.byteLength(datei)}%${datei}:buffered-frames=8`, `mpv-Filter mit Längenangabe: ${z && z.args[0]}`);
 pruefe(fs.existsSync(datei) && fs.readFileSync(datei, 'utf8').includes('vsmlrt.RIFE'), 'Skript in den RIFE-Ordner kopiert');
 const pfad = Object.keys(z.env).find((k) => k.toUpperCase() === 'PATH');
 pruefe(z.env[pfad].startsWith(r.vs + ';') && z.env.BW_RIFE_CFG === r.cfgDatei, 'PATH beginnt mit VapourSynth, Konfiguration über BW_RIFE_CFG');

@@ -144,13 +144,22 @@ static int setzen(const char *exe, const char *datei, uint32_t an, uint32_t apis
   void *s = NULL, *p = NULL;
   if (nv.sitzung(&s) != 0 || nv.laden(s) != 0) { fprintf(o, "{\"ok\":false,\"fehler\":\"Treiber-Profile nicht lesbar\"}\n"); fclose(o); return 1; }
   if (profil_holen(s, exe, 1, &p, pn, sizeof pn, f, sizeof f) != 0) { fprintf(o, "{\"ok\":false,\"fehler\":\"%s\"}\n", f); fclose(o); nv.sitzung_weg(s); return 1; }
+  // Pflicht ist nur „Enable“; die übrigen Einträge kennt nicht jeder Treiber (dann -160) – das ist kein Fehler
   int r = setzen_u32(s, p, ID_SM_AN, an ? 1 : 0);
-  if (r == 0) r = setzen_u32(s, p, ID_SM_APIS, apis & 7);
-  if (r == 0) r = setzen_u32(s, p, ID_SM_BALKEN, balken ? 1 : 0);
-  if (r == 0) r = setzen_u32(s, p, ID_SM_LOG, log > 3 ? 3 : log);
-  if (r == 0) r = nv.speichern(s);
-  if (r != 0) fprintf(o, "{\"ok\":false,\"fehler\":\"Speichern im Treiber ging nicht (%d%s)\"}\n", r, r == -137 ? ", keine Admin-Rechte" : r == -160 ? ", Treiber kennt Smooth Motion nicht" : "");
-  else fprintf(o, "{\"ok\":true,\"profil\":\"%s\"}\n", pn);
+  const char *stufe = "Smooth Motion - Enable";
+  char hinweis[160] = "";
+  if (r == 0) {
+    struct { uint32_t id, wert; const char *name; } opt[] = {
+      { ID_SM_APIS, apis & 7, "Enabled APIs" }, { ID_SM_BALKEN, balken ? 1 : 0, "Debug Bars" }, { ID_SM_LOG, log > 3 ? 3 : log, "Debug Log Level" } };
+    for (int i = 0; i < 3; i++) {
+      int ri = setzen_u32(s, p, opt[i].id, opt[i].wert);
+      if (ri != 0 && strlen(hinweis) < 100) { size_t l = strlen(hinweis); snprintf(hinweis + l, sizeof hinweis - l, "%s%s (%d)", l ? ", " : "", opt[i].name, ri); }
+    }
+    stufe = "Speichern";
+    r = nv.speichern(s);
+  }
+  if (r != 0) fprintf(o, "{\"ok\":false,\"fehler\":\"%s ging nicht (%d%s)\"}\n", stufe, r, r == -137 ? ", keine Admin-Rechte" : r == -160 ? ", diese Einstellung kennt der Treiber nicht" : "");
+  else fprintf(o, "{\"ok\":true,\"profil\":\"%s\"%s%s%s}\n", pn, hinweis[0] ? ",\"hinweis\":\"nicht gesetzt: " : "", hinweis, hinweis[0] ? "\"" : "");
   fclose(o);
   nv.sitzung_weg(s);
   return r == 0 ? 0 : 1;

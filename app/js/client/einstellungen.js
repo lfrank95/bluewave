@@ -252,7 +252,7 @@ function bewegungKarte(v) {
         eintragen.disabled = true;
         status.textContent = 'Windows fragt nach Admin-Rechten …';
         const r = await nativ.video.bewegungEintragen();
-        if (r?.ok) meldung(v.bewegung === 'smooth' ? 'Smooth Motion ist im Treiber eingetragen – gilt ab dem nächsten Abspielen.' : 'Smooth Motion im Treiber ausgeschaltet.');
+        if (r?.ok) meldung((v.bewegung === 'smooth' ? 'Smooth Motion ist im Treiber eingetragen – gilt ab dem nächsten Abspielen.' : 'Smooth Motion im Treiber ausgeschaltet.') + (r.hinweis ? ` (${r.hinweis})` : ''));
         else meldung(r?.fehler || 'Eintragen fehlgeschlagen', true);
         statusZeigen(r);
     });

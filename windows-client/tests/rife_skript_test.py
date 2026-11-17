@@ -64,7 +64,15 @@ def mk_core(mit_misc=True):
         f = format if hasattr(format, 'name') else next(x for x in FMT.values() if x.id == format)
         return Clip(width or c.width, height or c.height, f, c.num_frames, c.fps.numerator, c.fps.denominator, c.herkunft)
 
-    core = ns(std=ns(AssumeFPS=assume, Interleave=interleave, FrameEval=frameeval, BlankClip=blank),
+    def addborders(c, right=0, bottom=0):
+        AUFRUFE.append(('AddBorders', right, bottom))
+        return Clip(c.width + right, c.height + bottom, c.format, c.num_frames, c.fps.numerator, c.fps.denominator, c.herkunft)
+
+    def crop(c, right=0, bottom=0):
+        AUFRUFE.append(('Crop', right, bottom))
+        return Clip(c.width - right, c.height - bottom, c.format, c.num_frames, c.fps.numerator, c.fps.denominator, c.herkunft)
+
+    core = ns(std=ns(AssumeFPS=assume, Interleave=interleave, FrameEval=frameeval, BlankClip=blank, AddBorders=addborders, Crop=crop),
               resize=ns(Bicubic=resize, Bilinear=resize, Point=resize))
     if mit_misc:
         core.misc = ns(SCDetect=lambda c, threshold: (AUFRUFE.append(('SCDetect', threshold)), c)[1])
@@ -127,6 +135,8 @@ class TRT:
 
 
 def RIFE(clip, multi=2, scale=1.0, model=46, backend=None, ensemble=False, _implementation=None):
+    if clip.width % 32 or clip.height % 32:
+        raise ValueError(f'vsmlrt.RIFEMerge: tile size must be divisible by 32 ({clip.width}, {clip.height})')
     gesehen['rife'] = dict(multi=multi, scale=scale, model=model, _implementation=_implementation)
     return Clip(clip.width, clip.height, clip.format, clip.num_frames * multi, clip.fps.numerator * multi, clip.fps.denominator, 'rife')
 
@@ -140,6 +150,7 @@ pruefe(err is None and z['aktiv'] and z['art'] == 'RIFE v4_25 v2', f'RIFE aktiv:
 pruefe(gesehen.get('trt', {}).get('fp16') and 'output_format' not in gesehen['trt'], f'TRT nur mit bekannten Argumenten: {gesehen.get("trt")}')
 pruefe(gesehen.get('rife') == {'multi': 5, 'scale': 0.5, 'model': 425, '_implementation': 2}, f'RIFE-Aufruf: {gesehen.get("rife")}')
 pruefe(AUSGABE[-1].fps.numerator == 120000, '5× → 120 fps')
+pruefe(('AddBorders', 0, 16) in AUFRUFE and ('Crop', 0, 16) in AUFRUFE and AUSGABE[-1].height == 2160, '2160 → 2176 aufgefüllt (32er-Kacheln), danach wieder 2160')
 
 print('== Fehler → Film läuft ohne Zwischenbilder weiter')
 m.RIFEModel = ns(v4_6=46)
