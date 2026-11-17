@@ -4,7 +4,8 @@ import { el, icon, bild, fsk, meldung, auswahl } from '../ui.js';
 import { api } from '../api.js';
 import { besetzung, tmdbZuordnen } from './film.js';
 import { universumBereich, universenDialog } from './universum_teile.js';
-import { posterDialog } from './poster_dialog.js';
+import { bearbeitenDialog } from './bearbeiten_dialog.js';
+import { heroPoster } from './film.js';
 
 let letzterTitel = 'Serie';
 export const titel = () => letzterTitel + ' – Bluewave';
@@ -29,14 +30,11 @@ export async function zeigen(r, app) {
         n ? el('button.knopf.weiss', { onclick: () => app.abspielen({ art: 'folge', id: n.id }) }, icon('play'),
             n.modus === 'weiter' ? `${n.kennung} weiterschauen` : n.modus === 'naechste' ? `${n.kennung} abspielen` : 'Abspielen',
             n.modus === 'weiter' && n.fortschritt?.prozent ? el('span.linie', { style: { width: n.fortschritt.prozent + '%' } }) : null) : el('span.chip', 'Alles gesehen'),
-        admin ? el('button.knopf', { onclick: () => tmdbZuordnen('serie', id, d.originaltitel || d.titel, d.jahr) }, icon('bearbeiten'), 'TMDB-Zuordnung') : null,
-        admin ? el('button.knopf', { onclick: () => universenDialog('serie', id, d.universen) }, icon('universum'), 'Universen') : null,
-        admin ? el('button.knopf', { onclick: () => {
-            const ziele = [{ art: 'serie', id, name: `Serie: ${d.titel}`, poster: d.poster, datei: 'poster.jpg' },
-                ...d.staffeln.map((s) => ({ art: 'staffel', id, staffel: s.nummer, name: s.name, poster: s.poster || d.poster,
-                    datei: s.nummer === 0 ? 'season-specials-poster.jpg' : `season${String(s.nummer).padStart(2, '0')}-poster.jpg` }))];
-            posterDialog(ziele, Math.max(0, ziele.findIndex((z) => z.art === 'staffel' && z.staffel === staffelNr)));
-        } }, icon('bild'), 'Poster') : null);
+        admin ? el('button.knopf', { onclick: () => bearbeiten() }, icon('bearbeiten'), 'Bearbeiten') : null);
+    const bearbeiten = (bilder = false) => bearbeitenDialog('serie', id, { staffeln: d.staffeln, staffel: staffelNr, bilderStaffel: bilder, aktionen: [
+        { text: 'Anderen TMDB-Eintrag zuordnen', icon: 'suche', fn: () => tmdbZuordnen('serie', id, d.originaltitel || d.titel, d.jahr) },
+        { text: 'Universen', icon: 'universum', fn: () => universenDialog('serie', id, d.universen) },
+    ] });
     const alleFolgen = d.staffeln.filter((s) => s.nummer > 0).flatMap((s) => s.folgen).filter((f) => f.vorhanden);
     const meta = el('div.meta', d.zeitraum ? el('span', d.zeitraum) : null, STATUS[d.status] ? [el('span.trenn'), el('span', STATUS[d.status])] : null,
         d.sender ? [el('span.trenn'), el('span', d.sender)] : null,
@@ -56,6 +54,7 @@ export async function zeigen(r, app) {
     const heroEl = el('section.hero.detail',
         el('div.hg', { style: d.hintergrund ? { backgroundImage: `url("${d.hintergrund}")` } : {} }),
         el('div.inhalt', { style: { maxWidth: '100%' } }, el('div.serie-hero-inhalt',
+            heroPoster(d),
             el('div.links', vor, d.logo ? el('img.logo', { src: d.logo, alt: d.titel }) : el('h1.gross', d.titel), meta,
                 d.beschreibung ? el('p.text', d.beschreibung) : null, el('div.chips', d.genres.map((g) => el('a.chip', { href: `#/serien?genre=${g.id}` }, g.name))), knoepfe),
             weiterBox)));

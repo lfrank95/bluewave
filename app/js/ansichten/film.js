@@ -3,17 +3,23 @@
 import { el, icon, bild, fsk, dauer, zeit, bytes, initialen, meldung, dialog, auswahl } from '../ui.js';
 import { api } from '../api.js';
 import { universumBereich } from './universum_teile.js';
-import { posterDialog } from './poster_dialog.js';
+import { bearbeitenDialog } from './bearbeiten_dialog.js';
+import { universenDialog } from './universum_teile.js';
 
 let letzterTitel = 'Film';
 export const titel = () => letzterTitel + ' – Bluewave';
 
+/** Poster für das Titelbild der Detailseite */
+export function heroPoster(d) {
+    return d.poster ? el('div.hero-poster', el('img', { src: d.poster, alt: d.titel || d.name || '' })) : null;
+}
+
 export function hero(d, knoepfe, extra = [], vor = []) {
     return el('section.hero.detail',
         el('div.hg', { style: d.hintergrund ? { backgroundImage: `url("${d.hintergrund}")` } : {} }),
-        el('div.inhalt', vor,
+        el('div.inhalt.mit-poster', heroPoster(d), el('div.hero-text', vor,
             d.logo ? el('img.logo', { src: d.logo, alt: d.titel || d.name }) : el('h1.gross', d.titel || d.name),
-            extra, knoepfe));
+            extra, knoepfe)));
 }
 
 export function besetzung(liste) {
@@ -123,7 +129,13 @@ export async function zeigen(r, app) {
             weiter ? `Weiterschauen ab ${zeit(fs.position_ms / 1000)}` : 'Abspielen',
             weiter ? el('span.linie', { style: { width: fs.prozent + '%' } }) : null) : el('span.chip', 'Datei fehlt'),
         weiter ? el('button.knopf', { onclick: () => app.abspielen({ art: 'film', id, fassung_id: fassung?.id, start_ms: 0 }) }, icon('zurueck10'), 'Von vorn') : null,
-        gesehenKnopf);
+        gesehenKnopf,
+        admin ? el('button.knopf-kreis', { title: 'Bearbeiten', 'aria-label': 'Bearbeiten', onclick: () => bearbeiten() }, icon('bearbeiten')) : null);
+    const bearbeiten = (bilder = false) => bearbeitenDialog('film', id, { bilderStaffel: bilder, aktionen: [
+        { text: 'Anderen TMDB-Eintrag zuordnen', icon: 'suche', fn: () => tmdbZuordnen('film', id, d.originaltitel || d.titel, d.jahr) },
+        { text: 'Fassungen korrigieren', icon: 'film', fn: () => fassungKorrigieren(d, id) },
+        { text: 'Universen', icon: 'universum', fn: () => universenDialog('film', id, d.universen) },
+    ] });
 
     const metaTeile = [d.jahr, d.laufzeit_min ? dauer(d.laufzeit_min) : null, d.genres.slice(0, 2).map((g) => g.name).join(', ') || null].filter(Boolean);
     const meta = el('div.meta', metaTeile.flatMap((m, i) => (i ? [el('span.trenn'), el('span', String(m))] : [el('span', String(m))])),
@@ -155,10 +167,8 @@ export async function zeigen(r, app) {
                     el('div.chips', { style: { marginTop: 0 } }, d.genres.map((g) => el('a.chip', { href: `#/filme?genre=${g.id}` }, g.name))),
                     technik,
                     admin ? el('div.knoepfe', { style: { marginTop: '18px' } },
-                        el('button.knopf.klein', { onclick: () => tmdbZuordnen('film', id, d.originaltitel || d.titel, d.jahr) }, icon('bearbeiten'), 'TMDB-Zuordnung'),
-                        el('button.knopf.klein', { onclick: () => fassungKorrigieren(d, id) }, icon('film'), 'Fassungen'),
-                        el('button.knopf.klein', { onclick: () => posterDialog([{ art: 'film', id, name: d.titel, poster: d.poster,
-                            datei: (d.fassungen[0]?.dateien[0]?.dateiname || d.titel).replace(/\.[^.]+$/, '') + '-poster.jpg' }]) }, icon('bild'), 'Poster')) : null))),
+                        el('button.knopf.klein', { onclick: () => bearbeiten() }, icon('bearbeiten'), 'Bearbeiten'),
+                        el('button.knopf.klein', { onclick: () => bearbeiten(true) }, icon('bild'), 'Bilder')) : null))),
         reihe,
         universumBereich(d.universen, 'film', id, app),
         el('div', { style: { height: '40px' } }));

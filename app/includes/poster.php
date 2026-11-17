@@ -84,16 +84,19 @@ function poster_laden(string $url): string
     throw new RuntimeException('Zu viele Weiterleitungen.');
 }
 
-/** Ziel im Medienordner für Film / Serie / Staffel */
-function poster_ziel(string $art, int $id, int $staffel): array
+const BILD_TYPEN = ['poster', 'hintergrund', 'logo'];
+
+/** Ziel im Medienordner für Film / Serie / Staffel; $typ poster | hintergrund (fanart) | logo (clearlogo) */
+function poster_ziel(string $art, int $id, int $staffel, string $typ = 'poster'): array
 {
+    $endung = ['poster' => 'poster', 'hintergrund' => 'fanart', 'logo' => 'clearlogo'][$typ];
     if ($art === 'film') {
         $pfad = db_wert('SELECT d.pfad FROM dateien d JOIN fassungen fa ON fa.id = d.fassung_id WHERE fa.film_id = :f AND d.fehlt_seit IS NULL
             ORDER BY fa.standard DESC, d.hoehe DESC LIMIT 1', ['f' => $id]);
         if (!$pfad) {
             throw new RuntimeException('Zu diesem Film gibt es keine Datei.');
         }
-        return ['ordner' => dirname((string) $pfad), 'name' => pathinfo((string) $pfad, PATHINFO_FILENAME) . '-poster'];
+        return ['ordner' => dirname((string) $pfad), 'name' => pathinfo((string) $pfad, PATHINFO_FILENAME) . '-' . $endung];
     }
     $pfade = array_column(db_alle('SELECT d.pfad FROM dateien d JOIN folgen fo ON fo.id = d.folge_id WHERE fo.serie_id = :s AND d.fehlt_seit IS NULL', ['s' => $id]), 'pfad');
     $wurzel = $pfade ? lb_serien_ordner($pfade) : null;
@@ -101,7 +104,7 @@ function poster_ziel(string $art, int $id, int $staffel): array
         throw new RuntimeException('Der Ordner der Serie lässt sich nicht bestimmen (Folgen liegen nicht in einem eigenen Serienordner).');
     }
     if ($art === 'serie') {
-        return ['ordner' => $wurzel, 'name' => 'poster'];
+        return ['ordner' => $wurzel, 'name' => $endung];
     }
     return ['ordner' => $wurzel, 'name' => $staffel === 0 ? 'season-specials-poster' : sprintf('season%02d-poster', $staffel)];
 }
@@ -110,9 +113,9 @@ function poster_ziel(string $art, int $id, int $staffel): array
  * Poster setzen. Gibt ['poster' => URL, 'datei' => Pfad|null, 'hinweis' => string|null] zurück.
  * Ein vorhandenes Bild gleichen Namens wird nicht gelöscht, sondern in die Sicherungen verschoben.
  */
-function poster_setzen(string $art, int $id, int $staffel, string $url): array
+function poster_setzen(string $art, int $id, int $staffel, string $url, string $typ = 'poster'): array
 {
-    if (!in_array($art, ['film', 'serie', 'staffel'], true)) {
+    if (!in_array($art, ['film', 'serie', 'staffel'], true) || !in_array($typ, BILD_TYPEN, true) || ($art === 'staffel' && $typ !== 'poster')) {
         throw new RuntimeException('Unbekannte Art.');
     }
     $roh = poster_laden(poster_url_normalisieren($url));
@@ -120,10 +123,11 @@ function poster_setzen(string $art, int $id, int $staffel, string $url): array
     if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) {
         throw new RuntimeException('Unter dem Link liegt kein Bild (JPEG, PNG oder WebP).');
     }
-    if ($info[0] < 150 || $info[1] < 200) {
+    $mindest = ['poster' => [150, 200], 'hintergrund' => [640, 300], 'logo' => [100, 30]][$typ];
+    if ($info[0] < $mindest[0] || $info[1] < $mindest[1]) {
         throw new RuntimeException('Das Bild ist zu klein (' . $info[0] . '×' . $info[1] . ').');
     }
-    $ziel = poster_ziel($art, $id, $staffel);
+    $ziel = poster_ziel($art, $id, $staffel, $typ);
     $endung = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp'][$info[2]];
     $datei = $ziel['ordner'] . '/' . $ziel['name'] . '.' . $endung;
     $hinweis = null;
@@ -154,19 +158,19 @@ function poster_setzen(string $art, int $id, int $staffel, string $url): array
 
     // in den Cache übernehmen (aus der Datei im Ordner oder direkt aus den geladenen Bytes)
     if ($geschrieben) {
-        $rel = lb_uebernehmen($geschrieben, $art === 'film' || $art === 'serie' ? 780 : 500);
+        $rel = lb_uebernehmen($geschrieben, $typ === 'hintergrund' ? 1920 : ($typ === 'logo' ? 800 : ($art === 'staffel' ? 500 : 780)));
     } else {
         $quelle = konfig()['pfade']['cache'] . '/bilder/eigen/' . sha1($roh) . '.' . $endung;
         @mkdir(dirname($quelle), 0775, true);
         file_put_contents($quelle, $roh);
-        $rel = lb_uebernehmen($quelle, $art === 'film' || $art === 'serie' ? 780 : 500);
+        $rel = lb_uebernehmen($quelle, $typ === 'hintergrund' ? 1920 : ($typ === 'logo' ? 800 : ($art === 'staffel' ? 500 : 780)));
     }
     if (!$rel) {
         throw new RuntimeException('Das Bild ließ sich nicht verarbeiten.');
     }
-    db_tun('INSERT INTO eigene_poster (art, ziel_id, staffel, bild, datei, quelle, gesetzt_am) VALUES (:a, :z, :s, :b, :d, :q, NOW())
+    db_tun('INSERT INTO eigene_poster (art, ziel_id, staffel, typ, bild, datei, quelle, gesetzt_am) VALUES (:a, :z, :s, :t, :b, :d, :q, NOW())
         ON DUPLICATE KEY UPDATE bild = VALUES(bild), datei = VALUES(datei), quelle = VALUES(quelle), gesetzt_am = NOW()',
-        ['a' => $art, 'z' => $id, 's' => $art === 'staffel' ? $staffel : 0, 'b' => $rel, 'd' => $geschrieben, 'q' => mb_substr($url, 0, 500)]);
+        ['a' => $art, 'z' => $id, 's' => $art === 'staffel' ? $staffel : 0, 't' => $typ, 'b' => $rel, 'd' => $geschrieben, 'q' => mb_substr($url, 0, 500)]);
     eigene_poster_anwenden($art, $id);
     return ['poster' => bild_url($rel), 'datei' => $geschrieben, 'hinweis' => $hinweis];
 }
@@ -176,15 +180,32 @@ function eigene_poster_anwenden(?string $art = null, ?int $id = null): int
 {
     $wo = $art ? ' WHERE ' . ($art === 'film' ? "art = 'film'" : "art IN ('serie', 'staffel')") . ' AND ziel_id = :z' : '';
     $n = 0;
-    foreach (db_alle('SELECT art, ziel_id, staffel, bild FROM eigene_poster' . $wo, $art ? ['z' => $id] : []) as $p) {
+    foreach (db_alle('SELECT art, ziel_id, staffel, typ, bild FROM eigene_poster' . $wo, $art ? ['z' => $id] : []) as $p) {
+        $spalte = in_array($p['typ'], BILD_TYPEN, true) ? $p['typ'] : 'poster';
         if ($p['art'] === 'film') {
-            $n += db_tun('UPDATE filme SET poster = :b WHERE id = :i', ['b' => $p['bild'], 'i' => $p['ziel_id']]);
+            $n += db_tun("UPDATE filme SET $spalte = :b WHERE id = :i", ['b' => $p['bild'], 'i' => $p['ziel_id']]);
         } elseif ($p['art'] === 'serie') {
-            $n += db_tun('UPDATE serien SET poster = :b WHERE id = :i', ['b' => $p['bild'], 'i' => $p['ziel_id']]);
+            $n += db_tun("UPDATE serien SET $spalte = :b WHERE id = :i", ['b' => $p['bild'], 'i' => $p['ziel_id']]);
         } else {
             $n += db_tun('INSERT INTO serien_staffeln (serie_id, nummer, poster) VALUES (:s, :n, :b) ON DUPLICATE KEY UPDATE poster = VALUES(poster)',
                 ['s' => $p['ziel_id'], 'n' => $p['staffel'], 'b' => $p['bild']]);
         }
     }
     return $n;
+}
+
+/** Eigenes Bild entfernen (Datei im Ordner wandert in die Sicherungen), danach gilt wieder TMDB bzw. das Ordnerbild */
+function eigenes_bild_entfernen(string $art, int $id, int $staffel, string $typ): void
+{
+    $z = db_zeile('SELECT id, datei FROM eigene_poster WHERE art = :a AND ziel_id = :z AND staffel = :s AND typ = :t',
+        ['a' => $art, 'z' => $id, 's' => $art === 'staffel' ? $staffel : 0, 't' => $typ]);
+    if (!$z) {
+        return;
+    }
+    if ($z['datei'] && is_file($z['datei']) && is_writable(dirname($z['datei']))) {
+        $sich = konfig()['pfade']['backups'] . '/poster/' . date('Y-m-d_His') . '/' . ltrim(str_replace('/', '_', $z['datei']), '_');
+        @mkdir(dirname($sich), 0775, true);
+        @rename($z['datei'], $sich) || (@copy($z['datei'], $sich) && @unlink($z['datei']));
+    }
+    db_tun('DELETE FROM eigene_poster WHERE id = :i', ['i' => $z['id']]);
 }

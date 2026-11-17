@@ -205,6 +205,10 @@ try {
             // no break
         case 'film':
             require_once __DIR__ . '/../includes/bibliothek.php';
+            if (zahl($t1) && in_array($t2, ['bearbeiten', 'bilder'], true)) {
+                require_once __DIR__ . '/../includes/bearbeiten.php';
+                bearbeiten_api('film', zahl($t1), $t2, $methode);
+            }
             if (zahl($t1) && $t2 === '' && $methode === 'GET') {
                 $f = film_detail(zahl($t1), $kid) ?? fehler('Film nicht gefunden.', 404);
                 bw_json($f);
@@ -249,6 +253,10 @@ try {
             // no break
         case 'serie':
             require_once __DIR__ . '/../includes/bibliothek.php';
+            if (zahl($t1) && in_array($t2, ['bearbeiten', 'bilder'], true)) {
+                require_once __DIR__ . '/../includes/bearbeiten.php';
+                bearbeiten_api('serie', zahl($t1), $t2, $methode);
+            }
             if (zahl($t1) && $t2 === '' && $methode === 'GET') {
                 $gesetzt = array_key_exists('reihenfolge', $_GET);
                 $r = $gesetzt && ctype_digit((string) $_GET['reihenfolge']) ? (int) $_GET['reihenfolge'] : null;
@@ -534,10 +542,30 @@ try {
                 $e = eingabe();
                 @set_time_limit(120);
                 try {
-                    bw_json(['ok' => true] + poster_setzen((string) ($e['art'] ?? ''), (int) ($e['id'] ?? 0), (int) ($e['staffel'] ?? 0), (string) ($e['url'] ?? '')));
+                    bw_json(['ok' => true] + poster_setzen((string) ($e['art'] ?? ''), (int) ($e['id'] ?? 0), (int) ($e['staffel'] ?? 0), (string) ($e['url'] ?? ''),
+                        (string) ($e['typ'] ?? 'poster')));
                 } catch (RuntimeException $x) {
                     fehler($x->getMessage());
                 }
+            }
+            if ($methode === 'DELETE') {
+                // eigenes Bild entfernen → wieder TMDB bzw. Ordnerbild
+                require_once __DIR__ . '/../includes/poster.php';
+                require_once __DIR__ . '/../includes/tmdb.php';
+                $e = eingabe();
+                $art = (string) ($e['art'] ?? '');
+                $zid = (int) ($e['id'] ?? 0);
+                eigenes_bild_entfernen($art, $zid, (int) ($e['staffel'] ?? 0), (string) ($e['typ'] ?? 'poster'));
+                $grund = $art === 'film' ? 'film' : 'serie';
+                $tmdb = (int) db_wert('SELECT tmdb_id FROM ' . ($grund === 'film' ? 'filme' : 'serien') . ' WHERE id = :i', ['i' => $zid]);
+                if ($tmdb) {
+                    $grund === 'film' ? tmdb_film_uebernehmen($zid, $tmdb, true) : tmdb_serie_uebernehmen($zid, $tmdb, true);
+                }
+                if (lb_aktiv()) {
+                    $grund === 'film' ? lokale_bilder_film($zid) : lokale_bilder_serie($zid);
+                }
+                eigene_poster_anwenden($grund, $zid);
+                bw_json(['ok' => true]);
             }
             break;
 

@@ -937,3 +937,75 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
 .poster-dialog .eingabe, .poster-dialog select { width: 100%; box-sizing: border-box; }
 .poster-datei { font-size: 0.8rem; padding: 1px 6px; border-radius: 5px; background: rgba(226, 238, 255, 0.08); color: var(--accent-text); overflow-wrap: anywhere; }
 @media (max-width: 767px) { .poster-dialog { grid-template-columns: 1fr; width: auto; } .poster-vorschau { width: 110px; } }
+
+/* Poster im Titelbild der Detailseite */
+.hero .inhalt.mit-poster { display: flex; align-items: flex-end; gap: clamp(22px, 3vw, 44px); max-width: min(1180px, 100%); }
+.hero .inhalt.mit-poster .hero-text { min-width: 0; max-width: 860px; }
+.hero-poster { flex: none; width: clamp(150px, 14vw, 250px); aspect-ratio: 2 / 3; border-radius: 16px; overflow: hidden; background: #15233b;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(214, 230, 255, 0.12); }
+.hero-poster img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.serie-hero-inhalt > .hero-poster { align-self: flex-end; }
+.serie-hero-inhalt > .links { flex: 999 1 420px; }
+@media (max-width: 767px) {
+    .hero .inhalt.mit-poster { flex-direction: column; align-items: flex-start; gap: 16px; }
+    .hero-poster { width: 112px; border-radius: 12px; }
+}
+
+/* Bearbeiten-Dialog */
+.bearb-dialog { width: min(980px, calc(100vw - 24px)); max-height: calc(100vh - 32px); display: flex; flex-direction: column; padding: 22px 24px 18px; }
+.bearb-kopf { display: flex; align-items: baseline; gap: 14px; }
+.bearb-kopf h2 { margin: 0; }
+.bearb-kopf .leise { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.bearb-reiter { margin: 16px 0 14px; align-self: flex-start; }
+.bearb-inhalt { overflow-y: auto; padding: 2px 4px 6px 2px; margin: 0 -4px 0 -2px; flex: 1; min-height: 0; }
+.bearb-raster { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px 16px; }
+.bearb-raster .breit { grid-column: 1 / -1; }
+.bearb-feld .eingabe, .bearb-feld select, .bearb-feld textarea { width: 100%; box-sizing: border-box; }
+.bearb-feld textarea { resize: vertical; min-height: 120px; line-height: 1.5; }
+.bearb-label { display: flex; align-items: center; gap: 6px; font-size: 0.82rem; font-weight: 700; color: var(--text-muted); margin-bottom: 6px; }
+.bearb-label .sperre { color: #ffd98a; display: inline-grid; }
+.bearb-label .sperre svg.ic { width: 14px; height: 14px; }
+.bearb-label .zuruecksetzen { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(214, 230, 255, 0.18);
+    background: none; color: var(--text-leise); font-size: 0.72rem; font-weight: 800; cursor: pointer; }
+.bearb-label .zuruecksetzen:hover { color: var(--text-primary); border-color: var(--accent-a); }
+.bearb-label .zuruecksetzen svg.ic { width: 12px; height: 12px; }
+.bearb-feld.wird-zurueckgesetzt .eingabe, .bearb-feld.wird-zurueckgesetzt select, .bearb-feld.wird-zurueckgesetzt textarea { opacity: 0.45; }
+.genre-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.genre-chips .chip { display: inline-flex; align-items: center; gap: 4px; padding-right: 4px; }
+.chip-x { width: 20px; height: 20px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, 0.08); color: var(--text-leise); display: grid; place-items: center; cursor: pointer; }
+.chip-x:hover { color: #fff; background: rgba(255, 90, 90, 0.4); }
+.chip-x svg.ic { width: 11px; height: 11px; }
+.bild-aktuell { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: start; margin: 14px 0 6px; }
+.bild-aktuell .vorschau { border-radius: 12px; overflow: hidden; background: #15233b; display: grid; place-items: center; color: var(--text-leise); font-size: 0.85rem;
+    box-shadow: 0 12px 26px rgba(0, 0, 0, 0.45); }
+.bild-aktuell .vorschau img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.vorschau.hoch { width: 140px; aspect-ratio: 2 / 3; }
+.vorschau.quer { width: 260px; aspect-ratio: 16 / 9; }
+.vorschau.logo { width: 260px; aspect-ratio: 16 / 7; background: repeating-conic-gradient(#1b2840 0 25%, #121c2e 0 50%) 0 0 / 16px 16px; }
+.vorschau.logo img { object-fit: contain; padding: 10px; box-sizing: border-box; }
+.link-zeile { display: flex; gap: 8px; }
+.link-zeile .eingabe { flex: 1; min-width: 0; }
+.bearb-bilder h4 { margin: 20px 0 10px; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-leise); }
+.tmdb-bilder { display: grid; gap: 10px; }
+.tmdb-bilder.hoch { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+.tmdb-bilder.quer { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.tmdb-bilder.logo { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.tmdb-bild { position: relative; padding: 0; border: 2px solid transparent; border-radius: 10px; overflow: hidden; background: #15233b; cursor: pointer; transition: border-color 0.15s, transform 0.15s; }
+.tmdb-bilder.hoch .tmdb-bild { aspect-ratio: 2 / 3; }
+.tmdb-bilder.quer .tmdb-bild { aspect-ratio: 16 / 9; }
+.tmdb-bilder.logo .tmdb-bild { aspect-ratio: 16 / 7; background: repeating-conic-gradient(#1b2840 0 25%, #121c2e 0 50%) 0 0 / 16px 16px; }
+.tmdb-bild:hover { border-color: var(--accent-a); transform: translateY(-2px); }
+.tmdb-bild img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tmdb-bilder.logo .tmdb-bild img { object-fit: contain; padding: 8px; box-sizing: border-box; }
+.tmdb-bild .sprache { position: absolute; left: 6px; top: 6px; padding: 2px 6px; border-radius: 5px; background: rgba(5, 11, 24, 0.75); font-size: 0.65rem; font-weight: 800; }
+.tmdb-bild.laedt, .knopf.laedt { opacity: 0.5; pointer-events: none; }
+.bearb-mehr { display: grid; gap: 10px; justify-items: start; }
+.bearb-dialog .knoepfe { justify-content: flex-end; margin-top: 14px; padding-top: 14px; border-top: 1px solid rgba(214, 230, 255, 0.08); }
+@media (max-width: 767px) {
+    .bearb-dialog { padding: 16px; max-height: calc(100vh - 16px); }
+    .bearb-raster { grid-template-columns: 1fr 1fr; }
+    .bild-aktuell { grid-template-columns: 1fr; }
+    .vorschau.quer, .vorschau.logo { width: 100%; }
+    .link-zeile { flex-direction: column; }
+}
+@media (max-width: 767px) { .bearb-kopf h2 { font-size: 1.2rem; } .bearb-kopf > .leise { display: none; } }

@@ -57,6 +57,14 @@ if ($pfad === '/3/search/movie') {
     }
     antwort(['results' => $treffer]);
 }
+// Bildauswahl für den Bearbeiten-Dialog
+if (preg_match('#^/3/(movie|tv)/(\d+)(/season/\d+)?/images$#', $pfad, $m)) {
+    $k = $m[2] . ($m[3] ?? '');
+    antwort(['posters' => [['iso_639_1' => 'de', 'file_path' => "/wahl{$m[2]}a.jpg", 'width' => 1000, 'height' => 1500, 'vote_average' => 5],
+            ['iso_639_1' => 'en', 'file_path' => "/wahl{$m[2]}b.jpg", 'width' => 1000, 'height' => 1500, 'vote_average' => 6]],
+        'backdrops' => $m[3] ?? '' ? [] : [['iso_639_1' => null, 'file_path' => "/wahlbg{$m[2]}.jpg", 'width' => 1920, 'height' => 1080]],
+        'logos' => []]);
+}
 if (preg_match('#^/3/movie/(\d+)$#', $pfad, $m) && isset($filme[(int) $m[1]])) {
     $id = (int) $m[1];
     $f = $filme[$id];

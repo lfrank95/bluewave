@@ -216,6 +216,35 @@ pruefe(admin.api('GET', f'film/{test["id"]}')['poster'] == neu_poster, 'Poster b
 pruefe(admin.api('POST', 'poster', {'art': 'film', 'id': test['id'], 'url': 'http://tmdbfake/gibtsnicht'}, erwartet=400).get('fehler'), 'kein Bild → verständlicher Fehler')
 pruefe(admin.api('POST', 'poster', {'art': 'film', 'id': test['id'], 'url': 'file:///etc/passwd'}, erwartet=400).get('fehler'), 'nur http(s)')
 
+schritt('Bearbeiten: Felder sperren, TMDB-Abgleich respektiert sie, Zurücksetzen, Bilder')
+bd = admin.api('GET', f'film/{test["id"]}/bearbeiten')
+pruefe(bd['werte']['titel'] and bd['gesperrt'] == [] and bd['werte']['sortiertitel'] is None, f'Bearbeiten-Daten: {bd["werte"]} {bd["gesperrt"]}')
+tmdb_titel = bd['werte']['titel']
+bd = admin.api('PUT', f'film/{test["id"]}/bearbeiten', {'felder': {'titel': 'Der eigene Titel', 'freigabe': '16', 'genres': ['Heimkino', 'Drama'], 'tagline': None}})
+pruefe(sorted(bd['gesperrt']) == ['freigabe', 'genres', 'tagline', 'titel'] and sorted(bd['werte']['genres']) == ['Drama', 'Heimkino'], f'gesperrt: {bd["gesperrt"]} {bd["werte"]["genres"]}')
+pruefe(admin.api('PUT', f'film/{test["id"]}/bearbeiten', {'felder': {'freigabe': '15'}}, erwartet=400).get('fehler'), 'FSK 15 abgelehnt')
+pruefe(admin.api('PUT', f'film/{test["id"]}/bearbeiten', {'felder': {'titel': ' '}}, erwartet=400).get('fehler'), 'leerer Titel abgelehnt')
+code, body, _ = admin.roh('POST', '/api/v1/bibliothek/auftrag', {'art': 'metadaten_alle'})
+time.sleep(1)
+for _ in range(90):
+    st = admin.api('GET', 'bibliothek/status')
+    if not st['auftrag'].get('laeuft') and st['auftrag'].get('ende'):
+        break
+    time.sleep(2)
+fd = admin.api('GET', f'film/{test["id"]}')
+pruefe(fd['titel'] == 'Der eigene Titel' and fd['freigabe'] == '16' and not fd['tagline'], f'nach Abgleich gesperrt geblieben: {fd["titel"]} {fd["freigabe"]} {fd["tagline"]}')
+pruefe(any(x['titel'] == 'Der eigene Titel' for x in admin.api('GET', 'filme?sort=titel')['filme']), 'eigener Titel in der Liste')
+bd = admin.api('PUT', f'film/{test["id"]}/bearbeiten', {'zuruecksetzen': ['titel', 'freigabe', 'genres', 'tagline']})
+pruefe(bd['werte']['titel'] == tmdb_titel and bd['gesperrt'] == [], f'zurückgesetzt: {bd["werte"]["titel"]} {bd["gesperrt"]}')
+wahl = admin.api('GET', f'film/{test["id"]}/bilder')
+pruefe(len(wahl['poster']) == 2 and len(wahl['hintergrund']) == 1, f'TMDB-Bildauswahl: {wahl}')
+r = admin.api('POST', 'poster', {'art': 'film', 'id': test['id'], 'typ': 'hintergrund', 'url': wahl['hintergrund'][0]['gross']})
+pruefe(r['datei'] and r['datei'].endswith('-fanart.jpg'), f'Hintergrund als -fanart.jpg: {r}')
+pruefe('hintergrund' in admin.api('GET', f'film/{test["id"]}/bearbeiten')['bilder']['eigen'], 'Hintergrund als eigenes Bild markiert')
+admin.api('DELETE', 'poster', {'art': 'film', 'id': test['id'], 'typ': 'hintergrund'})
+pruefe(not os.path.exists(os.path.join(MEDIEN, 'filme', os.path.basename(os.path.dirname(r['datei'])), os.path.basename(r['datei']))), 'eigenes Bild entfernt (in die Sicherungen)')
+pruefe(admin.api('GET', f'serie/{serie["id"]}/bilder?staffel=1')['poster'], 'Staffel-Bildauswahl')
+
 schritt('Suche: tolerant (Tippfehler, Satzzeichen, Wortreihenfolge), Bester Treffer, Editor-Auswahl')
 for q, erwartet in [('avengers', "Marvel's The Avengers"), ('avengrs ultron', 'Avengers: Age of Ultron'), ('ultron age', 'Avengers: Age of Ultron'), ('marvels avengers', "Marvel's The Avengers")]:
     d = admin.api('GET', 'suche?q=' + urllib.parse.quote(q))

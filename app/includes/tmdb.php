@@ -210,6 +210,8 @@ function tmdb_film_uebernehmen(int $filmId, int $tmdbId, bool $manuell = false):
     if ($reiheId) {
         reihe_positionen($reiheId);
     }
+    require_once __DIR__ . '/bearbeiten.php';
+    eigenes_anwenden('film', $filmId); // von Hand gesetzte Felder und Bilder gewinnen
     return $filmId;
 }
 
@@ -443,6 +445,8 @@ function tmdb_serie_uebernehmen(int $serieId, int $tmdbId, bool $manuell = false
             db_tun('DELETE FROM reihenfolgen WHERE id = :r', ['r' => $r['id']]);
         }
     }
+    require_once __DIR__ . '/bearbeiten.php';
+    eigenes_anwenden('serie', $serieId); // von Hand gesetzte Felder und Bilder gewinnen
     return $serieId;
 }
 
