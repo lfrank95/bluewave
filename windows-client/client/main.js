@@ -1162,9 +1162,10 @@ async function selbsttestVideo() {
   /** Wie im Betrieb: Bildfenster (mit mpv per --wid) und darüber die durchsichtige Bedienung */
   const lauf = async (Art, x, mitBedienung = true) => {
     schritt(`${Art}${mitBedienung ? '' : ' ohne Bedienung'}: Fenster`);
-    const opt = { x, y: 100, width: 640, height: 360, frame: false, backgroundColor: '#000000', show: true };
-    const video = Art === 'BaseWindow' ? new BaseWindow(opt) : new BrowserWindow(opt);
-    if (Art !== 'BaseWindow') await video.loadURL('data:text/html,<body style="margin:0;background:#000">');
+    const durch = Art.endsWith('Durch');
+    const opt = { x, y: 100, width: 640, height: 360, frame: false, backgroundColor: durch ? '#00000000' : '#000000', transparent: durch, show: true };
+    const video = Art.startsWith('BaseWindow') ? new BaseWindow(opt) : new BrowserWindow(opt);
+    if (!Art.startsWith('BaseWindow')) await video.loadURL(durch ? 'about:blank' : 'data:text/html,<body style="margin:0;background:#000">').catch(() => {});
     spieler.video = video;
     schritt(`${Art}: Bedienung`);
     const over = mitBedienung ? new BrowserWindow({ ...video.getContentBounds(), parent: video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, show: true, focusable: false }) : null;
@@ -1217,7 +1218,9 @@ async function selbsttestVideo() {
       await m.befehl(['quit']).catch(() => {});
       await warte(800);
     }
-    await lauf('BaseWindow', 100, false);
+    await lauf('BaseWindowDurch', 100, false);
+    await lauf('BaseWindowDurch', 100);
+    await lauf('BrowserWindowDurch', 100);
     const neu = await lauf('BaseWindow', 100);
     const alt = await lauf('BrowserWindow', 100);
     log.schreiben('INFO', `SELBSTTEST-VERGLEICH BrowserWindow: ${JSON.stringify(alt)}`);
