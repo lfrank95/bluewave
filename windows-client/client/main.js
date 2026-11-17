@@ -38,7 +38,9 @@ if (!app.requestSingleInstanceLock()) {
 
 /* ---------- Einstellungen (pro Windows-Benutzer) ---------- */
 const EINST_DATEI = path.join(app.getPath('userData'), 'einstellungen.json');
-const VIDEO_STANDARD = { ton_weg: 'engine', mpv_geraet: 'auto', mpv_exklusiv: false, spdif: ['ac3', 'dts'], versatz_ms: 0, hwdec: 'auto-safe', vollbild: false, lfe_front: false, lfe_db: 0 };
+const VIDEO_STANDARD = { ton_weg: 'engine', mpv_geraet: 'auto', mpv_exklusiv: false, spdif: ['ac3', 'dts'], versatz_ms: 0, hwdec: 'auto-safe', vollbild: false, lfe_front: false, lfe_db: 0,
+  // flüssige Bewegung (Test): NVIDIA Smooth Motion über das Treiber-Profil von bluewave-mpv.exe, dazu Renderer und Takt von mpv
+  bewegung: 'aus', renderer: 'd3d11', vsync: true, mpv_sync: 'audio', mpv_interpolation: false, sm_balken: false, sm_log: 0 };
 let einst = { server: null, port: STANDARD_PORT, ausgabe: { geraet: '', exklusiv: false, rate: 0, aufschlag_je: {} }, fenster: null, video: { ...VIDEO_STANDARD } };
 const RATEN = [0, 44100, 48000, 88200, 96000, 176400, 192000];   // 0 = folgt der Datei
 const rateNormal = (r) => (RATEN.includes(Number(r)) ? Number(r) : 0);
@@ -236,6 +238,13 @@ function videoPruefen(v) {
     // LFE ohne Subwoofer auf die Front: Pegel gegenüber der Norm (0 dB = wie mit Sub, je Front +4 dB)
     lfe_front: !!x.lfe_front,
     lfe_db: Math.max(-20, Math.min(6, Math.round(Number(x.lfe_db) || 0))),
+    bewegung: x.bewegung === 'smooth' ? 'smooth' : 'aus',
+    renderer: x.renderer === 'vulkan' ? 'vulkan' : 'd3d11',
+    vsync: x.vsync !== false,
+    mpv_sync: x.mpv_sync === 'display-resample' ? 'display-resample' : 'audio',
+    mpv_interpolation: !!x.mpv_interpolation,
+    sm_balken: !!x.sm_balken,
+    sm_log: Math.max(0, Math.min(3, Math.round(Number(x.sm_log) || 0))),
   };
 }
 function lfeAnEngine() { engineSenden({ c: 'lfe', 'w.an': einst.video.lfe_front ? 1 : 0, 'w.db': einst.video.lfe_db }); }
@@ -338,7 +347,7 @@ async function cookieKopf(url) {
 /* ---------- Videowiedergabe (mpv) ---------- */
 const spieler = new Spieler({
   electron: { BrowserWindow, screen },
-  mpvExe: process.env.BW_MPV || path.join(__dirname, 'mpv', process.platform === 'win32' ? 'mpv.exe' : 'mpv'),
+  mpvExe: process.env.BW_MPV || path.join(__dirname, 'mpv', process.platform === 'win32' ? 'bluewave-mpv.exe' : 'mpv'),
   userData: app.getPath('userData'),
   logOrdner: path.join(app.getPath('userData'), 'log'),
   log: (stufe, text) => log.schreiben(stufe, text),
@@ -381,6 +390,94 @@ ipcMain.handle('video-einst-setzen', (e, w) => {
   return { ...einst.video, mpv_geraete: mpvGeraeteCache || [] };
 });
 ipcMain.handle('ausgabe-status', (e) => (vonSeite(e) ? ausgabeStand : null));
+
+/* ---------- Flüssige Bewegung: NVIDIA Smooth Motion im Treiber-Profil, Überwachung ---------- */
+const NV_EXE = path.join(__dirname, 'engine', 'bluewave-nvprofil.exe');
+const MPV_NAME = 'bluewave-mpv.exe';
+let nvStand = null, nvStandAm = 0;
+function nvStatus(frisch = false) {
+  if (!frisch && nvStand && Date.now() - nvStandAm < 10000) return Promise.resolve(nvStand);
+  return new Promise((fertig) => {
+    if (process.platform !== 'win32' || !fs.existsSync(NV_EXE)) { fertig({ nvidia: false, fehler: 'nur unter Windows' }); return; }
+    let aus = '';
+    const p = spawn(NV_EXE, ['status', MPV_NAME], { windowsHide: true });
+    p.stdout.on('data', (d) => { aus += d; });
+    const t = setTimeout(() => { try { p.kill(); } catch (x) { /* weg */ } }, 6000);
+    p.on('error', () => { clearTimeout(t); fertig({ nvidia: false, fehler: 'Hilfsprogramm startet nicht' }); });
+    p.on('exit', () => {
+      clearTimeout(t);
+      try { nvStand = JSON.parse(aus.trim().split(/\r?\n/).pop()); } catch (x) { nvStand = { nvidia: false, fehler: 'keine Antwort' }; }
+      nvStandAm = Date.now();
+      fertig(nvStand);
+    });
+  });
+}
+/** Smooth Motion ins Treiber-Profil schreiben: braucht Admin-Rechte → Windows fragt (UAC); Ergebnis über eine Datei */
+function nvEintragen(an) {
+  return new Promise((fertig) => {
+    if (process.platform !== 'win32' || !fs.existsSync(NV_EXE)) { fertig({ ok: false, fehler: 'nur unter Windows' }); return; }
+    const datei = path.join(app.getPath('temp'), `bluewave-nv-${process.pid}-${Date.now()}.json`);
+    const v = einst.video;
+    const q = (x) => String(x).replace(/'/g, "''");
+    const args = `setzen ${MPV_NAME} "${datei}" ${an ? 1 : 0} 7 ${v.sm_balken ? 1 : 0} ${v.sm_log}`;
+    const befehl = `try { Start-Process -FilePath '${q(NV_EXE)}' -ArgumentList '${q(args)}' -Verb RunAs -Wait -WindowStyle Hidden; exit 0 } catch { exit 5 }`;
+    const p = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', befehl], { windowsHide: true });
+    p.on('error', () => fertig({ ok: false, fehler: 'PowerShell startet nicht' }));
+    p.on('exit', (code) => {
+      let erg = null;
+      try { erg = JSON.parse(fs.readFileSync(datei, 'utf8')); fs.unlinkSync(datei); } catch (x) { /* keine Datei */ }
+      if (!erg) erg = { ok: false, fehler: code === 5 ? 'Abgebrochen – ohne Admin-Bestätigung lässt sich das Treiber-Profil nicht ändern.' : 'Keine Antwort vom Hilfsprogramm' };
+      log.schreiben(erg.ok ? 'INFO' : 'WARN', `Smooth Motion im Treiber ${an ? 'an' : 'aus'}: ${JSON.stringify(erg)}`);
+      nvStand = null;
+      fertig(erg);
+    });
+  });
+}
+// Grafikkarte: Last, Leistung, Temperatur, Takt, Speicher (nvidia-smi kommt mit dem Treiber), höchstens alle 1,5 s
+let gpuStand = null, gpuAm = 0, gpuLaeuft = null;
+function gpuWerte() {
+  if (gpuLaeuft) return gpuLaeuft;
+  if (gpuStand && Date.now() - gpuAm < 1500) return Promise.resolve(gpuStand);
+  gpuLaeuft = new Promise((fertig) => {
+    let aus = '';
+    let p;
+    try {
+      p = spawn('nvidia-smi', ['--query-gpu=name,utilization.gpu,power.draw,temperature.gpu,clocks.gr,memory.used,memory.total,driver_version', '--format=csv,noheader,nounits'], { windowsHide: true });
+    } catch (x) { fertig(null); return; }
+    p.stdout.on('data', (d) => { aus += d; });
+    const t = setTimeout(() => { try { p.kill(); } catch (x) { /* weg */ } }, 3000);
+    p.on('error', () => { clearTimeout(t); fertig(null); });
+    p.on('exit', () => {
+      clearTimeout(t);
+      const w = aus.trim().split(/\r?\n/)[0]?.split(',').map((x) => x.trim());
+      gpuStand = w && w.length >= 8 ? { name: w[0], last: Number(w[1]), watt: Number(w[2]), grad: Number(w[3]), takt: Number(w[4]), vram: Number(w[5]), vram_gesamt: Number(w[6]), treiber: w[7] } : null;
+      gpuAm = Date.now();
+      fertig(gpuStand);
+    });
+  }).finally(() => { gpuLaeuft = null; });
+  return gpuLaeuft;
+}
+/** Letzte Zeilen des Smooth-Motion-Logs des Treibers (C:\NvPresent\, nur mit Log-Stufe > 0) */
+function nvLog() {
+  try {
+    const ordner = 'C:\\NvPresent';
+    const dateien = fs.readdirSync(ordner).map((n) => ({ n, t: fs.statSync(path.join(ordner, n)).mtimeMs })).sort((a, b) => b.t - a.t);
+    if (!dateien.length) return [];
+    const text = fs.readFileSync(path.join(ordner, dateien[0].n), 'utf8');
+    return text.trim().split(/\r?\n/).slice(-8).map((z) => z.slice(0, 200));
+  } catch (x) { return []; }
+}
+ipcMain.handle('bewegung-status', async (e, frisch) => (vonSeite(e) ? { nv: await nvStatus(!!frisch), gpu: await gpuWerte() } : null));
+ipcMain.handle('bewegung-eintragen', async (e) => {
+  if (!vonSeite(e)) return null;
+  const erg = await nvEintragen(einst.video.bewegung === 'smooth');
+  return { ...erg, nv: await nvStatus(true) };
+});
+ipcMain.handle('video-monitor', async (e) => {
+  if (!vonSpieler(e)) return null;
+  const [mpv, gpu, nv] = await Promise.all([spieler.monitor(), gpuWerte(), nvStatus()]);
+  return { mpv, gpu, nv, log: einst.video.sm_log > 0 ? nvLog() : [], einst: einst.video };
+});
 
 // Was eine Seite der Engine selbst schicken darf: nur das Treiberfenster des ASIO-Herstellers öffnen. Wiedergabe,
 // Ausgabegerät, Korrektur, Kanal-EQ, Bass und Testton setzt allein der Hauptprozess.

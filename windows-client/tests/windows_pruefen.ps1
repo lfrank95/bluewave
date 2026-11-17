@@ -6,7 +6,7 @@ $ErrorActionPreference = 'Stop'
 $app = Join-Path $Ordner 'resources\app'
 
 Write-Host '== Dateiangaben'
-$dateien = @(Get-Item $Paket) + @(Get-ChildItem $Ordner -Recurse -Include 'Bluewave*.exe', 'bluewave-*.exe')
+$dateien = @(Get-Item $Paket) + @(Get-ChildItem $Ordner -Recurse -Include 'Bluewave*.exe', 'bluewave-*.exe' | Where-Object { $_.Name -ne 'bluewave-mpv.exe' })   # mpv trägt seine eigenen Angaben
 $fehlt = @()
 foreach ($f in $dateien) {
   $i = $f.VersionInfo
@@ -17,7 +17,7 @@ if ($dateien.Count -lt 4) { Write-Host "::error title=Windows-Client::nur $($dat
 if ($fehlt) { Write-Host "::error title=Windows-Client::unvollständige Dateiangaben: $($fehlt -join ', ')"; exit 1 }
 
 Write-Host '== mpv'
-$mpv = Join-Path $app 'mpv\mpv.exe'
+$mpv = Join-Path $app 'mpv\bluewave-mpv.exe'
 $v = & $mpv --no-config --version 2>&1 | Select-Object -First 1
 Write-Host "  $v"
 if ($v -notmatch '^mpv ') { Write-Host "::error title=mpv::mpv.exe startet nicht ($v)"; exit 1 }
@@ -25,6 +25,11 @@ if ($v -notmatch '^mpv ') { Write-Host "::error title=mpv::mpv.exe startet nicht
 if ($LASTEXITCODE -ne 0) { Write-Host "::error title=mpv::Testbild lässt sich nicht abspielen ($LASTEXITCODE)"; exit 1 }
 $geraete = & $mpv --no-config --ao=wasapi --audio-device=help 2>&1
 Write-Host "  Tongeräte laut mpv: $(($geraete | Select-String "'wasapi/").Count)"
+
+Write-Host '== NV-Profil (Smooth Motion lesen; der Läufer hat keine NVIDIA-Karte)'
+$nv = & (Join-Path $app 'engine\bluewave-nvprofil.exe') status bluewave-mpv.exe 2>&1
+Write-Host "  $nv"
+if ("$nv" -notmatch '"nvidia":') { Write-Host "::error title=NV-Profil::keine Antwort"; exit 1 }
 
 Write-Host '== Ton-Engine'
 $eng = Join-Path $app 'engine\bluewave-engine.exe'
@@ -75,9 +80,9 @@ $v = (Get-ItemProperty $k).DisplayVersion
 $pkg = Get-Content "$ort\resources\app\package.json" -Raw | ConvertFrom-Json
 $laeuft = Get-Process -Name 'Bluewave Client' -ErrorAction SilentlyContinue
 Write-Host "  Eintrag: $v · Paket: $($pkg.version) · alt.txt noch da: $(Test-Path "$ort\alt.txt") · Client gestartet: $([bool]$laeuft)"
-Get-Process -Name 'Bluewave Client', 'bluewave-engine', 'mpv' -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process -Name 'Bluewave Client', 'bluewave-engine', 'bluewave-mpv' -ErrorAction SilentlyContinue | Stop-Process -Force
 if ($v -ne $pkg.version -or $v -eq '0.0.1') { Write-Host "::error title=Stilles Update::Version nicht aktualisiert ($v)"; exit 1 }
 if (Test-Path "$ort\alt.txt") { Write-Host "::error title=Stilles Update::alte Dateien nicht ersetzt"; exit 1 }
 if (-not $laeuft) { Write-Host "::error title=Stilles Update::Client nach dem Update nicht gestartet"; exit 1 }
-if (-not (Test-Path "$ort\resources\app\mpv\mpv.exe")) { Write-Host "::error title=Stilles Update::mpv fehlt in der Installation"; exit 1 }
+if (-not (Test-Path "$ort\resources\app\mpv\bluewave-mpv.exe")) { Write-Host "::error title=Stilles Update::mpv fehlt in der Installation"; exit 1 }
 Write-Host "::notice title=Windows-Client::geprüft – Dateiangaben, mpv, Engine, Videofenster, Start, stilles Update auf $v"

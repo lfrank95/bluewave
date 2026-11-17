@@ -36,6 +36,11 @@ D="$HIER/dsp"
   -lpthread -lole32 -lwinhttp -lavrt -luuid -lksuser -luser32 -ladvapi32 2>&1 | grep -v "dr_flac.h\|dr_wav.h" | grep -E "warning|error" || true
 [ -f "$HIER/build/bluewave-engine.exe" ] || { echo "FEHLER: Engine wurde nicht gebaut" >&2; exit 1; }
 
+echo "NV-Profil …"
+rc_bauen "$HIER/nvprofil/nvprofil.rc" "$HIER/build/nvprofil_res.o"
+"$CC" -O2 -Wall -static -o "$HIER/build/bluewave-nvprofil.exe" "$HIER/build/nvprofil_res.o" "$HIER/nvprofil/nvprofil.c" 2>&1 | grep -E "warning|error" || true
+[ -f "$HIER/build/bluewave-nvprofil.exe" ] || { echo "FEHLER: NV-Profil wurde nicht gebaut" >&2; exit 1; }
+
 echo "Electron $VERSION …"
 ZIEL="$AUS/Bluewave Windows Client"
 rm -rf "$ZIEL" && mkdir -p "$ZIEL"
@@ -52,13 +57,14 @@ APPD="$ZIEL/resources/app"
 mkdir -p "$APPD/engine" "$APPD/mpv"
 cp "$HIER/client/"{main.js,preload.js,suche.js,log.js,i18n.js,mpv.js,spieler.js,einrichtung.html,package.json} "$APPD/"
 cp -r "$HIER/client/bilder" "$APPD/"
-cp "$HIER/build/bluewave-engine.exe" "$APPD/engine/"
+cp "$HIER/build/bluewave-engine.exe" "$HIER/build/bluewave-nvprofil.exe" "$APPD/engine/"
 
 echo "mpv …"
 # fertiger Windows-Build (GPL); nur das Programm und seine Begleitdateien, ohne Installer-Skripte
 7z x -y -bd -o"$HIER/build/mpv" "$MPV_7Z" > /dev/null
 [ -f "$HIER/build/mpv/mpv.exe" ] || { echo "FEHLER: mpv.exe nicht im Archiv" >&2; exit 1; }
-cp "$HIER/build/mpv/mpv.exe" "$APPD/mpv/"
+# eigener Programmname: NVIDIA-Profile (Smooth Motion) gelten dann nur für Bluewave, nicht für ein anderes mpv
+cp "$HIER/build/mpv/mpv.exe" "$APPD/mpv/bluewave-mpv.exe"
 for f in "$HIER/build/mpv/"*.dll; do [ -f "$f" ] && cp "$f" "$APPD/mpv/"; done
 [ -d "$HIER/build/mpv/mpv" ] && cp -r "$HIER/build/mpv/mpv" "$APPD/mpv/"
 basename "$MPV_7Z" .7z > "$APPD/mpv/mpv-version.txt"

@@ -167,12 +167,17 @@ class Spieler {
       '--input-default-bindings=no', '--input-vo-keyboard=no', '--input-cursor=no', '--cursor-autohide=no', '--terminal=no',
       '--load-scripts=no', '--ytdl=no', '--sub-auto=no', '--audio-file-auto=no', '--save-position-on-quit=no', '--resume-playback=no',
       `--config-dir=${konf}`, '--config=yes', `--log-file=${path.join(this.ctx.logOrdner, 'mpv.log')}`, '--msg-level=all=warn',
-      `--hwdec=${e.hwdec === 'no' ? 'no' : 'auto-safe'}`, '--vo=gpu-next', '--gpu-api=d3d11', '--target-colorspace-hint=yes',
+      `--hwdec=${e.hwdec === 'no' ? 'no' : 'auto-safe'}`, '--vo=gpu-next', `--gpu-api=${e.renderer === 'vulkan' ? 'vulkan' : 'd3d11'}`, '--target-colorspace-hint=yes',
       '--cache=yes', '--demuxer-max-bytes=800MiB', '--demuxer-max-back-bytes=200MiB', '--demuxer-readahead-secs=120', '--network-timeout=30',
       `--user-agent=${this.ctx.userAgent}`, '--sub-font=Manrope', '--sub-font-size=44', '--sub-border-size=2.6', '--sub-shadow-offset=1', '--sub-margin-y=48',
-      '--background-color=#000000', '--keep-open-pause=no', '--hr-seek=yes', '--video-sync=audio', '--media-controls=no',
+      '--background-color=#000000', '--keep-open-pause=no', '--hr-seek=yes', '--media-controls=no',
     ];
-    if (process.platform !== 'win32') a.splice(a.indexOf('--gpu-api=d3d11'), 1);
+    if (process.platform !== 'win32') a.splice(a.findIndex((x) => x.startsWith('--gpu-api=')), 1);
+    // Takt: „audio" (Standard) oder „display-resample" (Bild an die Bildwiederholrate gekoppelt, Ton minimal angepasst)
+    a.push(`--video-sync=${e.mpv_sync === 'display-resample' ? 'display-resample' : 'audio'}`);
+    if (e.mpv_interpolation && e.mpv_sync === 'display-resample') a.push('--interpolation=yes', '--tscale=oversample');
+    // Ohne VSync: Smooth Motion halbiert sonst unter Umständen die Bildrate (Empfehlung aus der NVIDIA-FAQ)
+    if (e.vsync === false) a.push(e.renderer === 'vulkan' ? '--vulkan-swap-mode=immediate' : '--d3d11-sync-interval=0');
     if (weg === 'engine') {
       a.push('--ao=null');   // Ton kommt von der Engine; mpv läuft mit Systemuhr, die Bluewave an die Engine anlehnt
     } else {
@@ -371,6 +376,30 @@ class Spieler {
     return z.t + (z.laeuft ? ((Date.now() - z.am) / 1000) * (z.speed || 1) : 0);
   }
   engZeit() { return this.eng?.zeit ?? 0; }
+
+  /** Momentaufnahme für das Überwachungs-Panel (Bildraten, Aussetzer, Renderer, HDR) */
+  async monitor() {
+    const m = this.mpv;
+    if (!m || m.zu) return { laeuft: false };
+    const namen = ['container-fps', 'estimated-vf-fps', 'display-fps', 'estimated-display-fps', 'frame-drop-count', 'decoder-frame-drop-count',
+      'vo-delayed-frame-count', 'mistimed-frame-count', 'hwdec-current', 'current-gpu-context', 'video-params', 'video-out-params', 'speed', 'video-sync', 'interpolation', 'width', 'height'];
+    const w = await Promise.all(namen.map((n) => m.lesen(n)));
+    const x = Object.fromEntries(namen.map((n, i) => [n, w[i]]));
+    const vp = x['video-params'] || {};
+    const op = x['video-out-params'] || {};
+    const diff = this.diffs.length ? this.diffs.reduce((a, b) => a + b, 0) / this.diffs.length : null;
+    return {
+      laeuft: true,
+      quelle_fps: x['container-fps'], filter_fps: x['estimated-vf-fps'],
+      anzeige_hz: x['display-fps'] || x['estimated-display-fps'],
+      verworfen: x['frame-drop-count'] || 0, dec_verworfen: x['decoder-frame-drop-count'] || 0,
+      verspaetet: x['vo-delayed-frame-count'] || 0, falsch_getaktet: x['mistimed-frame-count'] || 0,
+      hwdec: x['hwdec-current'] || 'no', gpu: x['current-gpu-context'] || '', sync: x['video-sync'], interpolation: x.interpolation,
+      breite: vp.w || x.width, hoehe: vp.h || x.height, pixel: vp.hw_pixelformat || vp.pixelformat || '',
+      gamma: vp.gamma || '', primaer: vp.primaries || '', spitze: vp['sig-peak'] || null, ausgabe_gamma: op.gamma || '',
+      tempo: x.speed, weg: this.weg, engine_diff: diff,
+    };
+  }
 
   async engineStarten(pos) {
     if (!this.engPlan || !this.mpv) return;

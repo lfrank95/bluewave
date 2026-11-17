@@ -35,7 +35,10 @@ def ausgang_von_main():
 HAUPT = """
 (() => {
   const AUSGAENGE = %s;
-  const v = { ton_weg: 'engine', mpv_geraet: 'auto', mpv_exklusiv: false, spdif: ['ac3', 'dts'], versatz_ms: 0, hwdec: 'auto-safe', vollbild: false };
+  const v = { ton_weg: 'engine', mpv_geraet: 'auto', mpv_exklusiv: false, spdif: ['ac3', 'dts'], versatz_ms: 0, hwdec: 'auto-safe', vollbild: false,
+    bewegung: 'aus', renderer: 'd3d11', vsync: true, mpv_sync: 'audio', mpv_interpolation: false, sm_balken: false, sm_log: 0 };
+  let nv = { nvidia: true, profil: false, an: false, balken: false, log: 0 };
+  const GPU = { name: 'NVIDIA GeForce RTX 5080', last: 31, watt: 112, grad: 54, takt: 2610, vram: 3120, vram_gesamt: 16303, treiber: '591.44' };
   const MPV = [{ id: 'wasapi/{1}', name: 'Lautsprecher (Realtek)' }, { id: 'wasapi/{2}', name: 'LG TV (NVIDIA High Definition Audio)' }];
   window.__aufrufe = [];
   const merk = (n, x) => { window.__aufrufe.push([n, x]); };
@@ -46,6 +49,8 @@ HAUPT = """
       oeffnen: (z) => merk('oeffnen', z), aufEnde: () => () => {},
       einst: async () => ({ ...v, mpv_geraete: MPV }),
       einstSetzen: async (w) => { merk('einstSetzen', w); Object.assign(v, w); return { ...v, mpv_geraete: MPV }; },
+      bewegungStatus: async () => ({ nv, gpu: GPU }),
+      bewegungEintragen: async () => { merk('bewegungEintragen', { ...v }); nv = { nvidia: true, profil: true, an: v.bewegung === 'smooth', balken: v.sm_balken, log: v.sm_log }; return { ok: true, nv, gpu: GPU }; },
     },
     senden: (b) => merk('senden', b), auf: () => () => {}, aufTaste: () => () => {},
     geraete: async () => [
@@ -83,6 +88,13 @@ SPIELER = """
       auf: (f) => { hoerer.add(f); return () => hoerer.delete(f); },
       aufFenster: () => () => {}, aufTaste: () => () => {}, tonWeg: () => '',
       vollbild: () => { window.__voll++; }, zu: () => { window.__zu = true; },
+      monitor: async () => ({
+        mpv: { laeuft: true, quelle_fps: 23.976, anzeige_hz: 120, verworfen: 2, verspaetet: 0, dec_verworfen: 0, hwdec: 'd3d11va', gpu: 'd3d11', sync: 'audio',
+          breite: 3840, hoehe: 2160, gamma: 'pq', primaer: 'bt.2020', spitze: 4.926, weg: 'engine', engine_diff: 0.004 },
+        gpu: { name: 'NVIDIA GeForce RTX 5080', last: 38, watt: 131, grad: 56, takt: 2700, vram: 3500, vram_gesamt: 16303, treiber: '591.44' },
+        nv: { nvidia: true, profil: true, an: true, balken: true, log: 2 },
+        log: ['[SM] present 47.95 fps generated'], einst: { bewegung: 'smooth', renderer: 'd3d11', vsync: true, sm_balken: true, sm_log: 2 },
+      }),
     },
   };
 })();
@@ -112,7 +124,7 @@ async def main():
             pruefe('bw-nativ' in klassen and 'bw-haupt' in klassen, f'Client-Klassen am Dokument: {klassen}')
             pruefe(await page.evaluate("!!document.querySelector('link[href=\"/css/client.css\"]')"), 'client.css geladen')
             titel = await page.evaluate("[...document.querySelectorAll('.client-karte h2')].map(h => h.textContent)")
-            pruefe(titel == ['Ton im Windows-Client', 'Bild', 'Windows-Client'], f'Abschnitte: {titel}')
+            pruefe(titel == ['Ton im Windows-Client', 'Bild', 'Flüssige Bewegung (Test)', 'Windows-Client'], f'Abschnitte: {titel}')
             await page.wait_for_selector('.aus-buehne .aus-kette', timeout=8000)
             pruefe(await page.locator('.aus-treiber').count() == 1 and await page.locator('.aus-bus').count() == 2, 'ASIO-Treiber mit zwei Ausgängen')
             stufe = await page.evaluate("document.querySelector('.aus-buehne').className")
@@ -153,6 +165,24 @@ async def main():
             await page.wait_for_timeout(300)
             lfew = [x for x in await page.evaluate('window.__aufrufe') if x[0] == 'einstSetzen' and 'lfe_front' in x[1]]
             pruefe(lfew and lfew[-1][1] == {'lfe_front': True, 'lfe_db': -3}, f'LFE auf die Front, -3 dB gespeichert: {lfew[-1:]}')
+            # Flüssige Bewegung (Test): Smooth Motion wählen, Faktor fest 2×, im Treiber eintragen
+            bw = page.locator('.client-karte', has_text='Flüssige Bewegung (Test)')
+            await page.wait_for_function("document.body.innerText.includes('Treiber-Profil: noch nicht angelegt')", timeout=5000)
+            pruefe('RTX 5080' in await bw.inner_text(), 'Grafikkarte und Profilstand angezeigt')
+            pruefe(not await bw.locator('.client-zeile', has_text='Faktor').is_visible(), 'Optionen erst mit Smooth Motion sichtbar')
+            await bw.locator('.client-zeile', has_text='Modus').locator('select').select_option('smooth')
+            await page.wait_for_timeout(200)
+            faktor = await bw.locator('.client-zeile', has_text='Faktor').inner_text()
+            pruefe('2× (fest)' in faktor and '3×' in faktor, f'Faktor 2× fest, mit Erklärung zu 3×/4×')
+            await bw.locator('.client-zeile', has_text='Testbalken').locator('input').check()
+            await bw.locator('.client-zeile', has_text='Treiber-Log').locator('select').select_option('2')
+            await page.wait_for_timeout(200)
+            pruefe('weicht ab' in await bw.inner_text(), 'Abweichung zum Treiber-Profil erkannt')
+            await bw.get_by_role('button', name='Im Treiber eintragen').click()
+            await page.wait_for_timeout(300)
+            ein = [x for x in await page.evaluate('window.__aufrufe') if x[0] == 'bewegungEintragen']
+            pruefe(ein and ein[-1][1]['bewegung'] == 'smooth' and ein[-1][1]['sm_balken'] and ein[-1][1]['sm_log'] == 2, f'Eintragen mit Testbalken und Log: {ein[-1:]}')
+            pruefe('Smooth Motion an' in await bw.inner_text() and 'weicht ab' not in await bw.inner_text(), 'Profil danach aktuell')
             await page.wait_for_timeout(300)
             await page.screenshot(path=os.path.join(tempfile.gettempdir(), 'bw_client_profil.png'), full_page=True)
             # Abspielen geht an den Client
@@ -190,6 +220,17 @@ async def main():
             pruefe(spr and abs(spr[-1]['pos'] - 615) < 0.5, f'Pfeil rechts: +10 s ({spr[-1:]})')
             await page.keyboard.press('f')
             pruefe(await page.evaluate('window.__voll') == 1, 'F: Fenster auf Vollbild')
+            # Bildmonitor (Taste B)
+            await page.keyboard.press('b')
+            await page.wait_for_selector('.bildmonitor .bm-block', timeout=5000)
+            mon = await page.locator('.bildmonitor').inner_text()
+            pruefe('23,976 fps' in mon and '47,95 fps' in mon and '120,00 Hz' in mon and 'jedes Bild' not in mon, f'Bildmonitor: Quelle, Ziel 2×, Bildschirm')
+            pruefe('Ungleichmäßig' in mon, '48 fps auf 120 Hz als ungleichmäßig erkannt')
+            pruefe('HDR10 (PQ)' in mon and 'RTX 5080' in mon and 'Im Treiber aktiv' in mon and 'nvpresent' in mon.lower(), 'HDR, Grafikkarte, Smooth-Motion-Stand und Treiber-Log')
+            await page.screenshot(path=os.path.join(tempfile.gettempdir(), 'bw_bildmonitor.png'))
+            await page.keyboard.press('b')
+            await page.wait_for_timeout(100)
+            pruefe(not await page.locator('.bildmonitor').count(), 'B schließt den Bildmonitor')
             await page.locator('button[title="Ton und Untertitel"]').click()
             await page.locator('.panel .wahl', has_text='Englisch').first.click()
             ton = [b for b in await page.evaluate('window.__befehle') if b['c'] == 'ton']

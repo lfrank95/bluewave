@@ -145,6 +145,9 @@ async function clientKarten() {
         zeile('Dekodieren', 'Die Grafikkarte dekodiert HEVC, AV1 und 4K sparsam. HDR zeigt mpv auf HDR-Bildschirmen direkt, sonst rechnet es sauber auf SDR um.', hwdec),
         zeile('Im Vollbild starten', 'Sonst öffnet der Film in der Größe des Bluewave-Fensters (F oder Doppelklick schaltet um).', el('label.schalter', vollbild, 'An'))));
 
+    // ---- Flüssige Bewegung (Test): NVIDIA Smooth Motion ----
+    karten.push(bewegungKarte(v));
+
     // ---- Client ----
     const ce = await nativ.clientEinst();
     const tray = el('input', { type: 'checkbox', checked: !!ce?.tray });
@@ -189,6 +192,73 @@ async function clientKarten() {
             el('button.knopf.klein', { onclick: async () => { const r = await nativ.diagnose(); if (r?.ok) meldung('Diagnosedatei auf dem Desktop gespeichert.'); else meldung(r?.text || 'Fehlgeschlagen', true); } }, 'Diagnosedatei')))));
     wegZeigen();
     return karten;
+}
+
+/** Flüssige Bewegung (Test): NVIDIA Smooth Motion für bluewave-mpv.exe im Treiber-Profil, dazu Renderer und Takt von mpv */
+function bewegungKarte(v) {
+    const auswahl = (paare, wert) => { const s = el('select.eingabe', {}, paare.map(([w, t]) => el('option', { value: w }, t))); s.value = String(wert); return s; };
+    const haken = (an) => el('input', { type: 'checkbox', checked: !!an });
+    const modus = auswahl([['aus', 'Aus'], ['smooth', 'NVIDIA Smooth Motion']], v.bewegung);
+    const renderer = auswahl([['d3d11', 'Direct3D 11 (empfohlen)'], ['vulkan', 'Vulkan (Smooth Motion erst ab RTX 50)']], v.renderer);
+    const vsync = haken(v.vsync);
+    const sync = auswahl([['audio', 'Nach dem Ton (Standard)'], ['display-resample', 'Nach dem Bildschirm (display-resample)']], v.mpv_sync);
+    const interp = haken(v.mpv_interpolation);
+    const balken = haken(v.sm_balken);
+    const logStufe = auswahl([[0, 'Aus'], [1, 'Fehler'], [2, 'Normal'], [3, 'Ausführlich']], v.sm_log);
+    const status = el('span.leise', 'Prüfe Treiber …');
+    const eintragen = el('button.knopf.klein', 'Im Treiber eintragen');
+    const optionen = el('div');
+
+    const statusZeigen = (r) => {
+        const nv = r?.nv;
+        const g = r?.gpu;
+        if (!nv || nv.nvidia === false) { status.textContent = nv?.fehler ? `Keine NVIDIA-Grafikkarte (${nv.fehler})` : 'Keine NVIDIA-Grafikkarte erkannt'; eintragen.disabled = true; return; }
+        eintragen.disabled = false;
+        const soll = v.bewegung === 'smooth';
+        const passt = !!nv.an === soll && (!soll || (!!nv.balken === !!v.sm_balken && Number(nv.log || 0) === Number(v.sm_log)));
+        status.textContent = `${g?.name ? g.name + ' · ' : ''}Treiber-Profil: ${nv.profil ? (nv.an ? 'Smooth Motion an' : 'Smooth Motion aus') : 'noch nicht angelegt'}${passt ? '' : ' – weicht ab, bitte eintragen'}`;
+        eintragen.classList.toggle('haupt', !passt);
+        eintragen.textContent = soll ? 'Im Treiber eintragen' : 'Im Treiber ausschalten';
+    };
+    const pruefen = (frisch) => nativ.video.bewegungStatus?.(frisch).then(statusZeigen).catch(() => { status.textContent = 'Status nicht lesbar'; });
+    const speichern = async (w, text) => {
+        Object.assign(v, await nativ.video.einstSetzen(w));
+        optionen.hidden = v.bewegung !== 'smooth';
+        interp.disabled = v.mpv_sync !== 'display-resample';
+        pruefen(false);
+        meldung(text || 'Übernommen – gilt ab dem nächsten Abspielen.');
+    };
+    modus.addEventListener('change', () => speichern({ bewegung: modus.value }, modus.value === 'smooth' ? 'Smooth Motion gewählt – jetzt noch „Im Treiber eintragen“.' : 'Aus – trage es auch im Treiber aus.'));
+    renderer.addEventListener('change', () => speichern({ renderer: renderer.value }));
+    vsync.addEventListener('change', () => speichern({ vsync: vsync.checked }));
+    sync.addEventListener('change', () => speichern({ mpv_sync: sync.value }));
+    interp.addEventListener('change', () => speichern({ mpv_interpolation: interp.checked }));
+    balken.addEventListener('change', () => speichern({ sm_balken: balken.checked }, 'Gemerkt – wird beim Eintragen in den Treiber geschrieben.'));
+    logStufe.addEventListener('change', () => speichern({ sm_log: Number(logStufe.value) }, 'Gemerkt – wird beim Eintragen in den Treiber geschrieben.'));
+    eintragen.addEventListener('click', async () => {
+        eintragen.disabled = true;
+        status.textContent = 'Windows fragt nach Admin-Rechten …';
+        const r = await nativ.video.bewegungEintragen();
+        if (r?.ok) meldung(v.bewegung === 'smooth' ? 'Smooth Motion ist im Treiber eingetragen – gilt ab dem nächsten Abspielen.' : 'Smooth Motion im Treiber ausgeschaltet.');
+        else meldung(r?.fehler || 'Eintragen fehlgeschlagen', true);
+        statusZeigen(r);
+    });
+    optionen.hidden = v.bewegung !== 'smooth';
+    interp.disabled = v.mpv_sync !== 'display-resample';
+    optionen.append(
+        zeile('Faktor', 'Smooth Motion erzeugt immer genau ein Zwischenbild zwischen zwei echten Bildern – 2× ist fest vom Treiber vorgegeben. 3× oder 4× gibt es nur bei DLSS-Multi-Frame-Generation, und die muss ein Spiel selbst einbauen; für Videos ist sie nicht verfügbar.', el('b', '2× (fest)')),
+        zeile('Renderer', 'Smooth Motion greift bei Direct3D 11/12; Vulkan nur auf RTX-50-Karten.', renderer),
+        zeile('VSync', 'Halbiert Smooth Motion die Bildrate, hilft oft VSync aus (NVIDIA-Empfehlung). Mit G-Sync/FreeSync meist unnötig.', el('label.schalter', vsync, 'An')),
+        zeile('Testbalken', 'Der Treiber zeichnet farbige Balken auf erzeugte Bilder – so siehst du, ob Smooth Motion wirklich arbeitet.', el('label.schalter', balken, 'An')),
+        zeile('Treiber-Log', 'Schreibt nach C:\\NvPresent\\; die letzten Zeilen zeigt der Bildmonitor.', logStufe));
+    pruefen(true);
+    return el('section.karte.glass-panel.client-karte', el('h2', 'Flüssige Bewegung (Test)'),
+        el('p.leise', 'Versuch: Die Grafikkarte rechnet Zwischenbilder, aus 24 fps werden 48 fps. Das wirkt flüssiger, kann aber den „Seifenoper-Effekt“ und bei schnellen Szenen Artefakte bringen. Im Player zeigt Taste B den Bildmonitor.'),
+        zeile('Modus', 'Smooth Motion wird im NVIDIA-Treiber für den Bluewave-Player eingetragen (Profil „Bluewave Wiedergabe“). Dafür fragt Windows einmal nach Admin-Rechten.', modus),
+        zeile('Treiber', null, el('div.client-download', status, eintragen)),
+        optionen,
+        zeile('mpv-Takt', 'Nach dem Bildschirm passt mpv das Tempo minimal an die Bildwiederholrate an – Voraussetzung für die eigene Interpolation von mpv.', sync),
+        zeile('mpv-Interpolation', 'Glättet nur das Ruckeln durch unpassende Bildwiederholraten (z. B. 24 fps auf 60 Hz) – erzeugt keine echten Zwischenbilder. Nur mit „Nach dem Bildschirm“.', el('label.schalter', interp, 'An')));
 }
 
 /** Abschnitte für das Profil: im Client die Einstellungen, im Browser der Download (oder nichts) */

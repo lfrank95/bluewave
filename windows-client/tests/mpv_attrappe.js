@@ -7,7 +7,9 @@ const arg = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').sli
 const pfad = arg('input-ipc-server');
 const protokoll = process.env.MPV_PROTOKOLL;
 const DAUER = Number(process.env.MPV_DAUER || 120);
-const p = { pause: false, speed: 1, aid: 'auto', sid: 'no', start: '0', volume: 100, mute: false, af: '', ao: arg('ao') || 'wasapi', duration: DAUER, width: 1920, height: 1080 };
+const p = { pause: false, speed: 1, aid: 'auto', sid: 'no', start: '0', volume: 100, mute: false, af: '', ao: arg('ao') || 'wasapi', duration: DAUER, width: 1920, height: 1080,
+  'container-fps': 23.976, 'display-fps': 60, 'frame-drop-count': 0, 'vo-delayed-frame-count': 0, 'hwdec-current': 'd3d11va', 'current-gpu-context': 'd3d11',
+  'video-sync': arg('video-sync') || 'audio', 'video-params': { w: 3840, h: 2160, pixelformat: 'yuv420p10', gamma: 'pq', primaries: 'bt.2020', 'sig-peak': 4.926 } };
 let pos = 0, am = Date.now(), datei = null, ende = false;
 const jetzt = () => (datei && !p.pause ? pos + ((Date.now() - am) / 1000) * p.speed : pos);
 const fest = () => { pos = jetzt(); am = Date.now(); };

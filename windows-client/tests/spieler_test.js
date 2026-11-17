@@ -147,6 +147,23 @@ function neuerSpieler(weg) {
   pruefe(!mpvBefehle().some((x) => x[0] === 'sub-add' && x[1].includes('fremd')), 'fremde Adressen werden nicht geladen');
   b.sp.aufraeumen();
 
+  console.log('== Flüssige Bewegung: Renderer, VSync, Takt, Bildmonitor');
+  const d = neuerSpieler('engine');
+  pruefe(d.sp.mpvArgs().includes('--video-sync=audio') && !d.sp.mpvArgs().some((x) => /sync-interval|swap-mode|interpolation/.test(x)), 'Standard: Takt nach dem Ton, VSync an, keine Interpolation');
+  Object.assign(d.einst, { renderer: 'vulkan', vsync: false, mpv_sync: 'display-resample', mpv_interpolation: true });
+  const da = d.sp.mpvArgs();
+  pruefe(da.includes('--vulkan-swap-mode=immediate') && da.includes('--video-sync=display-resample') && da.includes('--interpolation=yes'), `Vulkan ohne VSync, display-resample + Interpolation: ${da.filter((x) => /sync|swap|interp/.test(x))}`);
+  Object.assign(d.einst, { renderer: 'd3d11', mpv_sync: 'audio' });
+  const db = d.sp.mpvArgs();
+  pruefe(db.includes('--d3d11-sync-interval=0') && !db.includes('--interpolation=yes'), 'D3D11 ohne VSync; Interpolation nur mit display-resample');
+  Object.assign(d.einst, { vsync: true, mpv_interpolation: false });
+  await d.sp.laden({ url: 'http://bluewave.test:9960/api/v1/datei/12/inhalt', start: 0, ton: 0, modus: 'direkt', ton_quelle: '12', dauer: 120 });
+  await warte(300);
+  const mo = await d.sp.monitor();
+  pruefe(mo.laeuft && mo.quelle_fps === 23.976 && mo.anzeige_hz === 60 && mo.gamma === 'pq' && mo.breite === 3840 && mo.hwdec === 'd3d11va', `Bildmonitor liest mpv: ${JSON.stringify(mo).slice(0, 160)}`);
+  d.eng.stopp();
+  d.sp.aufraeumen();
+
   console.log('== Bitstream');
   const c = neuerSpieler('bitstream');
   c.einst.spdif = ['ac3', 'truehd', 'quatsch'];

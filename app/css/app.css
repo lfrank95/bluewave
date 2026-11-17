@@ -1059,3 +1059,21 @@ html.bw-spieler .player .oben button { -webkit-app-region: no-drag; app-region: 
 .client-weg span { color: var(--text-muted); font-size: 0.86rem; line-height: 1.4; }
 .client-weg[aria-pressed="true"] { border-color: rgba(92, 200, 255, 0.65); background: rgba(92, 200, 255, 0.09); box-shadow: 0 0 0 1px rgba(92, 200, 255, 0.35) inset; }
 .client-download { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+/* Windows-Client: Bildmonitor (Taste B) */
+.player .bildmonitor { position: absolute; z-index: 6; right: calc(16px + env(safe-area-inset-right)); top: calc(70px + env(safe-area-inset-top)); width: min(360px, calc(100% - 32px));
+    max-height: calc(100% - 180px); overflow: auto; padding: 14px 16px; border-radius: 16px; background: rgba(6, 12, 24, 0.82); border: 1px solid rgba(214, 230, 255, 0.12);
+    backdrop-filter: blur(14px); color: var(--text-primary); font-size: 12.5px; }
+.bildmonitor .bm-kopf { display: flex; justify-content: space-between; align-items: baseline; }
+.bildmonitor h3 { margin: 0 0 6px; font-size: 15px; }
+.bildmonitor .bm-block { margin-top: 10px; }
+.bildmonitor h4 { margin: 0 0 4px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-secondary, #9fb3cf); }
+.bildmonitor .bm-zeile { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+.bildmonitor .bm-zeile span { color: var(--text-secondary, #9fb3cf); white-space: nowrap; }
+.bildmonitor .bm-zeile b { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.bildmonitor .bm-gut { color: #5fe0a2; }
+.bildmonitor .bm-mittel { color: #ffc861; }
+.bildmonitor .bm-schlecht { color: #ff7a7a; }
+.bildmonitor .bm-hinweis { margin: 10px 0 0; color: var(--text-secondary, #9fb3cf); line-height: 1.45; }
+.bildmonitor .bm-log { margin: 0; font: 11px/1.4 ui-monospace, Consolas, monospace; white-space: pre-wrap; color: #cfe8ff; }
+.client-karte .bm-status { display: inline-flex; gap: 8px; align-items: center; }

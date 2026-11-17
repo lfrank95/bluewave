@@ -244,6 +244,7 @@ class Player {
             else if (k === 'f') this.vollbild();
             else if (k === 'n' && this.daten?.naechste) this.naechste();
             else if (k === 'i') this.diagLive();
+            else if ((k === 'b' || k === 'B') && NATIV?.monitor) this.bildmonitor();
             else if (k === 'Escape') { if (!this.panelEl.hidden) this.panelEl.hidden = true; else if (NATIV && this.nativVoll) this.vollbild(); else if (!document.fullscreenElement) this.schliessen(); }
             else return;
             this.wach();
@@ -629,6 +630,16 @@ class Player {
     }
 
     /** Live-Anzeige für die Fehlersuche (Taste I oder Einstellungen › Diagnose) */
+    /** Windows-Client: Bildmonitor (flüssige Bewegung, Bildraten, Grafikkarte) ein/aus */
+    bildmonitor() {
+        if (this.monitorAus) { this.monitorAus(); this.monitorAus = null; return; }
+        this.monitorAus = () => {};
+        import('./client/bildmonitor.js').then(({ bildmonitor }) => {
+            if (!this.monitorAus) return;
+            this.monitorAus = bildmonitor(this.wurzel, NATIV);
+        }).catch(() => { this.monitorAus = null; });
+    }
+
     diagLive() {
         if (this.diagLiveAus) { this.diagLiveAus(); return; }
         const box = el('pre.diag-live');
@@ -762,6 +773,7 @@ class Player {
                 el('div.info-text', info, quelleText ? el('div', 'Quelle: ' + quelleText) : null),
                 d.modus !== 'hls' || d.transkodierung?.kopie ? wahl('Umwandeln erzwingen', false, () => this.neuStarten({ erzwinge_transkodieren: true })) : null,
                 wahl('Diagnose anzeigen', !!this.diagLiveAus, () => { this.panelEl.hidden = true; this.diagLive(); }, 'Taste I'),
+                NATIV?.monitor ? wahl('Bildmonitor', !!this.monitorAus, () => { this.panelEl.hidden = true; this.bildmonitor(); }, 'Bewegung, Bildraten, Grafikkarte · Taste B') : null,
                 el('h3', 'Nachtmodus'),
                 ['aus', 'leicht', 'stark'].map((n) => wahl({ aus: 'Aus (Ton unverändert)', leicht: 'Leicht', stark: 'Stark' }[n], this.nacht === n, () => { this.nacht = n; this.tonKette(); this.panel('einstellungen'); this.panel('einstellungen'); })),
                 el('h3', 'Dialog-Anhebung'),
@@ -891,6 +903,8 @@ class Player {
         document.removeEventListener('fullscreenchange', this.vollAenderung);
         this.nativAus?.();
         this.tasteAus?.();
+        this.monitorAus?.();
+        this.monitorAus = null;
         if (NATIV) this.video.beenden();
         if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
         if (this.hls) this.hls.destroy();

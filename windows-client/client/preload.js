@@ -26,6 +26,8 @@ if (info && info.erlaubt) {
       tonWeg: () => '',
       vollbild: () => ipcRenderer.send('video-vollbild'),
       zu: () => ipcRenderer.send('video-zu'),
+      // Überwachung (Taste B): Bildraten, Aussetzer, HDR, Grafikkarte, Smooth-Motion-Profil
+      monitor: () => ipcRenderer.invoke('video-monitor'),
     }
     : {
       // Hauptfenster: Abspielen öffnet das Spielerfenster; danach meldet es sich zurück (Ansicht neu laden)
@@ -33,6 +35,9 @@ if (info && info.erlaubt) {
       aufEnde: verteiler('video-ende'),
       einst: () => ipcRenderer.invoke('video-einst'),
       einstSetzen: (w) => ipcRenderer.invoke('video-einst-setzen', w),
+      // Flüssige Bewegung (Test): Treiber-Profil lesen bzw. (mit Admin-Bestätigung) schreiben
+      bewegungStatus: (frisch) => ipcRenderer.invoke('bewegung-status', !!frisch),
+      bewegungEintragen: () => ipcRenderer.invoke('bewegung-eintragen'),
     };
   contextBridge.exposeInMainWorld('bluewaveNativ', {
     version: info.version,
