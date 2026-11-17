@@ -517,7 +517,6 @@ for n in (0, 1, 2, 3, 5):
     c, body, _ = admin.roh('GET', f'{basis}/teil/{n}.m4s')
     zeit, schluessel = mp4_teil_start(body, video, skala)
     pruefe(c == 200 and zeit is not None and abs(zeit - g[n]) < 0.06 and schluessel, f'Teil {n} beginnt bei {g[n]} s mit Schlüsselbild: {zeit} {schluessel}')
-admin.api('DELETE', 'stream/' + w['sitzung'])
 
 # langer Film (10 min): weit springen, Encoder startet sofort dort, Zeitstempel stimmen
 wl = admin.api('POST', 'wiedergabe/start?diag=e2ehls001', {'art': 'film', 'id': ultron['id'], 'faehigkeiten': FAEHIG, 'start_ms': 0})
@@ -566,7 +565,6 @@ ez = [e for x in admin.api('GET', 'diagnose?anzahl=30')['wiedergaben'] if x['k']
 # erlaubt: vorausschauender Start an der nächsten Lücke (Teil 81 war nicht fertig); verboten: Neustart für Teile, die da sind
 pruefe(not [e for e in ez if e['e'] == 'hls_neustart' and 'lücke' not in str(e['d'].get('grund', ''))],
        f'kein Encoder-Neustart für Teile im Zwischenspeicher: {[e for e in ez if e["e"] == "hls_neustart"]}')
-pruefe(any(e['e'] == 'hls_neustart' and 'lücke' in str(e['d'].get('grund', '')) for e in ez) or True, 'Lücken werden vorausschauend gefüllt')
 admin.api('DELETE', 'stream/' + wz['sitzung'])
 
 schritt('Gerät ohne MediaSource (iPhone): HLS mit unverändertem Video, Teile an den Schlüsselbildern der Quelle')
