@@ -1153,36 +1153,55 @@ app.on('second-instance', () => zeigen());
 async function selbsttestVideo() {
   const ergebnis = (text) => { log.schreiben('INFO', `SELBSTTEST ${text}`); setTimeout(() => { beenden = true; app.quit(); }, 500); };
   const warte = (ms) => new Promise((r) => setTimeout(r, ms));
+  const schritt = (t) => log.schreiben('INFO', `SELBSTTEST-SCHRITT ${t}`);
+  const melden = (art, f) => {
+    const b = f.getContentBounds();
+    const sk = screen.getDisplayMatching(b).scaleFactor || 1;
+    log.schreiben('INFO', `SELBSTTEST-BEREIT ${art} ${Math.round(b.x * sk)} ${Math.round(b.y * sk)} ${Math.round(b.width * sk)} ${Math.round(b.height * sk)}`);
+  };
   /** Wie im Betrieb: Bildfenster (mit mpv per --wid) und darüber die durchsichtige Bedienung */
-  const lauf = async (Art) => {
-    const opt = { x: 100, y: 100, width: 800, height: 450, frame: false, backgroundColor: '#000000', show: true };
-    spieler.video = Art === 'BaseWindow' ? new BaseWindow(opt) : new BrowserWindow(opt);
-    if (Art !== 'BaseWindow') await spieler.video.loadURL('data:text/html,<body style="margin:0;background:#000">');
-    const over = new BrowserWindow({ ...spieler.video.getContentBounds(), parent: spieler.video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, show: true, focusable: false });
+  const lauf = async (Art, x) => {
+    schritt(`${Art}: Fenster`);
+    const opt = { x, y: 100, width: 640, height: 360, frame: false, backgroundColor: '#000000', show: true };
+    const video = Art === 'BaseWindow' ? new BaseWindow(opt) : new BrowserWindow(opt);
+    if (Art !== 'BaseWindow') await video.loadURL('data:text/html,<body style="margin:0;background:#000">');
+    spieler.video = video;
+    schritt(`${Art}: Bedienung`);
+    const over = new BrowserWindow({ ...video.getContentBounds(), parent: video, frame: false, transparent: true, backgroundColor: '#00000000', hasShadow: false, show: true, focusable: false });
     await over.loadURL('data:text/html,<html style="background:rgba(0,0,0,0.004)"><body style="margin:0"></body></html>');
+    schritt(`${Art}: mpv`);
     await spieler.mpvStarten();
     const m = spieler.mpv;
     let geladen = false;
-    m.on('ereignis', (x) => { if (x.event === 'file-loaded') geladen = true; });
+    m.on('ereignis', (e) => { if (e.event === 'file-loaded') geladen = true; });
     await m.befehl(['loadfile', process.env.BW_TEST_VIDEO, 'replace']);
     for (let i = 0; i < 100 && !geladen; i++) await warte(100);
     await warte(2000);
     const [pos, w, h, vo] = await Promise.all([m.lesen('time-pos'), m.lesen('width'), m.lesen('height'), m.lesen('current-vo')]);
-    // Das Prüfskript fotografiert jetzt den Bildschirm an dieser Stelle (sieht man Farben oder nur Schwarz?)
-    const b = spieler.video.getContentBounds();
-    const sk = screen.getDisplayMatching(b).scaleFactor || 1;
-    log.schreiben('INFO', `SELBSTTEST-BEREIT ${Art} ${Math.round(b.x * sk)} ${Math.round(b.y * sk)} ${Math.round(b.width * sk)} ${Math.round(b.height * sk)}`);
-    await warte(6000);
-    const bild = null;
-    m.beenden(); spieler.mpv = null;
-    over.destroy(); spieler.video.destroy(); spieler.video = null;
+    // das Prüfskript fotografiert jetzt den Bildschirm an dieser Stelle (Farben des Testbilds oder nur Schwarz?)
+    melden(Art, video);
+    await warte(5000);
+    schritt(`${Art}: aufräumen`);
+    spieler.mpv = null;
+    await m.befehl(['quit']).catch(() => {});
+    await warte(800);
+    over.destroy();
+    video.destroy();
+    spieler.video = null;
     await warte(500);
-    return { geladen, pos, w, h, vo, bild };
+    return { geladen, pos, w, h, vo };
   };
   try {
-    const alt = await lauf('BrowserWindow');
+    // Gegenprobe fürs Bildschirmfoto: eine bunte Seite muss als bunt erkannt werden
+    const probe = new BrowserWindow({ x: 100, y: 100, width: 640, height: 360, frame: false, show: true });
+    await probe.loadURL('data:text/html,<body style="margin:0;background:linear-gradient(90deg,red,lime,blue,yellow,magenta,cyan)">');
+    await warte(800);
+    melden('Probe', probe);
+    await warte(3000);
+    probe.destroy();
+    const neu = await lauf('BaseWindow', 100);
+    const alt = await lauf('BrowserWindow', 100);
     log.schreiben('INFO', `SELBSTTEST-VERGLEICH BrowserWindow: ${JSON.stringify(alt)}`);
-    const neu = await lauf('BaseWindow');
     ergebnis(`${neu.geladen && neu.pos > 0.5 ? 'OK' : 'FEHLER'} BaseWindow: geladen=${neu.geladen} pos=${neu.pos} bild=${neu.w}x${neu.h} vo=${neu.vo}`);
   } catch (x) { ergebnis(`FEHLER ${x.stack || x.message}`); }
 }

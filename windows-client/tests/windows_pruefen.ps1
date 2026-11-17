@@ -76,10 +76,12 @@ if (-not $p.WaitForExit(20000)) { $p | Stop-Process -Force; Write-Host "::error 
 Remove-Item Env:\BW_TEST_VIDEO
 foreach ($k in $bilder.Keys) { Write-Host "::notice title=Bildfenster $k::$($bilder[$k].farben) Farbstufen, $($bilder[$k].hell) % hell" }
 $neu = $bilder['BaseWindow']
-if (-not $neu -or $neu.farben -lt 8 -or $neu.hell -lt 15) { Write-Host "::error title=Selbsttest::im Bildfenster ist kein Bild zu sehen ($($neu.farben) Farbstufen)"; $bildFehler = $true }
+$probe = $bilder['Probe']
+if (-not $probe -or $probe.farben -lt 8) { Write-Host "::warning title=Selbsttest::Bildschirmfoto taugt hier nicht (Gegenprobe $($probe.farben) Farbstufen) – Bildprüfung übersprungen" }
+elseif (-not $neu -or $neu.farben -lt 8 -or $neu.hell -lt 15) { Write-Host "::error title=Selbsttest::im Bildfenster ist kein Bild zu sehen ($($neu.farben) Farbstufen)"; $bildFehler = $true }
 $log = Get-Content (Join-Path $daten 'log\client.log') -Raw
 $zeile = ($log -split "`n" | Select-String 'SELBSTTEST' | Select-Object -Last 1)
-($log -split "`n" | Select-String 'SELBSTTEST-VERGLEICH') | ForEach-Object { Write-Host "  $_" }
+($log -split "`n" | Select-String 'SELBSTTEST-(VERGLEICH|SCHRITT)') | ForEach-Object { Write-Host "  $_" }
 Write-Host "  $zeile"
 if (Test-Path (Join-Path $daten 'log\mpv.log')) { Get-Content (Join-Path $daten 'log\mpv.log') | Select-Object -Last 8 | ForEach-Object { Write-Host "  mpv: $_" } }
 if ($log -match 'ABSTURZ') { Write-Host "::error title=Selbsttest::Absturz im Client"; Write-Host $log; exit 1 }
