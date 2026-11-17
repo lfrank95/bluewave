@@ -8,6 +8,24 @@ const NATIV = window.bluewaveNativ || null;
 if (NATIV) {
     document.documentElement.classList.add('bw-nativ', NATIV.rolle === 'spieler' ? 'bw-spieler' : 'bw-haupt');
     document.head.append(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: '/css/client.css' }));
+    if (NATIV.fenster) fensterKnoepfe(NATIV.fenster);
+}
+
+/** Hauptfenster im Client: eigene Knöpfe für Minimieren, Maximieren/Wiederherstellen und Schließen */
+function fensterKnoepfe(f) {
+    const svg = (pfad) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 14 14'); s.innerHTML = pfad; return s; };
+    const PFAD = { min: '<path d="M2 7h10"/>', max: '<rect x="2.5" y="2.5" width="9" height="9" rx="1.2"/>',
+        zurueck: '<rect x="2.5" y="4.5" width="7" height="7" rx="1"/><path d="M4.5 4.5V3.5a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v5a1 1 0 0 1-1 1h-1"/>', zu: '<path d="M3 3l8 8M11 3l-8 8"/>' };
+    const k = (name, titel, cls) => { const b = document.createElement('button'); b.type = 'button'; b.className = cls || ''; b.title = titel; b.setAttribute('aria-label', titel); b.append(svg(PFAD[name])); b.addEventListener('click', () => f.aktion(name)); return b; };
+    const max = k('max', 'Maximieren');
+    const box = document.createElement('div');
+    box.className = 'fenster-knoepfe';
+    box.append(k('min', 'Minimieren'), max, k('zu', 'Schließen', 'zu'));
+    const zeigen = (z) => { if (!z) return; max.replaceChildren(svg(z.max ? PFAD.zurueck : PFAD.max)); max.title = z.max ? 'Wiederherstellen' : 'Maximieren'; box.hidden = !!z.voll; };
+    const rein = () => document.body.append(box);
+    if (document.body) rein(); else addEventListener('DOMContentLoaded', rein);
+    f.zustand().then(zeigen).catch(() => {});
+    f.auf(zeigen);
 }
 
 const app = {
@@ -253,6 +271,7 @@ async function starten() {
     if (NATIV?.rolle === 'spieler') {
         // Spielerfenster: nur der Player; Schließen beendet das Fenster, das Hauptfenster lädt seine Ansicht neu
         app.neuLaden = () => NATIV.video.zu();
+        document.getElementById('app').replaceChildren();   // kein Lade-Logo unter der durchsichtigen Bedienung
         const ziel = await NATIV.video.auftrag();
         if (!ziel) { NATIV.video.zu(); return; }
         const { spielen } = await import('./player.js');

@@ -53,7 +53,8 @@ class Spieler {
     const { BrowserWindow } = this.ctx.electron;
     this.ziel = ziel;
     if (this.offen) {
-      // läuft schon: neuen Titel in der Bedienung starten
+      // läuft schon: neuen Titel in der Bedienung starten (aus der Mini-Wiedergabe wieder groß)
+      if (this.istMini) this.mini(false);
       this.overlay.webContents.reload();
       this.video.show(); this.video.focus();
       return;
@@ -113,7 +114,71 @@ class Spieler {
   }
 
   fensterMelden() {
-    this.senden('video-fenster', { vollbild: !!(this.offen && this.video.isFullScreen()) });
+    this.senden('video-fenster', { vollbild: !!(this.offen && this.video.isFullScreen()), mini: !!this.istMini });
+  }
+
+  /** Mini-Wiedergabe wie bei Plex: Film läuft klein in der Ecke des Hauptfensters weiter, die Bibliothek ist bedienbar */
+  mini(an) {
+    an = !!an;
+    const haupt = this.ctx.hauptfenster();
+    if (!this.offen || !haupt || haupt.isDestroyed() || an === !!this.istMini) return;
+    if (an) {
+      const anwenden = () => {
+        if (!this.offen) return;
+        const v = this.vorMini;
+        if (this.video.isMaximized()) this.video.unmaximize();
+        if (v.max) haupt.maximize(); else haupt.setBounds(v.bounds);
+        haupt.show();
+        this.istMini = true;
+        this.video.setMinimumSize(200, 112);
+        this.video.setParentWindow(haupt);   // bleibt über dem Hauptfenster und wandert mit ihm
+        this.miniPlatzieren();
+        haupt.focus();
+        if (!this.hauptFolgen) {
+          this.hauptFolgen = () => { if (this.istMini) this.miniPlatzieren(); };
+          this.hauptZu = () => { if (this.istMini) this.senden('taste', 'schliessen'); };
+          for (const ereignis of ['move', 'resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) haupt.on(ereignis, this.hauptFolgen);
+          haupt.on('hide', this.hauptZu);
+          this.hauptRef = haupt;
+        }
+        this.fensterMelden();
+      };
+      this.vorMini = { bounds: this.video.getBounds(), max: this.video.isMaximized(), voll: this.video.isFullScreen() };
+      if (this.vorMini.voll) {
+        this.vorMini.bounds = haupt.getBounds();
+        this.video.once('leave-full-screen', () => setTimeout(anwenden, 120));
+        this.video.setFullScreen(false);
+      } else anwenden();
+    } else {
+      this.istMini = false;
+      this.video.setParentWindow(null);
+      this.video.setMinimumSize(480, 270);
+      const max = haupt.isMaximized();
+      this.video.setBounds(haupt.getBounds());
+      if (max) this.video.maximize();
+      this.video.show();
+      this.video.focus();
+      haupt.hide();
+      this.fensterMelden();
+    }
+  }
+
+  miniPlatzieren() {
+    const haupt = this.ctx.hauptfenster();
+    if (!this.offen || !haupt || haupt.isDestroyed()) return;
+    const c = haupt.getContentBounds();
+    const w = Math.round(Math.max(260, Math.min(440, c.width * 0.3)));
+    const h = Math.round((w * 9) / 16);
+    this.video.setBounds({ x: c.x + c.width - w - 24, y: c.y + c.height - h - 24, width: w, height: h });
+  }
+
+  miniLoesen() {
+    const h = this.hauptRef;
+    if (h && !h.isDestroyed() && this.hauptFolgen) {
+      for (const ereignis of ['move', 'resize', 'maximize', 'unmaximize', 'restore', 'enter-full-screen', 'leave-full-screen']) h.removeListener(ereignis, this.hauptFolgen);
+      h.removeListener('hide', this.hauptZu);
+    }
+    this.hauptFolgen = null; this.hauptZu = null; this.hauptRef = null;
   }
 
   vollbild() {
@@ -126,8 +191,11 @@ class Spieler {
     if (this.zuGeht === 'fertig') return;
     this.zuGeht = 'fertig';
     const haupt = this.ctx.hauptfenster();
+    const warMini = !!this.istMini;
+    this.miniLoesen();
+    this.istMini = false;
     if (haupt && !haupt.isDestroyed()) {
-      if (this.offen && !this.video.isFullScreen() && !this.video.isMaximized()) haupt.setBounds(this.video.getBounds());
+      if (this.offen && !warMini && !this.video.isFullScreen() && !this.video.isMaximized()) haupt.setBounds(this.video.getBounds());
       haupt.show();
       haupt.focus();
       haupt.webContents.send('video-ende');

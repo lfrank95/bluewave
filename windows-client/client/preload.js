@@ -28,6 +28,8 @@ if (info && info.erlaubt) {
       zu: () => ipcRenderer.send('video-zu'),
       // Überwachung (Taste B): Bildraten, Aussetzer, HDR, Grafikkarte, Smooth-Motion-Profil
       monitor: () => ipcRenderer.invoke('video-monitor'),
+      // Mini-Wiedergabe (wie bei Plex): verkleinert in der Ecke des Hauptfensters weiterlaufen bzw. wieder groß
+      mini: (an) => ipcRenderer.send('video-mini', !!an),
     }
     : {
       // Hauptfenster: Abspielen öffnet das Spielerfenster; danach meldet es sich zurück (Ansicht neu laden)
@@ -72,6 +74,12 @@ if (info && info.erlaubt) {
     asioKanaele: (treiber) => ipcRenderer.invoke('asio-kanaele', treiber),
     testton: (treiber, ausgang) => ipcRenderer.invoke('testton', treiber, ausgang),
     serverWechseln: () => ipcRenderer.send('server-wechseln'),
+    // eigene Fensterknöpfe (nur Hauptfenster): min, max, zu; Zustand { max, voll }
+    fenster: info.rolle === 'spieler' ? null : {
+      aktion: (a) => ipcRenderer.send('fenster-aktion', a),
+      zustand: () => ipcRenderer.invoke('fenster-zustand'),
+      auf: verteiler('fenster-zustand'),
+    },
     clientEinst: () => ipcRenderer.invoke('client-einst'),
     clientEinstSetzen: (w) => ipcRenderer.invoke('client-einst-setzen', w),
     logOeffnen: () => ipcRenderer.invoke('log-ordner-oeffnen'),

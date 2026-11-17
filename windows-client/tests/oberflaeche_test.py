@@ -87,6 +87,7 @@ HAUPT = """
     eqPresets: async () => [], eqPresetSetzen: async () => [],
     asioKanaele: async () => ({ namen: ['Analog 1', 'Analog 2', 'Analog 3', 'Analog 4', 'Phones 1', 'Phones 2'] }),
     testton: async () => ({ ok: true }),
+    fenster: { aktion: (a) => merk('fenster', a), zustand: async () => ({ max: false, voll: false }), auf: () => () => {} },
     serverWechseln: () => merk('serverWechseln'), clientEinst: async () => ({ tray: true, autostart: false }), clientEinstSetzen: async (w) => w,
     logOeffnen: async () => true, diagnose: async () => ({ ok: true }),
     update: { info: async () => ({ version: '0.2.0-beta.7', installierbar: true }), installieren: async () => merk('installieren'), suchen: async () => ({ ok: true }), auf: () => () => {} },
@@ -106,7 +107,8 @@ SPIELER = """
       laden: (w) => { window.__laden.push(w); setTimeout(() => window.__emit({ e: 'geladen', dauer: 7200, breite: 3840, hoehe: 2160, ton_weg: 'engine' }), 50); setTimeout(() => window.__emit({ e: 'pause', an: false }), 80); },
       befehl: (b) => window.__befehle.push(b),
       auf: (f) => { hoerer.add(f); return () => hoerer.delete(f); },
-      aufFenster: () => () => {}, aufTaste: () => () => {}, tonWeg: () => '',
+      aufFenster: (f) => { window.__fensterHoerer = f; return () => {}; }, aufTaste: () => () => {}, tonWeg: () => '',
+      mini: (an) => { (window.__mini = window.__mini || []).push(an); setTimeout(() => window.__fensterHoerer?.({ vollbild: false, mini: an }), 30); },
       vollbild: () => { window.__voll++; }, zu: () => { window.__zu = true; },
       monitor: async () => ({
         mpv: { laeuft: true, quelle_fps: 23.976, anzeige_hz: 120, verworfen: 2, verspaetet: 0, dec_verworfen: 0, hwdec: 'd3d11va', gpu: 'd3d11', sync: 'audio',
@@ -143,6 +145,11 @@ async def main():
             klassen = await page.evaluate('document.documentElement.className')
             pruefe('bw-nativ' in klassen and 'bw-haupt' in klassen, f'Client-Klassen am Dokument: {klassen}')
             pruefe(await page.evaluate("!!document.querySelector('link[href=\"/css/client.css\"]')"), 'client.css geladen')
+            await page.locator('.fenster-knoepfe button[aria-label="Minimieren"]').click()
+            await page.locator('.fenster-knoepfe button.zu').click()
+            fk = [x[1] for x in await page.evaluate('window.__aufrufe') if x[0] == 'fenster']
+            kb = await page.evaluate("(() => { const k = document.querySelector('.kopf').getBoundingClientRect(), f = document.querySelector('.fenster-knoepfe').getBoundingClientRect(), a = document.querySelector('.kopf .avatar, .kopf button:last-of-type'); return { kopfRechts: Math.round(k.right - parseFloat(getComputedStyle(document.querySelector('.kopf')).paddingRight)), knoepfeLinks: Math.round(f.left) }; })()")
+            pruefe(fk == ['min', 'zu'] and kb['kopfRechts'] <= kb['knoepfeLinks'], f'eigene Fensterknöpfe, Kopfzeile lässt Platz: {fk} {kb}')
             titel = await page.evaluate("[...document.querySelectorAll('.client-karte h2')].map(h => h.textContent)")
             pruefe(titel == ['Ton im Windows-Client', 'Bild', 'Flüssige Bewegung (Test)', 'Windows-Client'], f'Abschnitte: {titel}')
             await page.wait_for_selector('.aus-buehne .aus-kette', timeout=8000)
@@ -294,6 +301,19 @@ async def main():
             await page.screenshot(path=os.path.join(tempfile.gettempdir(), 'bw_spieler_bedienung.png'))
             await page.keyboard.press('Escape')
             await page.keyboard.press('Escape')
+            # Esc verkleinert (Mini-Wiedergabe wie bei Plex), Klick macht wieder groß, ✕ schließt
+            await page.wait_for_function("document.querySelector('.player.mini')", timeout=3000)
+            m1 = await page.evaluate('window.__mini'); pruefe(m1 == [True], f'Esc: Mini-Wiedergabe statt Schließen {m1}')
+            pruefe(await page.locator('.mini-ebene').is_visible() and not await page.locator('.player .ebene').is_visible(), 'Mini-Bedienung statt der großen')
+            await page.mouse.move(700, 450)
+            await page.screenshot(path=os.path.join(tempfile.gettempdir(), 'bw_spieler_mini.png'))
+            await page.mouse.click(300, 450)
+            await page.wait_for_function("!document.querySelector('.player.mini')", timeout=3000)
+            m2 = await page.evaluate('window.__mini'); pruefe(m2 == [True, False], f'Klick: wieder groß {m2}')
+            await page.keyboard.press('Escape')
+            await page.wait_for_function("document.querySelector('.player.mini')", timeout=3000)
+            await page.mouse.move(700, 300)
+            await page.locator('.mini-oben button[aria-label="Schließen"]').click()
             await page.wait_for_function('window.__zu === true', timeout=5000)
             befehle = await page.evaluate('window.__befehle')
             pruefe(befehle[-1] == {'c': 'stopp'}, 'Schließen: mpv hält an, Fenster zu')

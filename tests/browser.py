@@ -86,6 +86,15 @@ async def main():
         await page.evaluate('window.__bluewaveSpieler.gehe(300)')
         t = await warte(page, "(() => { const s = window.__bluewaveSpieler; return s.pos() >= 300 && s.pos() < 320 && !s.video.paused && s.video.readyState >= 3; })()", 30)
         pruefe(t is not None, f'Sprung auf 300 s: spielt nach {t and round(t, 2)} s')
+        # Mini-Wiedergabe: Esc verkleinert, der Film läuft in der Ecke weiter, die Seite ist bedienbar; Klick macht groß
+        await page.keyboard.press('Escape')
+        await page.wait_for_timeout(800)
+        mini = await page.evaluate("(() => { const p = document.querySelector('.player'); const r = p.getBoundingClientRect(); const v = window.__bluewaveSpieler.video; return { mini: p.classList.contains('mini'), breite: r.width, rechts: innerWidth - r.right, laeuft: !v.paused, scroll: document.body.style.overflow }; })()")
+        pruefe(mini['mini'] and mini['breite'] < 500 and mini['rechts'] < 60 and mini['laeuft'] and mini['scroll'] == '', f'Mini-Wiedergabe unten rechts, läuft weiter: {mini}')
+        await page.click('.player.mini', position={'x': 60, 'y': 120})
+        await page.wait_for_timeout(500)
+        gross = await page.evaluate("(() => { const p = document.querySelector('.player'); return !p.classList.contains('mini') && p.getBoundingClientRect().width > 1000; })()")
+        pruefe(gross, 'Klick auf die Mini-Wiedergabe macht sie wieder groß')
         await page.evaluate('window.__bluewaveSpieler.schliessen()')
         await page.wait_for_timeout(500)
 

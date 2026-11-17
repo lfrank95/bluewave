@@ -104,6 +104,7 @@ class Player {
     }
 
     aufbauen() {
+        this.mini = false;
         this.video = NATIV ? new NativVideo(NATIV) : el('video', { playsinline: true, preload: 'auto' });
         this.kreisel = el('div.kreisel');
         this.mitte = el('div.mitte-status', this.kreisel);
@@ -133,7 +134,7 @@ class Player {
         this.ueberspringenEl = el('button.ueberspringen', { hidden: true, onclick: (e) => { e.stopPropagation(); this.introUeberspringen(); } }, 'Intro überspringen', icon('naechste'));
         this.naechsteEl = el('div.naechste-karte', { hidden: true, onclick: (e) => e.stopPropagation() });
         this.ebene = el('div.ebene',
-            el('div.oben', knopf('zurueck', 'Zurück (Esc)', () => this.schliessen(), '.rund'), this.titelEl),
+            el('div.oben', knopf('zurueck', 'Verkleinern – läuft in der Ecke weiter (Esc)', () => this.verlassen(), '.rund'), this.titelEl),
             el('div.mitte-steuerung',
                 knopf('zurueck10', '10 Sekunden zurück (←)', () => this.springen(-10), '.mittel'),
                 this.mittePlay,
@@ -147,7 +148,19 @@ class Player {
                         knopf('untertitel', 'Ton und Untertitel', () => this.panel('spuren')),
                         knopf('einstellungen', 'Einstellungen', () => this.panel('einstellungen')),
                         this.vollKnopf))));
-        this.wurzel = el('div.player' + (NATIV ? '.nativ' : ''), NATIV ? this.video.element : this.video, this.mitte, this.ebene, this.ueberspringenEl, this.naechsteEl, this.panelEl);
+        // Mini-Wiedergabe (wie bei Plex): Film läuft verkleinert weiter, Klick macht ihn wieder groß
+        this.miniPlay = el('button.mini-knopf', { 'aria-label': 'Abspielen/Pause', title: 'Abspielen/Pause', onclick: (e) => { e.stopPropagation(); this.umschalten(); } }, icon('play'));
+        this.miniTitel = el('div.mini-titel');
+        this.miniBalken = el('div.mini-balken');
+        this.miniEl = el('div.mini-ebene',
+            el('div.mini-oben', this.miniTitel,
+                el('button.mini-knopf', { 'aria-label': 'Schließen', title: 'Schließen', onclick: (e) => { e.stopPropagation(); this.schliessen(); } }, icon('schliessen'))),
+            el('div.mini-mitte',
+                el('button.mini-knopf', { 'aria-label': '10 Sekunden zurück', title: '10 Sekunden zurück', onclick: (e) => { e.stopPropagation(); this.springen(-10); } }, icon('zurueck10')),
+                this.miniPlay,
+                el('button.mini-knopf', { 'aria-label': 'Groß', title: 'Wieder groß', onclick: (e) => { e.stopPropagation(); this.miniUmschalten(false); } }, icon('vollbild'))),
+            el('div.mini-leiste', this.miniBalken));
+        this.wurzel = el('div.player' + (NATIV ? '.nativ' : ''), NATIV ? this.video.element : this.video, this.mitte, this.ebene, this.ueberspringenEl, this.naechsteEl, this.panelEl, this.miniEl);
         document.body.append(this.wurzel);
         document.body.style.overflow = 'hidden';
 
@@ -156,6 +169,7 @@ class Player {
             const n = v.paused ? 'play' : 'pause';
             this.playKnopf.replaceChildren(icon(n));
             this.mittePlay.replaceChildren(icon(n));
+            this.miniPlay.replaceChildren(icon(n));
             this.wurzel.classList.toggle('pausiert', v.paused);
         };
         v.addEventListener('play', playIcons);
@@ -236,6 +250,12 @@ class Player {
         this.taste = (ev) => {
             if (ev.target.closest('input:not([type=range]), select, textarea')) return;
             const k = ev.key;
+            if (this.mini) {
+                // klein: im Browser gehören die Tasten der Seite darunter; im Client-Fenster nur Pause und Groß
+                if (!NATIV) return;
+                if (k === ' ' || k === 'k') { ev.preventDefault(); this.umschalten(); } else if (k === 'Enter' || k === 'f') this.miniUmschalten(false);
+                return;
+            }
             if (k === ' ' || k === 'k') { ev.preventDefault(); this.umschalten(); } else if (k === 'ArrowLeft') this.springen(-10);
             else if (k === 'ArrowRight') this.springen(10);
             else if (k === 'ArrowUp') { ev.preventDefault(); this.video.volume = Math.min(1, this.video.volume + 0.1); this.video.muted = false; }
@@ -245,7 +265,7 @@ class Player {
             else if (k === 'n' && this.daten?.naechste) this.naechste();
             else if (k === 'i') this.diagLive();
             else if ((k === 'b' || k === 'B') && NATIV?.monitor) this.bildmonitor();
-            else if (k === 'Escape') { if (!this.panelEl.hidden) this.panelEl.hidden = true; else if (NATIV && this.nativVoll) this.vollbild(); else if (!document.fullscreenElement) this.schliessen(); }
+            else if (k === 'Escape') { if (!this.panelEl.hidden) this.panelEl.hidden = true; else if (NATIV && this.nativVoll) this.vollbild(); else if (!document.fullscreenElement) this.verlassen(); }
             else return;
             this.wach();
         };
@@ -254,6 +274,7 @@ class Player {
         // Klick/Tippen auf das Bild: Maus = Pause umschalten; Touch = Steuerung zeigen/verstecken, Doppeltipp links/rechts = ±10 s
         let letzterTipp = 0;
         this.wurzel.addEventListener('click', (ev) => {
+            if (this.mini) { if (!ev.target.closest('button')) this.miniUmschalten(false); return; }
             if (!this.panelEl.hidden) { this.panelEl.hidden = true; return; }
             if (ev.target.closest('button, input, .zeitleiste, .naechste-karte')) return;
             const touch = matchMedia('(pointer: coarse)').matches;
@@ -272,8 +293,12 @@ class Player {
         document.addEventListener('fullscreenchange', this.vollAenderung = () => this.vollKnopf.replaceChildren(icon(document.fullscreenElement ? 'vollbildAus' : 'vollbild')));
         if (NATIV) {
             // Fenster statt Element: Doppelklick und F schalten das Spielerfenster auf Vollbild
-            this.wurzel.addEventListener('dblclick', (ev) => { if (!ev.target.closest('button, input, .zeitleiste, .panel')) this.vollbild(); });
-            this.nativAus = NATIV.aufFenster((f) => { this.nativVoll = !!f.vollbild; this.vollKnopf.replaceChildren(icon(f.vollbild ? 'vollbildAus' : 'vollbild')); });
+            this.wurzel.addEventListener('dblclick', (ev) => { if (!this.mini && !ev.target.closest('button, input, .zeitleiste, .panel')) this.vollbild(); });
+            this.nativAus = NATIV.aufFenster((f) => {
+                this.nativVoll = !!f.vollbild;
+                this.vollKnopf.replaceChildren(icon(f.vollbild ? 'vollbildAus' : 'vollbild'));
+                if (!!f.mini !== this.mini) this.miniSetzen(!!f.mini);
+            });
             this.tasteAus = NATIV.aufTaste((t) => { if (t === 'playpause') this.umschalten(); else if (t === 'next' && this.daten?.naechste) this.naechste(); else if (t === 'stop' || t === 'schliessen') this.schliessen(); });
             this.video.addEventListener('nativ', (ev) => {
                 const m = ev.detail;
@@ -535,6 +560,7 @@ class Player {
     }
     zeigeZiel(p) {
         this.gespielt.style.width = p * 100 + '%';
+        this.miniBalken.style.width = p * 100 + '%';
         this.knauf.style.left = p * 100 + '%';
     }
 
@@ -630,6 +656,38 @@ class Player {
     }
 
     /** Live-Anzeige für die Fehlersuche (Taste I oder Einstellungen › Diagnose) */
+    /** Zurück/Esc: Film verkleinert weiterlaufen lassen (läuft er nicht mehr oder fehlt das Bild: schließen) */
+    verlassen() {
+        if (!this.daten || this.video.ended || (NATIV && !NATIV.mini)) { this.schliessen(); return; }
+        this.miniUmschalten(true);
+    }
+
+    miniUmschalten(an) {
+        if (NATIV?.mini) {
+            if (this.mini === an || this.miniZiel === an) return;   // schon so oder schon angefragt
+            this.miniZiel = an;
+            NATIV.mini(an);
+            return;
+        }   // das Fenster wird klein, die Meldung schaltet die Ansicht um
+        this.miniSetzen(an);
+    }
+
+    miniSetzen(an) {
+        this.mini = an;
+        this.miniZiel = null;
+        this.wurzel.classList.toggle('mini', an);
+        this.panelEl.hidden = true;
+        this.monitorAus?.(); this.monitorAus = null;
+        this.diagLiveAus?.();
+        const i = this.daten?.info || {};
+        this.miniTitel.textContent = [i.titel, i.untertitel].filter(Boolean).join(' · ');
+        if (!NATIV) {
+            document.body.style.overflow = an ? '' : 'hidden';
+            if (an && document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+        }
+        if (!an) this.wach();
+    }
+
     /** Windows-Client: Bildmonitor (flüssige Bewegung, Bildraten, Grafikkarte) ein/aus */
     bildmonitor() {
         if (this.monitorAus) { this.monitorAus(); this.monitorAus = null; return; }

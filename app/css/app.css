@@ -1038,9 +1038,16 @@ section.unterabschnitt { padding-left: clamp(0px, 1.2vw, 18px); }
 .player .vorschau-zeit > span { padding: 4px 9px; border-radius: 8px; background: rgba(10, 14, 22, 0.92); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5); }
 
 /* ---------- Windows-Client ---------- */
-/* Hauptfenster: die Kopfzeile ist die Titelleiste (ziehen), rechts bleiben die Windows-Knöpfe frei */
-html.bw-haupt .kopf { -webkit-app-region: drag; app-region: drag;
-    padding-right: calc(var(--seite-rand) + 100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)); }
+/* Hauptfenster: die Kopfzeile ist die Titelleiste (ziehen); rechts eigene Fensterknöpfe im Stil der App */
+html.bw-haupt .kopf { -webkit-app-region: drag; app-region: drag; padding-right: calc(var(--seite-rand) + 128px); }
+.fenster-knoepfe { position: fixed; z-index: 400; top: calc(var(--kopf-hoehe) / 2 - 17px); right: 14px; display: flex; gap: 6px;
+    -webkit-app-region: no-drag; app-region: no-drag; }
+.fenster-knoepfe button { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 999px; border: 1px solid transparent;
+    background: transparent; color: var(--text-secondary, #9fb3cf); cursor: pointer; transition: background .15s, color .15s, border-color .15s; }
+.fenster-knoepfe button:hover { background: rgba(226, 238, 255, 0.1); border-color: rgba(214, 230, 255, 0.14); color: var(--text-primary, #eaf1fb); }
+.fenster-knoepfe button.zu:hover { background: #d9384a; border-color: transparent; color: #fff; }
+.fenster-knoepfe svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; }
+html.bw-haupt:fullscreen .fenster-knoepfe { display: none; }
 html.bw-haupt .kopf a, html.bw-haupt .kopf button, html.bw-haupt .kopf input, html.bw-haupt .kopf label { -webkit-app-region: no-drag; app-region: no-drag; }
 /* Spielerfenster: durchsichtig über dem Bild von mpv. Ein Hauch Deckkraft, damit Windows Klicks nicht durchreicht */
 html.bw-spieler, html.bw-spieler body { background: rgba(0, 0, 0, 0.004) !important; }
@@ -1079,3 +1086,33 @@ html.bw-spieler .player .oben button { -webkit-app-region: no-drag; app-region: 
 .client-karte .bm-status { display: inline-flex; gap: 8px; align-items: center; }
 .client-karte .rife-box .fehler { color: #ff7a7a; }
 .client-karte .rife-box progress { height: 6px; accent-color: var(--accent-a); }
+
+/* Bildlaufleisten: schmal, ohne Spur, im Ton der App */
+html { scrollbar-width: thin; scrollbar-color: rgba(214, 230, 255, 0.22) transparent; }
+html.bw-nativ { scrollbar-gutter: auto; }
+
+/* Mini-Wiedergabe (wie bei Plex): Film läuft verkleinert weiter, Klick macht ihn wieder groß */
+.player .mini-ebene { display: none; }
+.player.mini .ebene, .player.mini .mitte-status, .player.mini .ueberspringen, .player.mini .naechste-karte, .player.mini .panel,
+.player.mini .diag-live, .player.mini .bildmonitor { display: none !important; }
+.player.mini { cursor: pointer; }
+.player:not(.nativ).mini { inset: auto calc(24px + env(safe-area-inset-right)) calc(24px + env(safe-area-inset-bottom)) auto; width: min(420px, calc(100vw - 48px));
+    aspect-ratio: 16 / 9; border-radius: 16px; box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(214, 230, 255, 0.14); z-index: 450; }
+.player.mini .mini-ebene { display: grid; grid-template-rows: auto 1fr auto; position: absolute; inset: 0; }
+.player.mini .mini-oben, .player.mini .mini-mitte { opacity: 0; transition: opacity .2s; }
+.player.mini:hover .mini-oben, .player.mini:hover .mini-mitte, .player.mini.pausiert .mini-mitte { opacity: 1; }
+.player.mini:hover .mini-ebene { background: linear-gradient(180deg, rgba(0, 0, 0, 0.6), rgba(0, 0, 0, 0.15) 45%, rgba(0, 0, 0, 0.45)); }
+.player .mini-oben { display: flex; align-items: center; gap: 8px; padding: 8px 8px 0 12px; }
+.player .mini-titel { flex: 1; min-width: 0; font-weight: 600; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: 0 1px 3px #000; }
+.player .mini-mitte { display: flex; align-items: center; justify-content: center; gap: 14px; }
+.player .mini-knopf { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 999px; border: 0; cursor: pointer;
+    background: rgba(10, 14, 22, 0.55); color: #fff; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.player .mini-mitte .mini-knopf:nth-child(2) { width: 46px; height: 46px; background: rgba(255, 255, 255, 0.92); color: #0a0f18; }
+.player .mini-knopf:hover { background: rgba(255, 255, 255, 0.22); }
+.player .mini-mitte .mini-knopf:nth-child(2):hover { background: #fff; }
+.player .mini-knopf svg { width: 18px; height: 18px; }
+.player .mini-leiste { height: 3px; background: rgba(255, 255, 255, 0.18); }
+.player .mini-balken { height: 100%; width: 0; background: var(--accent-gradient, #3c8cff); }
+html.bw-spieler .player.mini .oben { -webkit-app-region: no-drag; app-region: no-drag; }
+html.bw-spieler .player.mini .mini-oben { -webkit-app-region: drag; app-region: drag; }
+html.bw-spieler .player.mini .mini-oben button { -webkit-app-region: no-drag; app-region: no-drag; }

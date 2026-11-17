@@ -390,6 +390,7 @@ ipcMain.on('video-oeffnen', (e, ziel) => {
 });
 ipcMain.handle('video-auftrag', (e) => (vonSpieler(e) ? spieler.ziel : null));
 ipcMain.on('video-laden', (e, w) => { if (vonSpieler(e)) spieler.laden(w).catch((x) => log.schreiben('FEHLER', `mpv laden: ${x.message}`)); });
+ipcMain.on('video-mini', (e, an) => { if (vonSpieler(e)) spieler.mini(!!an); });
 ipcMain.on('video-befehl', (e, b) => { if (vonSpieler(e)) spieler.befehl(b).catch((x) => log.schreiben('WARN', `mpv: ${x.message}`)); });
 ipcMain.on('video-zu', (e) => { if (vonSpieler(e)) spieler.schliessen(); });
 ipcMain.on('video-vollbild', (e) => { if (vonSpieler(e)) spieler.vollbild(); });
@@ -932,13 +933,16 @@ async function ueberZeigen() {
 }
 
 /* ---------- Fenster ---------- */
-const TITEL_FARBE = '#070b12', TITEL_SYMBOL = '#eaf1fb', TITEL_HOEHE = 40;
-function titelFarbe(farbe) {
-  const m = /^#?([0-9a-f]{6})$/i.exec(String(farbe || '').trim());
-  if (!m || !fenster || fenster.isDestroyed()) return;
-  const n = parseInt(m[1], 16), hell = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255) > 140;
-  try { fenster.setTitleBarOverlay({ color: '#' + m[1], symbolColor: hell ? '#0a1220' : TITEL_SYMBOL, height: TITEL_HOEHE }); } catch (e) { /* ältere Systeme */ }
-}
+const TITEL_FARBE = '#070b12';
+// Eigene Fensterknöpfe in der Kopfzeile der Web-App (statt der Windows-Leiste mit festem Hintergrund)
+const fensterZustand = () => (fenster && !fenster.isDestroyed() ? { max: fenster.isMaximized(), voll: fenster.isFullScreen() } : null);
+ipcMain.on('fenster-aktion', (e, aktion) => {
+  if (!vonSeite(e) || !fenster || fenster.isDestroyed() || e.sender.id !== fenster.webContents.id) return;
+  if (aktion === 'min') fenster.minimize();
+  else if (aktion === 'max') { if (fenster.isMaximized()) fenster.unmaximize(); else fenster.maximize(); }
+  else if (aktion === 'zu') fenster.close();
+});
+ipcMain.handle('fenster-zustand', (e) => (vonSeite(e) ? fensterZustand() : null));
 
 function fensterSicherstellen() {
   if (fenster && !fenster.isDestroyed()) return;
@@ -951,9 +955,9 @@ function fensterSicherstellen() {
     icon: path.join(__dirname, 'bilder', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     show: false,
     autoHideMenuBar: true,
-    // Titelleiste in der App-Farbe: die Kopfzeile der Web-App ist die Titelleiste, die Windows-Knöpfe bleiben nativ
+    // ohne Windows-Titelleiste: die Kopfzeile der Web-App ist die Titelleiste, mit eigenen Fensterknöpfen (Rand, Einrasten
+    // und Schatten bleiben von Windows)
     titleBarStyle: 'hidden',
-    titleBarOverlay: { color: TITEL_FARBE, symbolColor: TITEL_SYMBOL, height: TITEL_HOEHE },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -967,7 +971,7 @@ function fensterSicherstellen() {
   const versteckt = process.argv.includes('--versteckt') && !fensterGezeigt && tray;
   fenster.once('ready-to-show', () => { if (!versteckt) { fenster.show(); fensterGezeigt = true; } });
   fenster.on('page-title-updated', (_e, x) => { titelText = String(x || '').slice(0, 120); trayAktualisieren(); });
-  fenster.webContents.on('did-change-theme-color', (_e, farbe) => titelFarbe(farbe || TITEL_FARBE));
+  for (const ereignis of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen', 'restore']) fenster.on(ereignis, () => senden('fenster-zustand', fensterZustand()));
   fenster.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     return { action: 'deny' };
