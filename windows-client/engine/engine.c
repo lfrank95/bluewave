@@ -709,6 +709,59 @@ static void *dekoder_thread(void *arg) {
 }
 
 /* ------------------------------------------------------------------------------------------------------------ */
+/* Kanäle zuordnen, wenn Quelle und Gerät verschieden viele haben (FLAC-/WAV-Kanalfolge der Quelle)                 */
+
+/** Kanäle der Quelle nach Lage: FLAC-Folge je Anzahl – 3 L R C · 4 L R Ls Rs · 5 L R C Ls Rs · 6 L R C LFE Ls Rs ·
+ *  7 L R C LFE Bc Sl Sr · 8 L R C LFE Bl Br Sl Sr. Hintere und seitliche Surrounds getrennt (b, s). */
+typedef struct { double fl, fr, fc, lfe, bl, br, sl, sr; } Lage;
+static Lage lage_lesen(const double *q, int qk) {
+  Lage l = {0};
+  l.fl = q[0]; l.fr = qk > 1 ? q[1] : q[0];
+  switch (qk) {
+    case 3: l.fc = q[2]; break;
+    case 4: l.sl = q[2]; l.sr = q[3]; break;
+    case 5: l.fc = q[2]; l.sl = q[3]; l.sr = q[4]; break;
+    case 6: l.fc = q[2]; l.lfe = q[3]; l.sl = q[4]; l.sr = q[5]; break;
+    case 7: l.fc = q[2]; l.lfe = q[3]; l.bl = l.br = 0.7071 * q[4]; l.sl = q[5]; l.sr = q[6]; break;
+    case 8: l.fc = q[2]; l.lfe = q[3]; l.bl = q[4]; l.br = q[5]; l.sl = q[6]; l.sr = q[7]; break;
+    default: break;
+  }
+  return l;
+}
+/** Passt die Quelle ohne Umrechnen auf das Gerät? (gleiche Anzahl, Mono/Stereo, 5.1 auf 7.1 – die ersten sechs gleich) */
+static int lage_gleich(int qk, int ak) { return qk == ak || (qk <= 2 && ak >= qk) || (qk == 6 && ak == 8); }
+/**
+ * Quelle (qk Kanäle) auf das Gerät (ak Kanäle) verteilen, wenn die Lagen nicht passen:
+ *  Stereo: L = FL + 0,707·(C + Surrounds), normiert · Quadro (4/5 Kanäle): Mitte zu 0,707 in die Front, hinten und seitlich
+ *  zusammen (je 0,707, wenn beides da ist), LFE ohne Subwoofer weggelassen (wie Dolby-Downmix) · 5.1 aus 7.1: Seite und
+ *  hinten zusammen · weniger Kanäle (Quadro, 3.0, 5.0) auf 5.1/7.1: an die richtigen Plätze, Rest still.
+ */
+static void lage_verteilen(const double *q, int qk, double *x, int ak) {
+  for (int c = 0; c < ak; c++) x[c] = 0;
+  if (ak == 1) { double m = 0; for (int c = 0; c < qk; c++) m += q[c]; x[0] = m / qk; return; }
+  if (qk == 1) { x[0] = x[1] = q[0]; return; }
+  Lage l = lage_lesen(q, qk);
+  int hinten = qk == 7 || qk == 8, mitte = qk == 3 || qk >= 5;
+  double ls = hinten ? 0.7071 * (l.sl + l.bl) : l.sl, rs = hinten ? 0.7071 * (l.sr + l.br) : l.sr;
+  if (ak < 4) {
+    int sur = qk >= 4;
+    double norm = 1.0 / (1.0 + 0.7071 * mitte + 0.7071 * sur);
+    x[0] = (l.fl + 0.7071 * (l.fc + ls)) * norm;
+    x[1] = (l.fr + 0.7071 * (l.fc + rs)) * norm;
+    return;
+  }
+  if (ak < 6) {
+    double norm = mitte ? 1.0 / 1.7071 : 1.0;
+    x[0] = (l.fl + 0.7071 * l.fc) * norm; x[1] = (l.fr + 0.7071 * l.fc) * norm;
+    x[2] = ls * norm; x[3] = rs * norm;
+    return;
+  }
+  x[0] = l.fl; x[1] = l.fr; x[2] = l.fc; x[3] = l.lfe;
+  if (ak >= 8 && hinten) { x[4] = l.bl; x[5] = l.br; x[6] = l.sl; x[7] = l.sr; }
+  else { x[4] = ls; x[5] = rs; }
+}
+
+/* ------------------------------------------------------------------------------------------------------------ */
 /* Umwandlung Ring → Geräteformat (Lautstärke, Dither nur wenn nötig)                                              */
 
 static uint32_t zufall = 0x12345678u;
@@ -760,27 +813,14 @@ static int umwandeln(void *dst, const AusInfo *ai, const int32_t *src, int src_k
     const int32_t *s = src + (size_t)f * src_kan;
     double x[8];
     // unverändert durchreichen möglich? Auch auf mehr Gerätekanäle (die übrigen bleiben still, Mono auf beide Seiten)
-    int roh = vol_ist == 1.0 && ff == 1.0 && ak >= src_kan && !KORR_AKTIV;
+    int roh = vol_ist == 1.0 && ff == 1.0 && ak >= src_kan && lage_gleich(src_kan, ak) && !KORR_AKTIV;
     int32_t rohw[8];
     if (roh) for (int c = 0; c < ak; c++) rohw[c] = c < src_kan ? s[c] : (src_kan == 1 && c == 1 ? s[0] : 0);
     else {
       ok_bitgenau = 0;
-      // Kanäle zuordnen
-      if (src_kan == ak) for (int c = 0; c < ak; c++) x[c] = s[c] / 2147483648.0;
-      else if (src_kan == 1) { for (int c = 0; c < ak; c++) x[c] = c < 2 ? s[0] / 2147483648.0 : 0; }
-      else if (ak > src_kan) { for (int c = 0; c < ak; c++) x[c] = c < src_kan ? s[c] / 2147483648.0 : 0; }
-      else if (ak == 1) { double m = 0; for (int c = 0; c < src_kan; c++) m += s[c]; x[0] = m / src_kan / 2147483648.0; }
-      else {
-        // Mehrkanal auf Stereo (FL FR FC LFE BL BR SL SR): L = FL + 0,707·(FC + BL + SL), normiert
-        double fl = s[0] / 2147483648.0, fr = s[1] / 2147483648.0;
-        double fc = src_kan > 2 ? s[2] / 2147483648.0 : 0;
-        double bl = src_kan > 4 ? s[4] / 2147483648.0 : 0, br = src_kan > 5 ? s[5] / 2147483648.0 : 0;
-        double sl = src_kan > 6 ? s[6] / 2147483648.0 : 0, sr = src_kan > 7 ? s[7] / 2147483648.0 : 0;
-        double norm = 1.0 / (1.0 + 0.7071 * (src_kan > 2) + 0.7071 * (src_kan > 4) + 0.7071 * (src_kan > 6));
-        x[0] = (fl + 0.7071 * (fc + bl + sl)) * norm;
-        x[1] = (fr + 0.7071 * (fc + br + sr)) * norm;
-        for (int c = 2; c < ak; c++) x[c] = 0;
-      }
+      // Kanäle zuordnen: gleiche Lage 1:1 (übrige Gerätekanäle still), sonst nach Lage verteilen
+      if (lage_gleich(src_kan, ak)) for (int c = 0; c < ak; c++) x[c] = c < src_kan ? s[c] / 2147483648.0 : (src_kan == 1 && c == 1 ? s[0] / 2147483648.0 : 0);
+      else { double q[8]; for (int c = 0; c < src_kan && c < 8; c++) q[c] = s[c] / 2147483648.0; lage_verteilen(q, src_kan > 8 ? 8 : src_kan, x, ak); }
       for (int c = 0; c < ak; c++) x[c] *= vol_ist * ff;
       if (KORR_AKTIV) korr_frame(x, ak);
     }
@@ -835,17 +875,8 @@ static void umwandeln_float(void *dst, const AusInfo *ai, float *const *src, int
     if (vol_ist != vol_ziel) { vol_ist += (vol_ziel - vol_ist) * k; if (fabs(vol_ist - vol_ziel) < 1e-7) vol_ist = vol_ziel; }
     double ff = fade_faktor(ai->rate);
     double x[8];
-    if (src_kan == ak) for (int c = 0; c < ak; c++) x[c] = src[c][f];
-    else if (src_kan == 1) for (int c = 0; c < ak; c++) x[c] = c < 2 ? src[0][f] : 0;
-    else if (ak > src_kan) for (int c = 0; c < ak; c++) x[c] = c < src_kan ? src[c][f] : 0;
-    else if (ak == 1) { double m = 0; for (int c = 0; c < src_kan; c++) m += src[c][f]; x[0] = m / src_kan; }
-    else {
-      double fl = src[0][f], fr = src[1][f], fc = src_kan > 2 ? src[2][f] : 0;
-      double bl = src_kan > 4 ? src[4][f] : 0, br = src_kan > 5 ? src[5][f] : 0, sl = src_kan > 6 ? src[6][f] : 0, sr = src_kan > 7 ? src[7][f] : 0;
-      double norm = 1.0 / (1.0 + 0.7071 * (src_kan > 2) + 0.7071 * (src_kan > 4) + 0.7071 * (src_kan > 6));
-      x[0] = (fl + 0.7071 * (fc + bl + sl)) * norm; x[1] = (fr + 0.7071 * (fc + br + sr)) * norm;
-      for (int c = 2; c < ak; c++) x[c] = 0;
-    }
+    if (lage_gleich(src_kan, ak)) for (int c = 0; c < ak; c++) x[c] = c < src_kan ? src[c][f] : (src_kan == 1 && c == 1 ? src[0][f] : 0);
+    else { double q[8]; for (int c = 0; c < src_kan && c < 8; c++) q[c] = src[c][f]; lage_verteilen(q, src_kan > 8 ? 8 : src_kan, x, ak); }
     for (int c = 0; c < ak; c++) x[c] *= vol_ist * ff;
     if (KORR_AKTIV) korr_frame(x, ak);
     for (int c = 0; c < ak; c++) {
@@ -1128,15 +1159,13 @@ static void umwandeln_bass(void *dst, const AusInfo *ai, float *const *src, int 
     if (src_kan == am) for (int c = 0; c < am; c++) x[c] = src[c][f];
     else if (src_kan == 1) { x[0] = x[1] = src[0][f]; }
     else if (src_kan == 2) { x[0] = src[0][f]; x[1] = src[1][f]; }
-    else if (L == 2 || (L == 4 && src_kan > 4)) {
-      double fl = src[0][f], fr = src[1][f], fc = src_kan > 2 ? src[2][f] : 0, lfe_q = src_kan > 3 ? src[3][f] : 0;
-      double bl = src_kan > 4 ? src[4][f] : 0, br = src_kan > 5 ? src[5][f] : 0, sl = src_kan > 6 ? src[6][f] : 0, sr = src_kan > 7 ? src[7][f] : 0;
-      if (L == 2) {
-        double norm = 1.0 / (1.0 + 0.7071 * (src_kan > 2) + 0.7071 * (src_kan > 4) + 0.7071 * (src_kan > 6));
-        x[0] = (fl + 0.7071 * (fc + bl + sl)) * norm; x[1] = (fr + 0.7071 * (fc + br + sr)) * norm;
-        lfe = lfe_q * norm;
-      } else { x[0] = fl + 0.7071 * fc; x[1] = fr + 0.7071 * fc; x[2] = bl + sl; x[3] = br + sr; lfe = lfe_q; }
-    } else for (int c = 0; c < am && c < src_kan; c++) x[c] = src[c][f];
+    else {
+      // nach Lage verteilen (Quadro, 5.0, 7.1 …); der LFE der Quelle geht hier an den Subwoofer
+      double q[8]; int qk = src_kan > 8 ? 8 : src_kan;
+      for (int c = 0; c < qk; c++) q[c] = src[c][f];
+      lage_verteilen(q, qk, x, am);
+      if (L != 6) { Lage lg = lage_lesen(q, qk); lfe = lg.lfe * (L == 2 ? 1.0 / (1.0 + 0.7071 * (qk == 3 || qk >= 5) + 0.7071 * (qk >= 4)) : (qk == 3 || qk >= 5) ? 1.0 / 1.7071 : 1.0); }
+    }
     bass_frame(x, lfe, y, ak);
     for (int c = 0; c < ak; c++) y[c] *= vol_ist * ff;
     if (KORR_AKTIV) korr_frame(y, ak);
@@ -1476,6 +1505,10 @@ static void *ausgabe_thread(void *arg) {
       int rk = klang_raum_kanaele(), bk = bass_kanaele();
       if (bk > rk) rk = bk;
       int dk = fm.kanaele > rk ? fm.kanaele : rk;
+      // ASIO-Ausgang mit Kanalkarte: Quellen, deren Kanäle nicht vorn mit L R C LFE … beginnen (3.0, Quadro, 5.0, 6.1), mit
+      // allen Kanälen des Ausgangs öffnen – sonst landeten die Surrounds einer Quadro-Quelle auf Mitte und LFE. Verteilt
+      // wird dann nach Lage (lage_verteilen); der Treiber begrenzt auf die Größe der Karte.
+      if (!strncmp(g, "asio:", 5) && (fm.kanaele == 3 || fm.kanaele == 4 || fm.kanaele == 5 || fm.kanaele == 7) && dk < 8) dk = 8;
       raum_versucht = rk;
       Geraet *d = NULL;
       double t_auf = jetzt_s();   // für die Anlaufzeit: ab Beginn des Umstellens

@@ -62,6 +62,8 @@ jobs:
           echo "V=$(node -p "require('./windows-client/client/package.json').version")" >> "$GITHUB_ENV"
       - name: Engine unter Linux testen (Strom vom Server, FLAC 5.1, unbekannte Länge)
         run: bash windows-client/tests/engine_test.sh
+      - name: Kanalzuordnung testen (5.1/7.1 auf Quadro, 7.1 auf 5.1, Quadro auf 5.1, Subwoofer)
+        run: bash windows-client/tests/lage_test.sh
       - name: Spieler-Logik testen (mpv-Attrappe, Engine-Uhr)
         run: node windows-client/tests/spieler_test.js
       - name: Oberfläche des Clients testen (Chrome, nachgebaute Client-Brücke)
