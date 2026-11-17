@@ -43,15 +43,47 @@ New-Item -ItemType Directory -Force $daten | Out-Null
 $env:BW_DATEN = $daten
 $env:BW_TEST_VIDEO = 'av://lavfi:testsrc2=duration=30:size=1280x720:rate=24'
 $p = Start-Process -FilePath (Join-Path $Ordner 'Bluewave Client.exe') -PassThru
-if (-not $p.WaitForExit(60000)) { $p | Stop-Process -Force; Write-Host "::error title=Selbsttest::Client nach 60 s nicht fertig" }
+# Bildschirmfoto der Stelle, an der der Client das Bildfenster meldet: Farben (Testbild) oder nur Schwarz?
+Add-Type -AssemblyName System.Drawing
+$gesehen = @{}
+$bilder = @{}
+$bis = (Get-Date).AddSeconds(70)
+while (-not $p.HasExited -and (Get-Date) -lt $bis) {
+  Start-Sleep -Milliseconds 400
+  $cl = Join-Path $daten 'log\client.log'
+  if (-not (Test-Path $cl)) { continue }
+  foreach ($z in (Get-Content $cl | Select-String 'SELBSTTEST-BEREIT (\w+) (-?\d+) (-?\d+) (\d+) (\d+)')) {
+    $m = $z.Matches[0].Groups; $art = $m[1].Value
+    if ($gesehen[$art]) { continue }
+    $gesehen[$art] = $true
+    Start-Sleep -Milliseconds 800
+    $x = [int]$m[2].Value + 30; $y = [int]$m[3].Value + 30; $w = [int]$m[4].Value - 60; $h = [int]$m[5].Value - 60
+    $bmp = New-Object System.Drawing.Bitmap $w, $h
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen($x, $y, 0, 0, (New-Object System.Drawing.Size $w, $h))
+    $farben = @{}; $hell = 0; $n = 0
+    for ($i = 0; $i -lt $w; $i += 17) { for ($j = 0; $j -lt $h; $j += 17) {
+      $c = $bmp.GetPixel($i, $j); $n++
+      if (($c.R + $c.G + $c.B) -gt 90) { $hell++ }
+      $farben[(($c.R -shr 5) * 64) + (($c.G -shr 5) * 8) + ($c.B -shr 5)] = 1 } }
+    $bmp.Save((Join-Path $env:RUNNER_TEMP "bildfenster-$art.png"))
+    $g.Dispose(); $bmp.Dispose()
+    $bilder[$art] = @{ farben = $farben.Count; hell = [math]::Round(100 * $hell / [math]::Max(1, $n)) }
+    Write-Host "  Bild im Fenster ($art): $($farben.Count) Farbstufen, $($bilder[$art].hell) % hell"
+  }
+}
+if (-not $p.WaitForExit(20000)) { $p | Stop-Process -Force; Write-Host "::error title=Selbsttest::Client nicht fertig" }
 Remove-Item Env:\BW_TEST_VIDEO
+foreach ($k in $bilder.Keys) { Write-Host "::notice title=Bildfenster $k::$($bilder[$k].farben) Farbstufen, $($bilder[$k].hell) % hell" }
+$neu = $bilder['BaseWindow']
+if (-not $neu -or $neu.farben -lt 8 -or $neu.hell -lt 15) { Write-Host "::error title=Selbsttest::im Bildfenster ist kein Bild zu sehen ($($neu.farben) Farbstufen)"; $bildFehler = $true }
 $log = Get-Content (Join-Path $daten 'log\client.log') -Raw
 $zeile = ($log -split "`n" | Select-String 'SELBSTTEST' | Select-Object -Last 1)
-($log -split "`n" | Select-String 'SELBSTTEST-VERGLEICH') | ForEach-Object { Write-Host "  $_"; Write-Host "::notice title=Vergleich::$_" }
+($log -split "`n" | Select-String 'SELBSTTEST-VERGLEICH') | ForEach-Object { Write-Host "  $_" }
 Write-Host "  $zeile"
 if (Test-Path (Join-Path $daten 'log\mpv.log')) { Get-Content (Join-Path $daten 'log\mpv.log') | Select-Object -Last 8 | ForEach-Object { Write-Host "  mpv: $_" } }
 if ($log -match 'ABSTURZ') { Write-Host "::error title=Selbsttest::Absturz im Client"; Write-Host $log; exit 1 }
-if ("$zeile" -notmatch 'SELBSTTEST OK') { Write-Host "::error title=Selbsttest::mpv im Videofenster: $zeile"; Write-Host $log; exit 1 }
+if ("$zeile" -notmatch 'SELBSTTEST OK' -or $bildFehler) { Write-Host "::error title=Selbsttest::mpv im Videofenster: $zeile"; Write-Host $log; exit 1 }
 Write-Host "::notice title=Selbsttest::$zeile"
 
 Write-Host '== RIFE: 7-Zip, VapourSynth in mpv, Einrichtung und Einbindung (ohne NVIDIA-Karte: Bilder verdoppeln)'

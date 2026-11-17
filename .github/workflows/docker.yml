@@ -138,6 +138,13 @@ jobs:
       - name: Prüfen
         shell: pwsh
         run: '& windows-client/tests/windows_pruefen.ps1 -Ordner "$env:RUNNER_TEMP\ordner" -Paket (Get-ChildItem "$env:RUNNER_TEMP\a\*.exe" | Select-Object -First 1).FullName'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bildfenster
+          path: ${{ runner.temp }}/bildfenster-*.png
+          retention-days: 3
+          if-no-files-found: ignore
 
   # Installer als GitHub-Release „client-v<Version>“ (main: Vorabversion, Tag v*: fertige Version) – daraus holt sich der
   # Client seine Updates (Profil › Windows-Client › Update-Quelle „GitHub“); ältere Vorabversionen werden aufgeräumt

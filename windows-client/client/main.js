@@ -5,7 +5,7 @@
 // Ablauf beim Start: gemerkten Server anpingen (zuerst im Heimnetz, dann die öffentliche Adresse). Antwortet keiner,
 // wird das Heimnetz durchsucht (derselbe Server wird an seinem Ausweis erkannt – ein Schlüssel, den der Server mit einer
 // Unterschrift belegt). Sonst: Einrichtungsseite (Suche, Liste, Adresse von Hand).
-const { app, BrowserWindow, BaseWindow, desktopCapturer, ipcMain, session, globalShortcut, Tray, Menu, shell, nativeImage, dialog, screen } = require('electron');
+const { app, BrowserWindow, BaseWindow, ipcMain, session, globalShortcut, Tray, Menu, shell, nativeImage, dialog, screen } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -1153,20 +1153,6 @@ app.on('second-instance', () => zeigen());
 async function selbsttestVideo() {
   const ergebnis = (text) => { log.schreiben('INFO', `SELBSTTEST ${text}`); setTimeout(() => { beenden = true; app.quit(); }, 500); };
   const warte = (ms) => new Promise((r) => setTimeout(r, ms));
-  /** Ist im Fenster wirklich Bild zu sehen? Bildschirm abgreifen (wie DWM ihn zusammensetzt) und Farben zählen */
-  const bildPruefen = async (fenster) => {
-    const b = fenster.getContentBounds();
-    const d = screen.getDisplayMatching(b);
-    const sk = d.scaleFactor || 1;
-    const quellen = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: Math.round(d.size.width * sk), height: Math.round(d.size.height * sk) } });
-    const q = quellen.find((x) => String(x.display_id) === String(d.id)) || quellen[0];
-    const img = q.thumbnail.crop({ x: Math.round((b.x - d.bounds.x) * sk) + 20, y: Math.round((b.y - d.bounds.y) * sk) + 20, width: Math.round(b.width * sk) - 40, height: Math.round(b.height * sk) - 40 });
-    const bmp = img.toBitmap();
-    let hell = 0, n = 0;
-    const farben = new Set();
-    for (let i = 0; i + 3 < bmp.length; i += 4 * 31) { n++; if (bmp[i] + bmp[i + 1] + bmp[i + 2] > 90) hell++; farben.add(((bmp[i] >> 5) << 6) | ((bmp[i + 1] >> 5) << 3) | (bmp[i + 2] >> 5)); }
-    return { hell: Math.round((hell / Math.max(1, n)) * 100), farben: farben.size };
-  };
   /** Wie im Betrieb: Bildfenster (mit mpv per --wid) und darüber die durchsichtige Bedienung */
   const lauf = async (Art) => {
     const opt = { x: 100, y: 100, width: 800, height: 450, frame: false, backgroundColor: '#000000', show: true };
@@ -1182,8 +1168,12 @@ async function selbsttestVideo() {
     for (let i = 0; i < 100 && !geladen; i++) await warte(100);
     await warte(2000);
     const [pos, w, h, vo] = await Promise.all([m.lesen('time-pos'), m.lesen('width'), m.lesen('height'), m.lesen('current-vo')]);
-    let bild = null;
-    try { bild = await bildPruefen(spieler.video); } catch (x) { bild = { fehler: x.message }; }
+    // Das Prüfskript fotografiert jetzt den Bildschirm an dieser Stelle (sieht man Farben oder nur Schwarz?)
+    const b = spieler.video.getContentBounds();
+    const sk = screen.getDisplayMatching(b).scaleFactor || 1;
+    log.schreiben('INFO', `SELBSTTEST-BEREIT ${Art} ${Math.round(b.x * sk)} ${Math.round(b.y * sk)} ${Math.round(b.width * sk)} ${Math.round(b.height * sk)}`);
+    await warte(6000);
+    const bild = null;
     m.beenden(); spieler.mpv = null;
     over.destroy(); spieler.video.destroy(); spieler.video = null;
     await warte(500);
@@ -1193,8 +1183,7 @@ async function selbsttestVideo() {
     const alt = await lauf('BrowserWindow');
     log.schreiben('INFO', `SELBSTTEST-VERGLEICH BrowserWindow: ${JSON.stringify(alt)}`);
     const neu = await lauf('BaseWindow');
-    const sichtbar = neu.bild && neu.bild.farben >= 8 && neu.bild.hell >= 20;
-    ergebnis(`${neu.geladen && neu.pos > 0.5 && sichtbar ? 'OK' : 'FEHLER'} BaseWindow: geladen=${neu.geladen} pos=${neu.pos} bild=${neu.w}x${neu.h} vo=${neu.vo} sichtbar=${JSON.stringify(neu.bild)}`);
+    ergebnis(`${neu.geladen && neu.pos > 0.5 ? 'OK' : 'FEHLER'} BaseWindow: geladen=${neu.geladen} pos=${neu.pos} bild=${neu.w}x${neu.h} vo=${neu.vo}`);
   } catch (x) { ergebnis(`FEHLER ${x.stack || x.message}`); }
 }
 
