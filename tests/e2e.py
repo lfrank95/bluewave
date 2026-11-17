@@ -196,7 +196,7 @@ schritt('Poster per Link: in den Ordner mit passendem Namen, fest gegen TMDB')
 import os
 r = admin.api('POST', 'poster', {'art': 'film', 'id': test['id'], 'url': 'http://tmdbfake/t/p/w780/eigen-film.jpg'})
 pruefe(r['datei'] and r['datei'].endswith('-poster.jpg') and not r.get('hinweis'), f'Film-Poster im Ordner: {r}')
-pruefe(any(n.endswith('-poster.jpg') for n in os.listdir(os.path.join(MEDIEN, 'filme', 'Testfilm (2024)'))), 'Datei liegt neben dem Film')
+pruefe(os.path.isfile(os.path.join(MEDIEN, 'filme', os.path.basename(os.path.dirname(r['datei'])), os.path.basename(r['datei']))), f'Datei liegt neben dem Film: {r["datei"]}')
 r = admin.api('POST', 'poster', {'art': 'staffel', 'id': serie['id'], 'staffel': 1, 'url': 'http://tmdbfake/t/p/w780/eigen-staffel.jpg'})
 pruefe(r['datei'] and r['datei'].endswith('/season01-poster.jpg'), f'Staffel-Poster: {r}')
 r = admin.api('POST', 'poster', {'art': 'serie', 'id': serie['id'], 'url': 'http://tmdbfake/t/p/w780/eigen-serie.jpg'})
