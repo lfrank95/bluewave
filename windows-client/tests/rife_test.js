@@ -43,6 +43,14 @@ r.onnxEinsortieren(tmp);
 pruefe(r.modellDa('v4_25') && r.v2Da('v4_25'), '4.25 nach models/rife und models/rife_v2');
 pruefe(r.stand().modelle.v4_25.da && r.stand().modelle.v4_26.da === false, 'Stand zeigt die Modelle');
 
+console.log('== Wheel-Daten wie pip verteilen');
+const sp = path.join(r.vs, 'Lib', 'site-packages');
+leer(path.join(sp, 'vapoursynth-73.data', 'data', 'VapourSynth.dll'));
+leer(path.join(sp, 'vapoursynth-73.data', 'data', 'vs-coreplugins', 'x.dll'));
+leer(path.join(sp, 'vapoursynth-73.data', 'purelib', 'vsscript', '__init__.py'));
+r.radDatenVerteilen(sp);
+pruefe(fs.existsSync(path.join(r.vs, 'VapourSynth.dll')) && fs.existsSync(path.join(r.vs, 'vs-coreplugins', 'x.dll')) && fs.existsSync(path.join(sp, 'vsscript', '__init__.py')) && !fs.existsSync(path.join(sp, 'vapoursynth-73.data')), 'data → Python-Ordner, purelib → site-packages');
+
 console.log('== Zustand vom Skript');
 fs.writeFileSync(r.statusDatei, JSON.stringify({ aktiv: true, faktor: 3 }));
 pruefe(r.zustand().aktiv && r.stand().zustand.faktor === 3, 'Zustand gelesen');

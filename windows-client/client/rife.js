@@ -188,11 +188,33 @@ class Rife {
     // Python-Modul aus dem beiliegenden Wheel nach site-packages (ein Wheel ist ein ZIP)
     const radOrdner = path.join(this.vs, 'wheel');
     const rad = fs.existsSync(radOrdner) ? fs.readdirSync(radOrdner).find((n) => /^vapoursynth-.*\.whl$/i.test(n)) : null;
-    if (rad) await this.zipAuspacken(path.join(radOrdner, rad), path.join(this.vs, 'Lib', 'site-packages'));
-    else this.log('WARN', 'kein VapourSynth-Wheel im Paket gefunden');
+    if (rad) {
+      const sp = path.join(this.vs, 'Lib', 'site-packages');
+      await this.zipAuspacken(path.join(radOrdner, rad), sp);
+      this.radDatenVerteilen(sp);
+    } else this.log('WARN', 'kein VapourSynth-Wheel im Paket gefunden');
     if (!fs.existsSync(path.join(this.vs, 'vs-plugins'))) fs.mkdirSync(path.join(this.vs, 'vs-plugins'));
     if (!fs.existsSync(path.join(this.vs, 'portable.vs'))) fs.writeFileSync(path.join(this.vs, 'portable.vs'), '');
     this.log('INFO', `VapourSynth ${rel.tag_name} eingerichtet (${rad || 'ohne Wheel'})`);
+  }
+
+  /** Wie pip: <name>.data/data → Python-Ordner (dort liegt z. B. VapourSynth.dll), purelib/platlib → site-packages, scripts → Scripts */
+  radDatenVerteilen(sp) {
+    const verschieben = (von, nach) => {
+      for (const n of fs.readdirSync(von, { withFileTypes: true })) {
+        const q = path.join(von, n.name), z = path.join(nach, n.name);
+        if (n.isDirectory()) { fs.mkdirSync(z, { recursive: true }); verschieben(q, z); } else { fs.mkdirSync(nach, { recursive: true }); fs.copyFileSync(q, z); }
+      }
+    };
+    for (const d of fs.readdirSync(sp).filter((n) => /\.data$/i.test(n))) {
+      const basis = path.join(sp, d);
+      for (const [art, ziel] of [['data', this.vs], ['purelib', sp], ['platlib', sp], ['scripts', path.join(this.vs, 'Scripts')], ['headers', path.join(this.vs, 'include')]]) {
+        const q = path.join(basis, art);
+        if (fs.existsSync(q)) verschieben(q, ziel);
+      }
+      fs.rmSync(basis, { recursive: true, force: true });
+      this.log('INFO', `Wheel-Daten aus ${d} verteilt`);
+    }
   }
 
   async mlrtEinrichten() {
