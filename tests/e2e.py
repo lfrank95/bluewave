@@ -342,9 +342,9 @@ pruefe(tv2.api('GET', 'ich')['anzeigename'] == 'Anna', 'Fernseher ist als Anna a
 code, _, _ = tv2.roh('POST', '/api/v1/wiedergabe/gesehen', {'art': 'film', 'id': test['id'], 'gesehen': True}, kopf={'X-Bluewave': ''})
 pruefe(code == 200, 'Geräte brauchen keine X-Bluewave-Kopfzeile')
 
-schritt('Aufräumen: Vorschau (Medien nur lesend)')
+schritt('Aufräumen: Vorschau (Medien hier beschreibbar, gelöscht wird nichts)')
 a = admin.api('GET', 'aufraeumen/vorschau')
-pruefe(not a['moeglich']['filme'] and len(a['liste']) > 0, f'Vorschau: {a["moeglich"]}, {len(a["liste"])}')
+pruefe(a['moeglich']['filme'] and len(a['liste']) > 0, f'Vorschau: {a["moeglich"]}, {len(a["liste"])}')
 print('  z. B.', a['liste'][0]['alt'], '→', a['liste'][0]['neu'])
 
 schritt('Oberfläche ausgeliefert')
