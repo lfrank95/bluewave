@@ -11,7 +11,7 @@ ARBEIT="$(mktemp -d)"
 aufraeumen() {
   local code=$?
   if [ "$code" != 0 ]; then
-    echo "--- Diagnose ---"; for f in "$ARBEIT"/*.txt "$ARBEIT/ffmpeg.log" "$ARBEIT/server.log" "$ARBEIT/server.out"; do [ -f "$f" ] && { echo "## $f"; head -c 3000 "$f"; echo; }; done
+    echo "--- Diagnose ---"; for f in "$ARBEIT/zeiten.log" "$ARBEIT/ffmpeg.log" "$ARBEIT/server.log" "$ARBEIT/server.out"; do [ -f "$f" ] && { echo "## $f"; head -c 3000 "$f"; echo; }; done
     echo "## ffmpeg direkt (ohne Server)"
     php -r "require '$WC/../app/includes/remux.php'; echo json_encode(ton_befehl('$ARBEIT/film.mkv', 0, 1));" | python3 -c '
 import json, subprocess, sys, time
@@ -64,11 +64,13 @@ class H(http.server.BaseHTTPRequestHandler):
         cmd = json.loads(subprocess.run(['php', '-r', php], capture_output=True, text=True, check=True).stdout)
         self.send_response(200); self.send_header('Content-Type', 'audio/flac'); self.send_header('Connection', 'close'); self.end_headers()
         p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=open('$ARBEIT/ffmpeg.log', 'a'))
+        import time; t0 = time.time(); n = 0; log = open('$ARBEIT/server.log', 'a')
         try:
             while True:
                 x = p.stdout.read1(65536)
                 if not x: break
-                self.wfile.write(x); self.wfile.flush()
+                self.wfile.write(x); self.wfile.flush(); n += len(x)
+                if n == len(x) or n > 1 << 20 and n - len(x) <= 1 << 20: log.write('  %.2f s: %d Bytes gesendet\\n' % (time.time() - t0, n)); log.flush()
         except (BrokenPipeError, ConnectionResetError):
             pass
         finally:
@@ -82,7 +84,8 @@ sleep 1
 spielen() {   # spielen <name> <url> <sekunden>
   (echo '{"c":"ausgabe","geraet":"test","exklusiv":true}'
    echo "{\"c\":\"laden\",\"id\":\"$1\",\"url\":\"$2\",\"kopf\":\"Cookie: bw_sitzung=test\\r\\n\",\"spielen\":true}"
-   sleep "$3"; echo '{"c":"beenden"}') | AW_TESTDATEI="$ARBEIT/$1.raw" AW_TEMPO=4 timeout 30 "$ARBEIT/engine" > "$ARBEIT/$1.txt" 2>&1 || true
+   sleep "$3"; echo '{"c":"beenden"}') | AW_TESTDATEI="$ARBEIT/$1.raw" AW_TEMPO=4 timeout 30 "$ARBEIT/engine" 2>&1 | while IFS= read -r z; do echo "$z"; echo "$(date +%T.%N | cut -c1-12) $z" | cut -c1-160 >> "$ARBEIT/zeiten.log"; done > "$ARBEIT/$1.txt" || true
+  echo "$(date +%T.%N | cut -c1-12) $1 fertig" >> "$ARBEIT/zeiten.log"
 }
 pruefen() { python3 - "$@" <<'PY'
 import json, sys
