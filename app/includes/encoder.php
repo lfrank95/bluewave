@@ -68,7 +68,9 @@ function encoder_befehl(string $profil, array $a, array $hw): array
     $kopie = ($v['codec'] ?? '') === 'copy'; // Video unverändert, nur Ton/Container neu
 
     $cmd = [$k['ffmpeg'], '-hide_banner', '-nostdin', '-y', '-loglevel', 'error'];
-    $cmd = array_merge($cmd, encoder_geraet_args($profil, $geraet));
+    if (!$kopie) {
+        $cmd = array_merge($cmd, encoder_geraet_args($profil, $geraet)); // unverändertes Video braucht keine Grafik
+    }
 
     $einbrennen = isset($a['einbrennen']) ? (int) $a['einbrennen'] : null; // Index des Bild-Untertitels (0:s:N)
     // Hardware-Dekodieren nur bei echten Dateien und wenn die GPU das Format kann (sonst dekodiert die CPU, kodiert die GPU).

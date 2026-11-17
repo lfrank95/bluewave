@@ -66,10 +66,13 @@ async def main():
             laeuft_weiter = z['zeit'] > ziel + 0.5
             pruefe(t is not None and laeuft_weiter, f'Sprung auf {ziel} s: spielt nach {t and round(t, 2)} s, läuft weiter ({z["zeit"]:.1f} s)')
         # Vorschaubild beim Darüberfahren
+        # erst die (ausgeblendete) Steuerleiste wecken, dann in Schritten auf die Zeitleiste
+        await page.mouse.move(640, 300)
+        await page.wait_for_timeout(500)
         leiste = await page.query_selector('.player .zeitleiste')
         box = await leiste.bounding_box()
-        await page.mouse.move(box['x'] + box['width'] * 0.3, box['y'] + box['height'] / 2)
-        await page.wait_for_timeout(300)
+        await page.mouse.move(box['x'] + box['width'] * 0.3, box['y'] + box['height'] / 2, steps=8)
+        await page.wait_for_timeout(400)
         bild = await page.evaluate("(() => { const b = document.querySelector('.player .vorschau-bild'); return b && !b.hidden ? b.style.backgroundImage : null; })()")
         pruefe(bool(bild) and '/vorschau/' in bild, f'Vorschaubild über der Zeitleiste: {bild}')
         await page.evaluate('window.__bluewaveSpieler.schliessen()')
