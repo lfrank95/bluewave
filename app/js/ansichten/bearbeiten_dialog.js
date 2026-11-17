@@ -7,7 +7,7 @@ import { api } from '../api.js';
 const FSK = { '': '–', 0: 'FSK 0', 6: 'FSK 6', 12: 'FSK 12', 16: 'FSK 16', 18: 'FSK 18' };
 const STATUS = { laufend: 'Läuft', beendet: 'Beendet', abgesetzt: 'Abgesetzt', geplant: 'Geplant', unbekannt: 'Unbekannt' };
 const FELDNAMEN = {
-    titel: 'Titel', originaltitel: 'Originaltitel', sortiertitel: 'Sortiertitel', jahr: 'Jahr', erscheinungsdatum: 'Erscheinungsdatum',
+    name: 'Name', titel: 'Titel', originaltitel: 'Originaltitel', sortiertitel: 'Sortiertitel', jahr: 'Jahr', erscheinungsdatum: 'Erscheinungsdatum',
     laufzeit_min: 'Laufzeit (Min.)', tagline: 'Tagline', beschreibung: 'Beschreibung', regie: 'Regie', freigabe: 'Altersfreigabe',
     bewertung: 'Bewertung (0–10)', genres: 'Genres', jahr_von: 'Von (Jahr)', jahr_bis: 'Bis (Jahr)', status: 'Status', sender: 'Sender / Dienst',
 };
@@ -70,7 +70,11 @@ export async function bearbeitenDialog(art, id, extra = {}) {
     const beschreibung = el('textarea.eingabe', { rows: 6 }, d.werte.beschreibung ?? '');
     const specials = art === 'serie' ? auswahl({ standard: 'Wie in den Profil-Einstellungen', zeigen: 'Immer anzeigen', ausblenden: 'Ausblenden' }, d.specials || 'standard') : null;
     const fsk = auswahl(FSK, d.werte.freigabe ?? '');
-    const allgemein = el('div.bearb-raster',
+    const allgemein = art === 'reihe' ? el('div.bearb-raster',
+        feld('name', text('name'), true),
+        feld('beschreibung', beschreibung, true),
+        el('p.hinweis-leise.breit', 'Ein eigener Name bekommt ein Schloss: TMDB-Abgleiche überschreiben ihn nicht mehr. „TMDB“ daneben holt den ursprünglichen Namen zurück.'))
+        : el('div.bearb-raster',
         feld('titel', text('titel'), true),
         feld('originaltitel', text('originaltitel')),
         feld('sortiertitel', text('sortiertitel', { placeholder: 'automatisch (ohne Der/Die/The …)' })),
@@ -104,7 +108,7 @@ export async function bearbeitenDialog(art, id, extra = {}) {
             const alt = d.werte[name] ?? null;
             if (String(w ?? '') !== String(alt ?? '') && !zurueck.has(name)) neu[name] = w;
         }
-        if (JSON.stringify([...genres].sort()) !== JSON.stringify([...(d.werte.genres || [])].sort()) && !zurueck.has('genres')) neu.genres = genres;
+        if (art !== 'reihe' && JSON.stringify([...genres].sort()) !== JSON.stringify([...(d.werte.genres || [])].sort()) && !zurueck.has('genres')) neu.genres = genres;
         return neu;
     };
 
@@ -114,7 +118,7 @@ export async function bearbeitenDialog(art, id, extra = {}) {
     const ziele = [
         { typ: 'poster', art, staffel: 0, name: 'Poster', format: 'hoch' },
         { typ: 'hintergrund', art, staffel: 0, name: 'Hintergrund', format: 'quer' },
-        { typ: 'logo', art, staffel: 0, name: 'Logo', format: 'logo' },
+        ...(art === 'reihe' ? [] : [{ typ: 'logo', art, staffel: 0, name: 'Logo', format: 'logo' }]),
         ...(art === 'serie' ? (extra.staffeln || []).map((s) => ({ typ: 'poster', art: 'staffel', staffel: s.nummer, name: s.name, format: 'hoch', poster: s.poster })) : []),
     ];
     const zielWahl = el('select', { 'aria-label': 'Bild' }, ziele.map((z, i) => el('option', { value: i }, z.art === 'staffel' ? `Staffel-Poster: ${z.name}` : z.name)));
@@ -155,7 +159,8 @@ export async function bearbeitenDialog(art, id, extra = {}) {
                     el('b', z.art === 'staffel' ? `Poster · ${z.name}` : z.name),
                     el('div.leise', { style: { fontSize: '0.85rem', margin: '4px 0 12px' } }, eigen ? 'Eigenes Bild – hat Vorrang vor TMDB' : 'Von TMDB bzw. aus dem Ordner'),
                     el('div.link-zeile', link, linkKnopf),
-                    el('p.hinweis-leise', 'Wird in den Medienordner gelegt als ', el('code.poster-datei', dateiname), '.'),
+                    art === 'reihe' ? el('p.hinweis-leise', 'Reihen haben keinen eigenen Ordner – das Bild gilt in Bluewave.')
+                        : el('p.hinweis-leise', 'Wird in den Medienordner gelegt als ', el('code.poster-datei', dateiname), '.'),
                     eigen ? el('button.knopf.klein', { type: 'button', onclick: async () => {
                         if (!await bestaetigen('Eigenes Bild entfernen', 'Das eigene Bild wandert in die Sicherungen, danach gilt wieder TMDB bzw. das Ordnerbild.', 'Entfernen')) return;
                         await api('poster', 'DELETE', { art: z.art, id, staffel: z.staffel, typ: z.typ });
@@ -196,7 +201,7 @@ export async function bearbeitenDialog(art, id, extra = {}) {
         } }, name);
         return b;
     };
-    reiterLeiste.append(reiter('allgemein', 'Allgemein'), reiter('bilder', 'Bilder'), reiter('mehr', 'Zuordnung & mehr'));
+    reiterLeiste.append(...[reiter('allgemein', 'Allgemein'), reiter('bilder', 'Bilder'), art === 'reihe' ? null : reiter('mehr', 'Zuordnung & mehr')].filter(Boolean));
     bilder.hidden = true;
     mehr.hidden = true;
     if (extra.bilderStaffel) reiterLeiste.children[1].click();
@@ -218,7 +223,7 @@ export async function bearbeitenDialog(art, id, extra = {}) {
         }
     } }, icon('haken'), 'Speichern');
     const fenster = el('div.dialog.bearb-dialog.glass-panel',
-        el('div.bearb-kopf', el('h2', art === 'film' ? 'Film bearbeiten' : 'Serie bearbeiten'), el('span.leise', d.werte.titel),
+        el('div.bearb-kopf', el('h2', { film: 'Film bearbeiten', serie: 'Serie bearbeiten', reihe: 'Reihe bearbeiten' }[art]), el('span.leise', d.werte.titel || d.werte.name),
             el('button.mini-knopf', { type: 'button', 'aria-label': 'Schließen', style: { marginLeft: 'auto' }, onclick: () => schliessen() }, icon('schliessen'))),
         reiterLeiste,
         el('div.bearb-inhalt', allgemein, bilder, mehr),
@@ -238,5 +243,5 @@ export async function bearbeitenDialog(art, id, extra = {}) {
     document.addEventListener('keydown', taste);
     hg.addEventListener('click', (e) => { if (e.target === hg) schliessen(); });
     document.body.append(hg);
-    eingaben.titel?.focus();
+    (eingaben.titel || eingaben.name)?.focus();
 }

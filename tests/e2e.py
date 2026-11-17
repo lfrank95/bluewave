@@ -255,6 +255,27 @@ admin.api('PUT', 'ich/einstellungen', {'specials': 'ausblenden'})
 pruefe(admin.api('GET', 'ich')['einstellungen']['specials'] == 'ausblenden', 'Nutzereinstellung')
 admin.api('PUT', 'ich/einstellungen', {'specials': 'zeigen'})
 
+schritt('Reihen umbenennen und Poster, Universums-Poster')
+rid = avd['reihe']['id']
+rb = admin.api('GET', f'reihe/{rid}/bearbeiten')
+tmdb_name = rb['werte']['name']
+rb = admin.api('PUT', f'reihe/{rid}/bearbeiten', {'felder': {'name': 'Meine Avengers'}})
+pruefe(rb['gesperrt'] == ['name'] and admin.api('GET', f'reihe/{rid}')['name'] == 'Meine Avengers', f'Reihe umbenannt: {rb["gesperrt"]}')
+pruefe(admin.api('GET', f'film/{av["id"]}')['reihe']['name'] == 'Meine Avengers', 'neuer Name auf der Filmseite')
+pruefe(len(admin.api('GET', f'reihe/{rid}/bilder')['poster']) == 2, 'TMDB-Auswahl für die Reihe')
+r = admin.api('POST', 'poster', {'art': 'reihe', 'id': rid, 'url': 'http://tmdbfake/t/p/w780/eigene-reihe.jpg'})
+pruefe(r['datei'] is None and not r.get('hinweis') and r['poster'] == admin.api('GET', f'reihe/{rid}')['poster'], f'Reihen-Poster: {r}')
+rb = admin.api('PUT', f'reihe/{rid}/bearbeiten', {'zuruecksetzen': ['name']})
+pruefe(rb['werte']['name'] == tmdb_name and admin.api('GET', f'reihe/{rid}')['poster'] == r['poster'], f'Name zurück, eigenes Poster bleibt: {rb["werte"]["name"]}')
+uidp = admin.api('POST', 'universen', {'name': 'Poster-Test'})['id']
+r = admin.api('POST', 'poster', {'art': 'universum', 'id': uidp, 'url': 'http://tmdbfake/t/p/w780/eigenes-universum.jpg'})
+pruefe(next(u for u in admin.api('GET', 'universen')['universen'] if u['id'] == uidp)['eigenes_poster'] == r['poster'], 'Universums-Poster')
+admin.api('POST', 'poster', {'art': 'universum', 'id': uidp, 'typ': 'hintergrund', 'url': 'http://tmdbfake/t/p/original/eigener-hg.jpg'})
+pruefe(admin.api('GET', f'universum/{uidp}')['eigener_hintergrund'], 'Universums-Hintergrund')
+admin.api('DELETE', 'poster', {'art': 'universum', 'id': uidp, 'typ': 'poster'})
+pruefe(next(u for u in admin.api('GET', 'universen')['universen'] if u['id'] == uidp)['eigenes_poster'] is None, 'Universums-Poster entfernt')
+admin.api('DELETE', f'universum/{uidp}')
+
 schritt('Suche: tolerant (Tippfehler, Satzzeichen, Wortreihenfolge), Bester Treffer, Editor-Auswahl')
 for q, erwartet in [('avengers', "Marvel's The Avengers"), ('avengrs ultron', 'Avengers: Age of Ultron'), ('ultron age', 'Avengers: Age of Ultron'), ('marvels avengers', "Marvel's The Avengers")]:
     d = admin.api('GET', 'suche?q=' + urllib.parse.quote(q))

@@ -338,6 +338,8 @@ try {
                 $bild = preg_match('#^/api/v1/bild/([a-z]+/(w\d+|original)/[A-Za-z0-9_.-]+)$#', $bild, $mm) ? $mm[1] : null;
                 db_tun('UPDATE universen SET name = :n, sortname = :s, beschreibung = :b, bild = :bi WHERE id = :id',
                     ['n' => mb_substr($name, 0, 255), 's' => sortiertitel($name), 'b' => trim((string) ($e['beschreibung'] ?? '')) ?: null, 'bi' => $bild, 'id' => $uid]);
+                // ein anderes Titelbild gewählt → eigenes Poster (per Link) gilt nicht mehr
+                db_tun("DELETE FROM eigene_poster WHERE art = 'universum' AND ziel_id = :u AND typ = 'poster' AND NOT (bild <=> :b)", ['u' => $uid, 'b' => $bild]);
                 bw_json(['ok' => true]);
             }
             if ($t2 === '' && $methode === 'DELETE') {
@@ -404,6 +406,10 @@ try {
 
         case 'reihe':
             require_once __DIR__ . '/../includes/bibliothek.php';
+            if (zahl($t1) && in_array($t2, ['bearbeiten', 'bilder'], true)) {
+                require_once __DIR__ . '/../includes/bearbeiten.php';
+                bearbeiten_api('reihe', zahl($t1), $t2, $methode);
+            }
             if (zahl($t1) && $methode === 'GET') {
                 bw_json(reihe_detail(zahl($t1), $kid) ?? fehler('Reihe nicht gefunden.', 404));
             }
@@ -556,6 +562,18 @@ try {
                 $art = (string) ($e['art'] ?? '');
                 $zid = (int) ($e['id'] ?? 0);
                 eigenes_bild_entfernen($art, $zid, (int) ($e['staffel'] ?? 0), (string) ($e['typ'] ?? 'poster'));
+                if ($art === 'reihe') {
+                    $tm = (int) db_wert('SELECT tmdb_id FROM reihen WHERE id = :i', ['i' => $zid]);
+                    if ($tm) {
+                        tmdb_reihe_uebernehmen($tm, true);
+                    }
+                    bw_json(['ok' => true]);
+                }
+                if ($art === 'universum') {
+                    $sp = ($e['typ'] ?? '') === 'hintergrund' ? 'hintergrund' : 'bild';
+                    db_tun("UPDATE universen SET $sp = NULL WHERE id = :i", ['i' => $zid]);
+                    bw_json(['ok' => true]);
+                }
                 $grund = $art === 'film' ? 'film' : 'serie';
                 $tmdb = (int) db_wert('SELECT tmdb_id FROM ' . ($grund === 'film' ? 'filme' : 'serien') . ' WHERE id = :i', ['i' => $zid]);
                 if ($tmdb) {

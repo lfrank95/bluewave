@@ -143,6 +143,7 @@ function universen_liste(int $konto = 0): array
             'von' => $jahre ? min($jahre) : null, 'bis' => $jahre ? max($jahre) : null,
             'gesehen' => count(array_filter($titel, static fn($t) => $t['gesehen'])),
             'collage' => array_slice(array_values(array_filter(array_column($titel, 'poster'))), 0, 6),
+            'eigenes_poster' => $u['bild'] ? bild_url($u['bild']) : null,
             'zusatz' => count($titel) . ' Titel'];
     }
     return $aus;
@@ -249,7 +250,7 @@ function universum_detail(int $id, int $konto, string $sort = 'eigen'): ?array
     $jahre = array_filter(array_column($titel, 'jahr'));
     return [
         'art' => 'universum', 'id' => $id, 'name' => $u['name'], 'beschreibung' => $u['beschreibung'], 'poster' => $poster, 'hintergrund' => $hg,
-        'bild' => $u['bild'] ? bild_url($u['bild']) : null, 'sortierung' => $sort,
+        'bild' => $u['bild'] ? bild_url($u['bild']) : null, 'eigener_hintergrund' => $u['hintergrund'] ? bild_url($u['hintergrund']) : null, 'sortierung' => $sort,
         'zahlen' => ['filme' => $filme, 'serien' => count(array_unique(array_column(array_filter($titel, static fn($t) => $t['art'] === 'serie'), 'id'))), 'gesamt' => count($titel), 'von' => $jahre ? min($jahre) : null, 'bis' => $jahre ? max($jahre) : null,
             'gesehen' => count(array_filter($titel, static fn($t) => $t['gesehen'])), 'ungesehen' => count(array_filter($titel, static fn($t) => !$t['gesehen']))],
         'collage' => array_slice(array_values(array_filter(array_column($titel, 'poster'))), 0, 18),

@@ -10,12 +10,15 @@ const BEARB_FELDER = [
         'laufzeit_min' => 'zahl', 'tagline' => 'text', 'beschreibung' => 'lang', 'regie' => 'text', 'freigabe' => 'fsk', 'bewertung' => 'note', 'genres' => 'liste'],
     'serie' => ['titel' => 'text', 'originaltitel' => 'text', 'sortiertitel' => 'text', 'jahr_von' => 'jahr', 'jahr_bis' => 'jahr', 'status' => 'status',
         'beschreibung' => 'lang', 'sender' => 'text', 'freigabe' => 'fsk', 'bewertung' => 'note', 'genres' => 'liste'],
+    'reihe' => ['name' => 'text', 'beschreibung' => 'lang'],
 ];
+/** Titelfeld und Sortierspalte je Art */
+const BEARB_TITEL = ['film' => ['titel', 'sortiertitel'], 'serie' => ['titel', 'sortiertitel'], 'reihe' => ['name', 'sortname']];
 const BEARB_STATUS = ['laufend', 'beendet', 'abgesetzt', 'geplant', 'unbekannt'];
 
 function bearb_tabelle(string $art): string
 {
-    return $art === 'film' ? 'filme' : 'serien';
+    return ['film' => 'filme', 'serie' => 'serien', 'reihe' => 'reihen'][$art];
 }
 
 /** Aktuelle Werte, gesperrte Felder, Bilder und Genre-Auswahl für den Dialog */
@@ -23,16 +26,19 @@ function bearbeiten_daten(string $art, int $id): array
 {
     $tab = bearb_tabelle($art);
     $spalten = array_diff(array_keys(BEARB_FELDER[$art]), ['genres']);
-    $z = db_zeile('SELECT id, tmdb_id, poster, hintergrund, logo, ' . implode(', ', $spalten) . " FROM $tab WHERE id = :id", ['id' => $id]);
+    $z = db_zeile('SELECT id, tmdb_id, poster, hintergrund, ' . ($art === 'reihe' ? 'NULL AS logo' : 'logo') . ', ' . implode(', ', $spalten) . " FROM $tab WHERE id = :id", ['id' => $id]);
     if (!$z) {
         throw new RuntimeException('Nicht gefunden.', 404);
     }
     $gt = $art === 'film' ? ['film_genres', 'film_id'] : ['serie_genres', 'serie_id'];
     $werte = [];
-    foreach ($spalten as $s) {
+    if ($art === 'reihe') {
+        $werte = ['name' => $z['name'], 'beschreibung' => $z['beschreibung']];
+    }
+    foreach ($art === 'reihe' ? [] : $spalten as $s) {
         $werte[$s] = $z[$s] === null ? null : (in_array(BEARB_FELDER[$art][$s], ['jahr', 'zahl'], true) ? (int) $z[$s] : (BEARB_FELDER[$art][$s] === 'note' ? (float) $z[$s] : (string) $z[$s]));
     }
-    $werte['genres'] = array_column(db_alle("SELECT g.name FROM $gt[0] x JOIN genres g ON g.id = x.genre_id WHERE x.$gt[1] = :id ORDER BY g.name", ['id' => $id]), 'name');
+    if ($art !== 'reihe') $werte['genres'] = array_column(db_alle("SELECT g.name FROM $gt[0] x JOIN genres g ON g.id = x.genre_id WHERE x.$gt[1] = :id ORDER BY g.name", ['id' => $id]), 'name');
     $gesperrt = array_column(db_alle('SELECT feld FROM metadaten_eigen WHERE art = :a AND ziel_id = :z', ['a' => $art, 'z' => $id]), 'feld');
     if (!in_array('sortiertitel', $gesperrt, true)) {
         $werte['sortiertitel'] = null; // automatisch – der interne Schlüssel ist kein schöner Text
@@ -98,7 +104,7 @@ function bearbeiten_speichern(string $art, int $id, array $felder, array $zuruec
             throw new RuntimeException('Unbekanntes Feld: ' . $f);
         }
         $w = bearb_wert($typ, $v);
-        if ($f === 'titel' && $w === null) {
+        if ($f === BEARB_TITEL[$art][0] && $w === null) {
             throw new RuntimeException('Der Titel darf nicht leer sein.');
         }
         if ($f === 'sortiertitel' && $w === null) {
@@ -115,7 +121,11 @@ function bearbeiten_speichern(string $art, int $id, array $felder, array $zuruec
         // TMDB-Werte für die freigegebenen Felder neu holen (wendet die übrigen Sperren danach wieder an)
         if ($tmdb) {
             require_once __DIR__ . '/tmdb.php';
-            $id = $art === 'film' ? tmdb_film_uebernehmen($id, (int) $tmdb, true) : tmdb_serie_uebernehmen($id, (int) $tmdb, true);
+            $id = match ($art) {
+                'film' => tmdb_film_uebernehmen($id, (int) $tmdb, true),
+                'serie' => tmdb_serie_uebernehmen($id, (int) $tmdb, true),
+                default => tmdb_reihe_uebernehmen((int) $tmdb, true) ?? $id,
+            };
         } elseif (in_array('sortiertitel', $zurueck, true)) {
             $t = db_wert('SELECT titel FROM ' . bearb_tabelle($art) . ' WHERE id = :id', ['id' => $id]);
             db_tun('UPDATE ' . bearb_tabelle($art) . ' SET sortiertitel = :s WHERE id = :id', ['s' => sortiertitel((string) $t), 'id' => $id]);
@@ -139,11 +149,12 @@ function eigenes_anwenden(string $art, int $id): void
             $setzen[$f] = $w;
         }
     }
-    if (isset($setzen['sortiertitel'])) {
-        $setzen['sortiertitel'] = sortiertitel((string) $setzen['sortiertitel']);
+    [$tf, $sf] = BEARB_TITEL[$art];
+    if (isset($setzen[$sf])) {
+        $setzen[$sf] = sortiertitel((string) $setzen[$sf]);
     }
-    if (isset($setzen['titel']) && !array_key_exists('sortiertitel', $setzen)) {
-        $setzen['sortiertitel'] = sortiertitel((string) $setzen['titel']);
+    if (isset($setzen[$tf]) && !array_key_exists($sf, $setzen)) {
+        $setzen[$sf] = sortiertitel((string) $setzen[$tf]);
     }
     if ($art === 'film' && array_key_exists('erscheinungsdatum', $setzen) && !array_key_exists('jahr', $setzen) && $setzen['erscheinungsdatum']) {
         $setzen['jahr'] = (int) substr((string) $setzen['erscheinungsdatum'], 0, 4);
@@ -175,7 +186,8 @@ function tmdb_bildauswahl(string $art, int $id, ?int $staffel = null): array
     if (!$tmdb || !tmdb_bereit()) {
         return ['poster' => [], 'hintergrund' => [], 'logo' => []];
     }
-    $pfad = $art === 'film' ? "movie/$tmdb/images" : ($staffel !== null ? "tv/$tmdb/season/$staffel/images" : "tv/$tmdb/images");
+    $pfad = match ($art) { 'film' => "movie/$tmdb/images", 'reihe' => "collection/$tmdb/images",
+        default => $staffel !== null ? "tv/$tmdb/season/$staffel/images" : "tv/$tmdb/images" };
     $spr = substr(tmdb_sprache(), 0, 2);
     $d = tmdb_get($pfad, ['include_image_language' => "$spr,en,null"]) ?? [];
     $basis = tmdb_bild_url();

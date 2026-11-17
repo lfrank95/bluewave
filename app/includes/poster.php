@@ -115,9 +115,12 @@ function poster_ziel(string $art, int $id, int $staffel, string $typ = 'poster')
  */
 function poster_setzen(string $art, int $id, int $staffel, string $url, string $typ = 'poster'): array
 {
-    if (!in_array($art, ['film', 'serie', 'staffel'], true) || !in_array($typ, BILD_TYPEN, true) || ($art === 'staffel' && $typ !== 'poster')) {
+    if (!in_array($art, ['film', 'serie', 'staffel', 'reihe', 'universum'], true) || !in_array($typ, BILD_TYPEN, true)
+        || ($art === 'staffel' && $typ !== 'poster') || (in_array($art, ['reihe', 'universum'], true) && $typ === 'logo')) {
         throw new RuntimeException('Unbekannte Art.');
     }
+    // Reihen und Universen haben keinen eigenen Ordner – ihr Bild liegt nur in Bluewave
+    $ohneOrdner = in_array($art, ['reihe', 'universum'], true);
     $roh = poster_laden(poster_url_normalisieren($url));
     $info = @getimagesizefromstring($roh);
     if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) {
@@ -127,13 +130,15 @@ function poster_setzen(string $art, int $id, int $staffel, string $url, string $
     if ($info[0] < $mindest[0] || $info[1] < $mindest[1]) {
         throw new RuntimeException('Das Bild ist zu klein (' . $info[0] . '×' . $info[1] . ').');
     }
-    $ziel = poster_ziel($art, $id, $staffel, $typ);
+    $ziel = $ohneOrdner ? null : poster_ziel($art, $id, $staffel, $typ);
     $endung = [IMAGETYPE_JPEG => 'jpg', IMAGETYPE_PNG => 'png', IMAGETYPE_WEBP => 'webp'][$info[2]];
-    $datei = $ziel['ordner'] . '/' . $ziel['name'] . '.' . $endung;
+    $datei = $ziel ? $ziel['ordner'] . '/' . $ziel['name'] . '.' . $endung : '';
     $hinweis = null;
     $geschrieben = null;
 
-    if (is_writable($ziel['ordner'])) {
+    if ($ohneOrdner) {
+        // kein Hinweis nötig
+    } elseif (is_writable($ziel['ordner'])) {
         // gleichnamige Poster (auch andere Endung) sichern, damit nur eins gilt
         foreach (LB_ENDUNGEN as $e) {
             $alt = $ziel['ordner'] . '/' . $ziel['name'] . '.' . $e;
@@ -178,7 +183,7 @@ function poster_setzen(string $art, int $id, int $staffel, string $url, string $
 /** Eigene Poster haben Vorrang vor TMDB und Ordnerbildern – nach jedem Abgleich erneut anwenden */
 function eigene_poster_anwenden(?string $art = null, ?int $id = null): int
 {
-    $wo = $art ? ' WHERE ' . ($art === 'film' ? "art = 'film'" : "art IN ('serie', 'staffel')") . ' AND ziel_id = :z' : '';
+    $wo = $art ? ' WHERE ' . ($art === 'serie' ? "art IN ('serie', 'staffel')" : 'art = ' . db()->quote($art)) . ' AND ziel_id = :z' : '';
     $n = 0;
     foreach (db_alle('SELECT art, ziel_id, staffel, typ, bild FROM eigene_poster' . $wo, $art ? ['z' => $id] : []) as $p) {
         $spalte = in_array($p['typ'], BILD_TYPEN, true) ? $p['typ'] : 'poster';
@@ -186,6 +191,11 @@ function eigene_poster_anwenden(?string $art = null, ?int $id = null): int
             $n += db_tun("UPDATE filme SET $spalte = :b WHERE id = :i", ['b' => $p['bild'], 'i' => $p['ziel_id']]);
         } elseif ($p['art'] === 'serie') {
             $n += db_tun("UPDATE serien SET $spalte = :b WHERE id = :i", ['b' => $p['bild'], 'i' => $p['ziel_id']]);
+        } elseif ($p['art'] === 'reihe') {
+            $n += db_tun("UPDATE reihen SET $spalte = :b WHERE id = :i", ['b' => $p['bild'], 'i' => $p['ziel_id']]);
+        } elseif ($p['art'] === 'universum') {
+            $sp = $spalte === 'poster' ? 'bild' : 'hintergrund';
+            $n += db_tun("UPDATE universen SET $sp = :b WHERE id = :i", ['b' => $p['bild'], 'i' => $p['ziel_id']]);
         } else {
             $n += db_tun('INSERT INTO serien_staffeln (serie_id, nummer, poster) VALUES (:s, :n, :b) ON DUPLICATE KEY UPDATE poster = VALUES(poster)',
                 ['s' => $p['ziel_id'], 'n' => $p['staffel'], 'b' => $p['bild']]);

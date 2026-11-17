@@ -232,11 +232,11 @@ function filme_zusammenfuehren(int $von, int $nach): void
     db_tun('DELETE FROM filme WHERE id = :v', ['v' => $von]);
 }
 
-function tmdb_reihe_uebernehmen(int $tmdbId): ?int
+function tmdb_reihe_uebernehmen(int $tmdbId, bool $erzwingen = false): ?int
 {
     $vorhanden = db_zeile('SELECT id, geaendert_am, beschreibung FROM reihen WHERE tmdb_id = :t', ['t' => $tmdbId]);
     // höchstens einmal pro Tag neu holen
-    if ($vorhanden && strtotime((string) $vorhanden['geaendert_am']) > time() - 86400 && $vorhanden['beschreibung'] !== null) {
+    if (!$erzwingen && $vorhanden && strtotime((string) $vorhanden['geaendert_am']) > time() - 86400 && $vorhanden['beschreibung'] !== null) {
         return (int) $vorhanden['id'];
     }
     $spr = tmdb_sprache();
@@ -266,6 +266,8 @@ function tmdb_reihe_uebernehmen(int $tmdbId): ?int
             ['t' => $tmdbId, 'n' => $name, 's' => sortiertitel($name), 'b' => $beschreibung ?: null, 'p' => $poster, 'h' => $hg]);
     }
     system_wert_setzen('reihe_teile_' . $id, (string) json_encode(array_keys($teile)));
+    require_once __DIR__ . '/bearbeiten.php';
+    eigenes_anwenden('reihe', $id); // eigener Name und eigene Bilder gewinnen
     return $id;
 }
 

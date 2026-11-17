@@ -3,6 +3,7 @@
 import { el, icon, kachel, bild, meldung, bestaetigen } from '../ui.js';
 import { api } from '../api.js';
 import { hero } from './film.js';
+import { bearbeitenDialog } from './bearbeiten_dialog.js';
 
 let letzterTitel = 'Universen';
 export const titel = () => letzterTitel + ' – Bluewave';
@@ -12,7 +13,7 @@ const anzahl = (n, eins, mehr) => `${n} ${n === 1 ? eins : mehr}`;
 
 export async function zeigen(r, app) {
     if (r.name === 'universen') return liste(app);
-    if (r.name === 'reihe') return reihe(parseInt(r.teile[1], 10));
+    if (r.name === 'reihe') return reihe(parseInt(r.teile[1], 10), app);
     const id = parseInt(r.teile[1], 10);
     if (r.teile[2] === 'bearbeiten' && app.konto.rolle === 'admin') return editor(id, app);
     return universum(id, r, app);
@@ -43,8 +44,8 @@ async function liste(app) {
         el('div.bib-kopf',
             el('div', el('h1', 'Universen'), el('p', 'Filme und Serien, die zusammengehören – jeder Titel einzeln, in deiner Reihenfolge.')),
             admin ? el('div.werkzeuge', { style: { marginLeft: 'auto' } }, el('button.knopf.haupt', { onclick: neu }, icon('plus'), 'Neues Universum')) : null),
-        d.universen.length ? el('div.universum-karten', d.universen.map((u) => el('a.universum-karte', { href: `#/universum/${u.id}` },
-            collage(u.collage, 6),
+        d.universen.length ? el('div.universum-karten', d.universen.map((u) => el('a.universum-karte' + (u.eigenes_poster ? '.mit-poster' : ''), { href: `#/universum/${u.id}` },
+            u.eigenes_poster ? el('div.karten-poster', el('img', { src: u.eigenes_poster, alt: '', loading: 'lazy' })) : collage(u.collage, 6),
             el('div.t',
                 el('small', 'UNIVERSUM'),
                 el('b', u.name),
@@ -80,8 +81,9 @@ async function universum(id, r, app) {
             icon('play'), n.prozent ? 'Weiterschauen' : 'Abspielen')) : null;
 
     const jahre = z.von ? (z.bis && z.bis !== z.von ? `${z.von}–${z.bis}` : String(z.von)) : null;
-    const heroEl = el('section.universum-hero',
-        collage(d.bild ? [d.bild, ...d.collage] : d.collage, 18),
+    const heroEl = el('section.universum-hero' + (d.eigener_hintergrund ? '.mit-hintergrund' : ''),
+        d.eigener_hintergrund ? el('div.hg', { style: { backgroundImage: `url("${d.eigener_hintergrund}")` } })
+            : collage(d.bild ? [d.bild, ...d.collage] : d.collage, 18),
         el('div.inhalt',
             el('div.links',
                 el('div.augenbraue', 'Universum'),
@@ -282,6 +284,21 @@ async function editor(id, app) {
     const nameIn = el('input.eingabe', { value: d.name, 'aria-label': 'Name' });
     const beschrIn = el('textarea.eingabe', { rows: 3, placeholder: 'Kurze Beschreibung (optional)' }, d.beschreibung || '');
     let bildWahl = d.bild;
+    const linkFeld = (typ, text) => {
+        const eingabe = el('input.eingabe', { type: 'url', placeholder: 'https://theposterdb.com/api/assets/…', spellcheck: 'false' });
+        const knopf = el('button.knopf', { onclick: async () => {
+            if (!eingabe.value.trim()) return;
+            knopf.classList.add('laedt');
+            try {
+                const r = await api('poster', 'POST', { art: 'universum', id, typ, url: eingabe.value.trim() });
+                meldung(typ === 'poster' ? 'Poster gespeichert.' : 'Hintergrund gespeichert.');
+                if (typ === 'poster') bildWahl = r.poster;
+                await neuLaden();
+            } catch (x) { meldung(x.message, true); } finally { knopf.classList.remove('laedt'); }
+        } }, 'Übernehmen');
+        eingabe.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); knopf.click(); } });
+        return el('div', { style: { marginTop: '14px' } }, el('label.bearb-label', text), el('div.link-zeile', eingabe, knopf));
+    };
     const stamm = () => {
         const poster = [...new Map(d.abschnitte.flatMap((g) => g.titel).filter((t) => t.poster).map((t) => [t.poster, t])).values()].slice(0, 24);
         const wahl = el('div.bild-wahl',
@@ -292,6 +309,8 @@ async function editor(id, app) {
             el('div', { style: { display: 'grid', gap: '12px' } }, nameIn, beschrIn),
             el('h3', { style: { margin: '20px 0 10px', fontSize: '1rem' } }, 'Titelbild'),
             wahl,
+            linkFeld('poster', 'Eigenes Poster per Link (z. B. ein Collection-Poster von ThePosterDB)'),
+            linkFeld('hintergrund', 'Eigener Hintergrund per Link'),
             el('div.knoepfe', { style: { marginTop: '16px' } },
                 el('button.knopf.haupt', { onclick: async () => {
                     try {
@@ -554,11 +573,15 @@ async function editor(id, app) {
 }
 
 // ---------- Reihe ----------
-async function reihe(id) {
+async function reihe(id, app) {
     const d = await api('reihe/' + id);
     letzterTitel = d.name;
+    const admin = app?.konto.rolle === 'admin';
     return el('div',
-        hero({ ...d, titel: d.name, logo: null }, null, [el('div.meta', el('span', 'Reihe'), el('span.trenn'), el('span', anzahl(d.filme.length, 'Film', 'Filme'))),
+        hero({ ...d, titel: d.name, logo: null }, admin ? el('div.knoepfe',
+            el('button.knopf', { onclick: () => bearbeitenDialog('reihe', id) }, icon('bearbeiten'), 'Bearbeiten'),
+            el('button.knopf', { onclick: () => bearbeitenDialog('reihe', id, { bilderStaffel: true }) }, icon('bild'), 'Poster')) : null,
+            [el('div.meta', el('span', 'Reihe'), el('span.trenn'), el('span', anzahl(d.filme.length, 'Film', 'Filme'))),
             el('div.chips', d.universen.map((u) => el('a.chip.akzent', { href: `#/universum/${u.id}` }, icon('universum'), u.name))),
             d.beschreibung ? el('p.text', d.beschreibung) : null], el('div.augenbraue', 'Reihe')),
         el('div.seite', el('div.raster', d.filme.map(kachel))));
