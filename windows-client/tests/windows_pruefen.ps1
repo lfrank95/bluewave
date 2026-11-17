@@ -69,7 +69,7 @@ Remove-Item Env:\BW_TEST_RIFE
 $log = Get-Content (Join-Path $daten 'log\client.log') -Raw
 $zeile = ($log -split "`n" | Select-String 'SELBSTTEST RIFE' | Select-Object -Last 1)
 Write-Host "  $zeile"
-($log -split "`n" | Select-String 'RIFE' | Select-Object -Last 12) | ForEach-Object { Write-Host "  $_" }
+($log -split "`n" | Select-String 'RIFE' | Select-Object -Last 20) | ForEach-Object { Write-Host "  $_" }
 if (Test-Path (Join-Path $daten 'log\mpv.log')) { Get-Content (Join-Path $daten 'log\mpv.log') | Select-Object -Last 10 | ForEach-Object { Write-Host "  mpv: $_" } }
 Get-ChildItem $env:BW_RIFE_ORDNER -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  rife: $($_.Name)" }
 if ("$zeile" -notmatch 'SELBSTTEST RIFE OK') { Write-Host "::error title=RIFE::$zeile"; exit 1 }

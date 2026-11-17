@@ -1049,7 +1049,18 @@ async function selbsttestRife() {
     const z = rife.zustand();
     const ok = z?.aktiv && mon.filter_fps > 44 && mon.filter_fps < 52 && mon.quelle_fps > 23 && mon.quelle_fps < 25;
     ergebnis(`${ok ? 'OK' : 'FEHLER'} quelle=${mon.quelle_fps} gefiltert=${mon.filter_fps} vf=${JSON.stringify(mon.vf)} zustand=${JSON.stringify(z)}`);
-  } catch (x) { ergebnis(`FEHLER ${x.stack || x.message}`); }
+  } catch (x) {
+    // Diagnose für die Fehlersuche: Python, VapourSynth-Modul, Ordner
+    const d = [];
+    const pr = (exe, args) => rife.prozess(exe, args, { cwd: rife.vs, timeout: 60000, env: rife.pfadUmgebung() }).catch((y) => y.message);
+    d.push('python: ' + await pr(path.join(rife.vs, 'python.exe'), ['-c', 'import sys;print(sys.version);print(sys.path);import vapoursynth as vs;print(vs.__file__);print(vs.core.version())']));
+    try { d.push('vs: ' + fs.readdirSync(rife.vs).join(', ')); } catch (y) { /* fehlt */ }
+    try { d.push('site-packages: ' + fs.readdirSync(path.join(rife.vs, 'Lib', 'site-packages')).join(', ')); } catch (y) { /* fehlt */ }
+    try { const pth = fs.readdirSync(rife.vs).find((n) => /\._pth$/.test(n)); d.push(`${pth}: ` + fs.readFileSync(path.join(rife.vs, pth), 'utf8').replace(/\r?\n/g, ' | ')); } catch (y) { /* fehlt */ }
+    try { d.push('portable.vs: ' + fs.readFileSync(path.join(rife.vs, 'portable.vs'), 'utf8').slice(0, 300)); } catch (y) { /* fehlt */ }
+    for (const z of d) log.schreiben('INFO', `RIFE DIAGNOSE ${z.replace(/\s+/g, ' ').slice(0, 3000)}`);
+    ergebnis(`FEHLER ${x.stack || x.message}`);
+  }
 }
 
 app.whenReady().then(async () => {
