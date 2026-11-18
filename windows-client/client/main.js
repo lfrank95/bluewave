@@ -955,9 +955,10 @@ async function teilUpdate(nv) {
     const env = { ...process.env };
     delete env.BW_TEST_TEILUPDATE;
     log.schreiben('INFO', `Teilupdate-Skript: ${skript} -Ziel "${ziel}" -Stufe "${stufe}"`);
-    spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', skript,
-      '-Ziel', ziel, '-Stufe', stufe, '-Version', v, '-Warten', String(process.pid)],
-    { cwd: app.getPath('temp'), detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
+    // über „start“ entkoppelt wie beim Installer: ein direkt gestarteter Kindprozess stirbt mit dem Client
+    const tmp = app.getPath('temp');
+    spawn(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', `start "" /d "${tmp}" /min powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File "${skript}" -Ziel "${ziel}" -Stufe "${stufe}" -Version "${v}" -Warten ${process.pid}`],
+      { cwd: tmp, detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true, env }).unref();
   } catch (e) {
     updateStand({ stand: 'fehler', fehler: e.message || String(e) });
     return false;
