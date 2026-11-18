@@ -45,6 +45,11 @@ function diagnose(ziel, kopf) {
     const z = t.split('\n');
     teile.push(`===== ${n} (letzte ${Math.min(z.length, 1500)} von ${z.length} Zeilen) =====`, z.slice(-1500).join('\n'), '');
   }
+  // kleines Update (Skript im Temp-Ordner) und RIFE-Zustand gehören zur Fehlersuche dazu
+  for (const [titel, datei] of [['teilupdate', path.join(os.tmpdir(), 'bluewave-teilupdate.log')],
+    ['rife-zustand', path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'Bluewave', 'rife', 'zustand.json')]]) {
+    try { teile.push(`===== ${titel} =====`, fs.readFileSync(datei, 'utf8').split('\n').slice(-200).join('\n'), ''); } catch (e) { /* fehlt */ }
+  }
   fs.writeFileSync(ziel, teile.join('\n'));
   return ziel;
 }

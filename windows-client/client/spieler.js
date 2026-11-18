@@ -5,6 +5,7 @@
 // Abspielgeschwindigkeit von mpv, bei großen Abweichungen mit einem Sprung).
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 const { Mpv } = require('./mpv');
 
 const SPDIF_ERLAUBT = ['ac3', 'eac3', 'dts', 'dts-hd', 'truehd'];
@@ -296,6 +297,21 @@ class Spieler {
   /** Ladeanfrage der Bedienung: { url, start, ton, untertitel, modus, ton_quelle, tonspuren, dauer, titel } */
   async laden(w) {
     if (!w || typeof w.url !== 'string' || !this.ctx.erlaubt(w.url)) return;
+    // RIFE an/aus geht nur mit einem frischen mpv (Umgebung für VapourSynth gilt ab dem Start); Einstellungen je Film neu
+    if (this.mpv && !this.mpv.zu) {
+      const e = this.ctx.einst();
+      const soll = e.bewegung === 'rife' && !!this.ctx.rife?.bereit?.(e);
+      if (soll !== !!this.rifeAn) {
+        this.ctx.log('INFO', `mpv neu starten (RIFE ${soll ? 'an' : 'aus'})`);
+        const alt = this.mpv;
+        this.mpv = null;
+        await alt.befehl(['quit']).catch(() => {});
+        try { alt.beenden?.(); } catch (x) { /* weg */ }
+        await new Promise((r) => setTimeout(r, 300));
+      } else if (this.rifeAn) {
+        try { this.ctx.rife.cfgSchreiben(e); fs.unlinkSync(this.ctx.rife.statusDatei); } catch (x) { /* egal */ }
+      }
+    }
     if (!this.mpv || this.mpv.zu) { try { await this.mpvStarten(); } catch (x) { this.melden({ e: 'fehler', text: x.message }); return; } }
     this.datei = w;
     this.fensterMelden();   // die Bedienung kennt so den Vollbild-Stand, auch wenn das Fenster schon im Vollbild startete
@@ -358,27 +374,42 @@ class Spieler {
     }
   }
 
-  /** RIFE-Wächter: meldet das Skript einen Fehler oder kommt nach einigen Sekunden kein Bild aus dem Filter, nimmt mpv
-   *  den Filter heraus und spielt ohne Zwischenbilder weiter (statt nur Ton mit schwarzem Bild) */
+  /** RIFE-Wächter: meldet das Skript einen Fehler, startet der Filter gar nicht oder kommt kein Bild aus ihm, nimmt mpv
+   *  den Filter heraus und spielt ohne Zwischenbilder weiter (statt nur Ton mit schwarzem Bild). Baut TensorRT gerade die
+   *  Engine (einmalig je Größe, Minuten), wird gewartet. Der Grund steht im Bildmonitor. */
   rifeWache(m) {
     clearTimeout(this.rifeTimer);
     const start = Date.now();
+    let aktivSeit = 0;
+    this.rifePhase = 'startet';
+    this.rifeGrund = '';
+    const aus = async (grund) => {
+      this.ctx.log('WARN', `RIFE aus (${grund}) – spiele ohne Zwischenbilder weiter`);
+      await m.leise(['vf', 'remove', '@bwrife']);
+      this.rifeAn = false;
+      this.rifeGrund = grund;
+      this.melden({ e: 'hinweis', text: `RIFE läuft nicht (${grund}) – der Film spielt ohne Zwischenbilder weiter.`, fehler: true });
+    };
     const pruefen = async () => {
       if (this.mpv !== m || m.zu || !this.rifeAn) return;
       const z = this.ctx.rife?.zustand?.();
-      const [fps, pos, pause] = await Promise.all([m.lesen('estimated-vf-fps'), m.lesen('time-pos'), m.lesen('pause')]);
-      const ohneBild = !(fps > 0) && !pause && pos > 0;
-      if (z?.fehler || (ohneBild && Date.now() - start > 12000)) {
-        const grund = z?.fehler ? z.fehler.split(/\r?\n/).pop().slice(0, 160) : 'kein Bild aus dem Filter';
-        this.ctx.log('WARN', `RIFE aus (${grund}) – spiele ohne Zwischenbilder weiter`);
-        await m.leise(['vf', 'remove', '@bwrife']);
-        this.rifeAn = false;
-        this.melden({ e: 'hinweis', text: `RIFE läuft nicht (${grund}) – der Film spielt ohne Zwischenbilder weiter.`, fehler: true });
-        return;
+      const [fps, vf] = await Promise.all([m.lesen('estimated-vf-fps'), m.lesen('vf')]);
+      const imFilter = Array.isArray(vf) && vf.some((f) => f.label === 'bwrife' && f.enabled !== false);
+      const t = Date.now() - start;
+      this.rifePhase = z?.fehler ? 'fehler' : z?.aktiv ? 'aktiv' : z?.phase || (z ? 'aus' : 'startet');
+      if (z?.fehler) return aus(z.fehler.split(/\r?\n/).pop().slice(0, 160));
+      if (!imFilter) return aus('mpv hat den Filter abgeschaltet – VapourSynth lädt nicht');
+      if (z && z.aktiv === false && !z.phase && z.grund) { this.rifeGrund = z.grund; return; }   // z. B. 50-fps-Quelle: bewusst ohne
+      if (!z && t > 25000) return aus('Skript startet nicht');
+      if (z?.phase === 'baut' && t > 20 * 60 * 1000) return aus('Engine-Bau dauert zu lange');
+      if (z?.aktiv) {
+        if (!aktivSeit) aktivSeit = Date.now();
+        if (!(fps > 0) && Date.now() - aktivSeit > 15000) return aus('kein Bild aus dem Filter');
+        if (fps > 0) { this.rifeGrund = ''; if (Date.now() - aktivSeit > 30000) return; }
       }
-      if (Date.now() - start < 30000) this.rifeTimer = setTimeout(pruefen, 2000);
+      this.rifeTimer = setTimeout(pruefen, 2000);
     };
-    this.rifeTimer = setTimeout(pruefen, 3000);
+    this.rifeTimer = setTimeout(pruefen, 2000);
   }
 
   async ereignis(x) {
@@ -510,7 +541,7 @@ class Spieler {
       hwdec: x['hwdec-current'] || 'no', gpu: x['current-gpu-context'] || '', sync: x['video-sync'], interpolation: x.interpolation,
       breite: vp.w || x.width, hoehe: vp.h || x.height, pixel: vp.hw_pixelformat || vp.pixelformat || '',
       gamma: vp.gamma || '', primaer: vp.primaries || '', spitze: vp['sig-peak'] || null, ausgabe_gamma: op.gamma || '',
-      tempo: x.speed, weg: this.weg, engine_diff: diff, rife: !!this.rifeAn, vf: x.vf,
+      tempo: x.speed, weg: this.weg, engine_diff: diff, rife: !!this.rifeAn, rife_phase: this.rifePhase || '', rife_grund: this.rifeGrund || '', vf: x.vf,
     };
   }
 

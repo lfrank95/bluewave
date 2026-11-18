@@ -90,6 +90,8 @@ def kette(clip, fps):
     matrix = '2020ncl' if clip.width > 2000 or clip.height > 1200 else '709'
     rgb = core.resize.Bicubic(clip, format=vs.RGBH, matrix_in_s=matrix)
     t0 = time.time()
+    # beim ersten Mal für diese Größe baut TensorRT jetzt die Engine (Minuten) – der Bildmonitor zeigt das an
+    status(aktiv=False, phase='baut', faktor=m, quelle_fps=fps, breite=clip.width, hoehe=clip.height)
     neu, art = interpolieren(rgb, m)
     vorbereitet = time.time() - t0
     if neu.format.id != rgb.format.id:   # z. B. Ausgabe in 32 Bit → zurück auf das Format der echten Bilder (Szenenwechsel)
@@ -112,6 +114,7 @@ def kette(clip, fps):
     return aus
 
 
+status(aktiv=False, phase='startet')
 try:
     if MODUS == 'vorbereiten':
         b, h = int(_arg('breite')), int(_arg('hoehe'))

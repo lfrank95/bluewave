@@ -174,6 +174,19 @@ function neuerSpieler(weg) {
   pruefe(gefragt?.bewegung === 'rife' && g.sp.mpv.args.includes('--hwdec=auto-copy-safe') && g.sp.mpv.args.includes('--vf=vapoursynth=file=%9%/x/y.vpy:buffered-frames=8'), 'RIFE: vapoursynth-Filter, hwdec mit Rückkopie');
   pruefe(g.sp.mpv.env?.BW_RIFE_CFG === '/x/rife.json' && g.sp.rifeAn, 'Umgebung für VapourSynth an mpv');
   pruefe((await g.sp.monitor()).rife === true, 'Bildmonitor weiß von RIFE');
+  // RIFE vom Wächter abgeschaltet → nächster Film startet mpv neu mit RIFE
+  g.sp.ctx.rife.bereit = () => true;
+  g.sp.ctx.rife.cfgSchreiben = () => {};
+  g.sp.ctx.rife.statusDatei = '/nicht/da';
+  const mAlt = g.sp.mpv;
+  g.sp.rifeAn = false;
+  await g.sp.laden({ url: 'http://bluewave.test:9960/api/v1/datei/12/inhalt', start: 0, ton: 0, modus: 'direkt', ton_quelle: '12', dauer: 120 });
+  await warte(300);
+  pruefe(g.sp.mpv !== mAlt && g.sp.rifeAn && g.sp.mpv.args.some((x) => x.includes('vapoursynth')), 'nächster Film: mpv neu mit RIFE');
+  const mGleich = g.sp.mpv;
+  await g.sp.laden({ url: 'http://bluewave.test:9960/api/v1/datei/12/inhalt', start: 0, ton: 0, modus: 'direkt', ton_quelle: '12', dauer: 120 });
+  await warte(200);
+  pruefe(g.sp.mpv === mGleich, 'RIFE schon an: derselbe mpv');
   g.eng.stopp();
   g.sp.aufraeumen();
   const h = neuerSpieler('engine');

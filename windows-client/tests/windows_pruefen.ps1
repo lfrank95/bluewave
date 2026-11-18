@@ -169,4 +169,47 @@ if ($v -ne $pkg.version -or $v -eq '0.0.1') { Write-Host "::error title=Stilles 
 if (Test-Path "$ort\alt.txt") { Write-Host "::error title=Stilles Update::alte Dateien nicht ersetzt"; exit 1 }
 if (-not $laeuft) { Write-Host "::error title=Stilles Update::Client nach dem Update nicht gestartet"; exit 1 }
 if (-not (Test-Path "$ort\resources\app\mpv\bluewave-mpv.exe")) { Write-Host "::error title=Stilles Update::mpv fehlt in der Installation"; exit 1 }
-Write-Host "::notice title=Windows-Client::geprüft – Dateiangaben, mpv, Engine, Videofenster, Start, stilles Update auf $v"
+
+Write-Host '== Kleines Update von Anfang bis Ende (installierter Client lädt Teil, beendet sich, wird ersetzt, startet neu)'
+$kl = Get-Content "$ort\komponenten.json" -Raw | ConvertFrom-Json
+$tq = Join-Path $env:RUNNER_TEMP 'teilquelle'
+$tb = Join-Path $env:RUNNER_TEMP 'teilbau'
+Remove-Item -Recurse -Force $tq, $tb -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force $tq, "$tb\resources" | Out-Null
+Copy-Item "$ort\resources\app" "$tb\resources\app" -Recurse
+Remove-Item -Recurse -Force "$tb\resources\app\mpv"
+Set-Content "$tb\resources\app\teiltest.txt" 'kleines Update angekommen'
+$pj = Get-Content "$tb\resources\app\package.json" -Raw | ConvertFrom-Json
+$pj.version = '9.9.9-teil'
+$pj | ConvertTo-Json -Depth 8 | Set-Content "$tb\resources\app\package.json" -Encoding utf8
+Copy-Item "$ort\LIESMICH.txt" "$tb\LIESMICH.txt"
+Compress-Archive -Path "$tb\*" -DestinationPath "$tq\bw-app-teiltest.zip"
+$zh = (Get-FileHash "$tq\bw-app-teiltest.zip" -Algorithm SHA256).Hash.ToLower()
+$neuK = [ordered]@{ version = '9.9.9-teil'; basis = $kl.basis; komponenten = [ordered]@{
+  app = [ordered]@{ id = 'teiltest'; datei = 'bw-app-teiltest.zip'; groesse = (Get-Item "$tq\bw-app-teiltest.zip").Length; sha256 = $zh }
+  mpv = $kl.komponenten.mpv } }
+$neuK | ConvertTo-Json -Depth 6 | Set-Content "$tq\komponenten.json" -Encoding utf8
+Remove-Item (Join-Path $env:TEMP 'bluewave-teilupdate.log') -ErrorAction SilentlyContinue
+$env:BW_TEST_TEILUPDATE = $tq
+$env:BW_DATEN = Join-Path $env:RUNNER_TEMP 'bwdaten-teil'
+Start-Process -FilePath "$ort\Bluewave Client.exe" | Out-Null
+Remove-Item Env:\BW_TEST_TEILUPDATE
+$bis = (Get-Date).AddSeconds(120)
+do { Start-Sleep 2; $pk = Get-Content "$ort\resources\app\package.json" -Raw -ErrorAction SilentlyContinue | ConvertFrom-Json } while ($pk.version -ne '9.9.9-teil' -and (Get-Date) -lt $bis)
+Start-Sleep 6
+$neuLaeuft = Get-Process -Name 'Bluewave Client' -ErrorAction SilentlyContinue
+$erg = [ordered]@{
+  'Version 9.9.9-teil' = ($pk.version -eq '9.9.9-teil')
+  'neue Datei da' = (Test-Path "$ort\resources\app\teiltest.txt")
+  'mpv unverändert' = (Test-Path "$ort\resources\app\mpv\bluewave-mpv.exe")
+  'Stand übernommen' = ((Get-Content "$ort\komponenten.json" -Raw) -match 'teiltest')
+  'Eintrag aktualisiert' = ((Get-ItemProperty $k).DisplayVersion -eq '9.9.9-teil')
+  'Client neu gestartet' = [bool]$neuLaeuft
+}
+$erg.GetEnumerator() | ForEach-Object { Write-Host "  $($_.Key): $($_.Value)" }
+Get-Content (Join-Path $env:TEMP 'bluewave-teilupdate.log') -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "  skript: $_" }
+Get-Content (Join-Path $env:BW_DATEN 'log\client.log') -ErrorAction SilentlyContinue | Select-String 'TEILUPDATE|Kleines Update|Teilupdate|FEHLER' | ForEach-Object { Write-Host "  client: $_" }
+Get-Process -Name 'Bluewave Client', 'bluewave-engine', 'bluewave-mpv' -ErrorAction SilentlyContinue | Stop-Process -Force
+Remove-Item Env:\BW_DATEN
+if ($erg.Values -contains $false) { Write-Host "::error title=Kleines Update::nicht vollständig (siehe oben)"; exit 1 }
+Write-Host "::notice title=Windows-Client::geprüft – Dateiangaben, mpv, Engine, Videofenster, Start, stilles Update auf $v, kleines Update"

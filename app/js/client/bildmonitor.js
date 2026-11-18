@@ -48,8 +48,13 @@ export function bildmonitor(wurzel, brücke) {
             const ist = m.filter_fps;
             const haelt = soll && ist ? ist / soll : null;
             rifeBlock = block('RIFE',
-                zeile('Stand', !s.rife?.bereit ? 'Nicht eingerichtet' : !m.rife ? 'Aus (startet mit dem nächsten Film)' : rz?.fehler ? 'Fehler – läuft ohne' : rz?.aktiv ? `${rz.art} · ${rz.faktor}×` : rz?.grund || 'Startet …',
-                    rz?.fehler ? 'schlecht' : rifeAktiv ? 'gut' : 'mittel'),
+                zeile('Stand', !s.rife?.bereit ? 'Nicht eingerichtet – Profil › Flüssige Bewegung'
+                    : m.rife_grund && !m.rife ? `Abgeschaltet: ${m.rife_grund}`
+                    : !m.rife ? 'Aus – startet mit dem nächsten Film'
+                    : rifeAktiv ? `${rz.art} · ${rz.faktor}×`
+                    : rz?.phase === 'baut' ? `TensorRT baut die Engine für ${rz.breite}×${rz.hoehe} (einmalig, einige Minuten)`
+                    : m.rife_grund || rz?.grund || 'Startet …',
+                    (m.rife_grund && !m.rife) || rz?.fehler ? 'schlecht' : rifeAktiv ? 'gut' : 'mittel'),
                 rifeAktiv ? zeile('Ausgabe', `${zahl(ist, 2)} von ${zahl(soll, 2)} fps`, haelt == null ? null : haelt > 0.97 ? 'gut' : haelt > 0.85 ? 'mittel' : 'schlecht') : null,
                 rifeAktiv && haelt != null ? zeile('Hält mit', haelt > 0.97 ? 'Ja' : `Nein – ${Math.round(haelt * 100)} % (Faktor, Modell oder halbe Auflösung probieren)`, haelt > 0.97 ? 'gut' : 'schlecht') : null,
                 rz?.fehler ? el('pre.bm-log', rz.fehler) : null,

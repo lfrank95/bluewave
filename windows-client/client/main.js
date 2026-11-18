@@ -907,15 +907,20 @@ async function teilUpdate(nv) {
     const gesamt = nv.teile.reduce((x, t) => x + t.groesse, 0) || 1;
     let vorher = 0;
     for (const t of nv.teile) {
-      const u = new URL(t.url);
-      if (u.origin !== 'https://github.com' || !u.pathname.startsWith(`/${UPDATE_REPO}/releases/download/client-v`)) throw new Error('Unerwartete Download-Adresse.');
-      const r = await fetch(u, { headers: { 'User-Agent': UA_ZUSATZ }, signal: AbortSignal.timeout(20 * 60 * 1000) });
-      if (!r.ok || !r.body) throw new Error(`Download fehlgeschlagen (HTTP ${r.status}).`);
+      let quelle;
+      if (t.lokal) quelle = fs.createReadStream(t.lokal);   // nur Selbsttest (BW_TEST_TEILUPDATE)
+      else {
+        const u = new URL(t.url);
+        if (u.origin !== 'https://github.com' || !u.pathname.startsWith(`/${UPDATE_REPO}/releases/download/client-v`)) throw new Error('Unerwartete Download-Adresse.');
+        const r = await fetch(u, { headers: { 'User-Agent': UA_ZUSATZ }, signal: AbortSignal.timeout(20 * 60 * 1000) });
+        if (!r.ok || !r.body) throw new Error(`Download fehlgeschlagen (HTTP ${r.status}).`);
+        quelle = r.body;
+      }
       const zip = path.join(stufe, `${t.name}.zip`);
       const datei = fs.createWriteStream(zip);
       const hash = require('crypto').createHash('sha256');
       let geladen = 0, zuletzt = -1;
-      for await (const stueck of r.body) {
+      for await (const stueck of quelle) {
         geladen += stueck.length;
         hash.update(stueck);
         if (!datei.write(stueck)) await new Promise((ok) => datei.once('drain', ok));
@@ -947,9 +952,12 @@ async function teilUpdate(nv) {
     const skript = path.join(app.getPath('temp'), 'bluewave-teilupdate.ps1');
     fs.copyFileSync(path.join(__dirname, 'teilupdate.ps1'), skript);
     const ziel = path.dirname(process.execPath);
+    const env = { ...process.env };
+    delete env.BW_TEST_TEILUPDATE;
+    log.schreiben('INFO', `Teilupdate-Skript: ${skript} -Ziel "${ziel}" -Stufe "${stufe}"`);
     spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', skript,
       '-Ziel', ziel, '-Stufe', stufe, '-Version', v, '-Warten', String(process.pid)],
-    { cwd: app.getPath('temp'), detached: true, stdio: 'ignore', windowsHide: true }).unref();
+    { cwd: app.getPath('temp'), detached: true, stdio: 'ignore', windowsHide: true, env }).unref();
   } catch (e) {
     updateStand({ stand: 'fehler', fehler: e.message || String(e) });
     return false;
@@ -1264,6 +1272,19 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   if (process.env.BW_TEST_VIDEO) { engineStarten(); selbsttestVideo(); return; }
   if (process.env.BW_TEST_RIFE) { selbsttestRife(); return; }
+  if (process.env.BW_TEST_TEILUPDATE) {
+    // Selbsttest: kleines Update aus einem Ordner (komponenten.json + bw-*.zip) wie aus einem GitHub-Release
+    const ordner = process.env.BW_TEST_TEILUPDATE;
+    const k = JSON.parse(fs.readFileSync(path.join(ordner, 'komponenten.json'), 'utf8'));
+    const teile = teilePlanen(teileLokal(), k, Object.values(k.komponenten).map((t) => ({ name: t.datei, browser_download_url: path.join(ordner, t.datei), size: t.groesse })));
+    log.schreiben('INFO', `SELBSTTEST TEILUPDATE plant: ${JSON.stringify(teile)}`);
+    if (!teile) { log.schreiben('INFO', 'SELBSTTEST TEILUPDATE FEHLER: Basis passt nicht oder kein lokaler Stand'); app.quit(); return; }
+    for (const t of teile) t.lokal = t.url;
+    engineStarten();   // wie im Betrieb: die Engine läuft und muss vor dem Ersetzen weg sein
+    neueVersion = { version: k.version, komponenten: k, teile, quelle: 'test' };
+    teilUpdate(neueVersion).then((ok) => { if (!ok) { log.schreiben('INFO', `SELBSTTEST TEILUPDATE FEHLER ${JSON.stringify(updateLaeuft)}`); app.quit(); } });
+    return;
+  }
   // Die Web-App braucht im Client nur Zwischenablage und Vollbild – Kamera, Mikrofon, Standort, Benachrichtigungen usw.
   // bekommt keine Seite, auch nicht die des eigenen Servers
   const RECHTE = new Set(['clipboard-sanitized-write', 'fullscreen']);
