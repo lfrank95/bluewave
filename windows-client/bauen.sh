@@ -90,8 +90,9 @@ Eigene mpv-Einstellungen: %APPDATA%\\bluewave-client\\mpv\\mpv.conf. Logs: %APPD
 Lizenzen: LIZENZ-Bluewave.txt, Fremdkomponenten: DRITTANBIETER.md, Chromium: LICENSES.chromium.html.
 TXT
 echo "Komponenten (kleine Updates) …"
-# Basis = Electron, Programm-exe, Deinstallation: ändert sie sich, gibt es das volle Paket; sonst nur „app“ und „mpv“
-BASIS_ID="$( { unzip -p "$ELECTRON_ZIP" version; sha256sum "$HIER/build/symbol.ico" "$HIER/werkzeug/pe_symbol.py" "$HIER/sfx/deinstallieren.c" "$HIER/sfx/deinstallieren.rc" | cut -d' ' -f1; echo "${VERSION%%-*}"; } | sha256sum | cut -c1-16)"
+# Basis = Electron, Programm-exe, Deinstallation: ändert sie sich, gibt es das volle Paket; sonst nur „app“ und „mpv“.
+# „teilupdate-2“: Clients bis beta.81 hatten ein kleines Update, das nicht lief – neue Basis schickt sie zum vollen Paket
+BASIS_ID="$( { echo teilupdate-2; unzip -p "$ELECTRON_ZIP" version; sha256sum "$HIER/build/symbol.ico" "$HIER/werkzeug/pe_symbol.py" "$HIER/sfx/deinstallieren.c" "$HIER/sfx/deinstallieren.rc" | cut -d' ' -f1; echo "${VERSION%%-*}"; } | sha256sum | cut -c1-16)"
 rm -f "$AUS"/bw-*.zip "$AUS/komponenten.json"
 python3 "$HIER/werkzeug/komponenten.py" "$ZIEL" "$AUS" "$VERSION" "$BASIS_ID"
 echo "Deinstallation …"
